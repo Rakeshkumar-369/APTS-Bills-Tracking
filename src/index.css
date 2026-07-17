@@ -1,0 +1,17 @@
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background-color: #f4f6f9;
+  color: #333;
+}
+
+.fs-7 { font-size: 0.8rem !important; }
+.text-xs { font-size: 0.75rem !important; }
+.btn-xs { padding: 0.2rem 0.4rem; font-size: 0.75rem; border-radius: 0.25rem; }
+.tracking-wider { letter-spacing: 0.06em; }
+
+/* Formal clean timeline adjustment */
+.last-border-none:last-child {
+  border-bottom: none !important;
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
