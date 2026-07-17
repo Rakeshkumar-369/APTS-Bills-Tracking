@@ -4,6 +4,7 @@ import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import VendorDashboard from './pages/VendorDashboard';
 import OfficerDashboard from './pages/OfficerDashboard';
+import AptsManagerDashboard from './pages/AptsManagerDashboard';
 
 export default function App() {
   const { user, login } = useApp();
@@ -16,8 +17,14 @@ export default function App() {
 
   useEffect(() => {
     if (user) {
-      // Maps exactly to 'upload' tab to handle the updated layout routing natively
-      setCurrentTab(user.role === 'vendor' ? 'upload' : 'inbox');
+      // Set the initial active view tab based on matching user role mappings
+      if (user.role === 'vendor') {
+        setCurrentTab('upload');
+      } else if (user.role === 'apts_manager') {
+        setCurrentTab('inbox');
+      } else {
+        setCurrentTab('inbox');
+      }
     }
   }, [user]);
 
@@ -90,6 +97,9 @@ export default function App() {
             <button onClick={() => handleQuickLogin('jd_infra')} className="btn btn-xs btn-outline-danger px-2.5 py-1 fw-bold text-xs bg-light">
               <i className="bi bi-vector-pen"></i> JD Infra (Sign)
             </button>
+            <button onClick={() => handleQuickLogin('apts_manager')} className="btn btn-xs btn-outline-info px-2.5 py-1 fw-bold text-xs bg-light">
+              <i className="bi bi-shield-check"></i> APTS Manager
+            </button>
           </div>
         </div>
       </div>
@@ -104,6 +114,7 @@ export default function App() {
         <main className="flex-grow-1 overflow-auto">
           {user.role === 'vendor' && <VendorDashboard currentTab={currentTab} />}
           {user.role === 'officer' && <OfficerDashboard currentTab={currentTab} />}
+          {user.role === 'apts_manager' && <AptsManagerDashboard currentTab={currentTab} />}
         </main>
       </div>
     </div>

@@ -1,84 +1,91 @@
-import React, { useState } from 'react';
-import { useApp } from '../context/AppContext';
+import React, { useState, useContext } from 'react';
+import { AppContext } from '../context/AppContext';
 
-export default function Login() {
+const Login = () => {
+  const { setUser } = useContext(AppContext);
+  const [role, setRole] = useState('vendor'); // default role
   const [username, setUsername] = useState('');
-  const [error, setError] = useState('');
-  const { login } = useApp();
+  const [password, setPassword] = useState('');
 
-  const handleSubmit = (e) => {
+  const handleLogin = (e) => {
     e.preventDefault();
-    if (!username.trim()) return;
     
-    const result = login(username);
-    if (!result.success) {
-      setError(result.message);
+    // Simple conditional authentication logic
+    if (username.trim() === '' || password.trim() === '') {
+      alert("Please enter both username and password");
+      return;
     }
+
+    // Set user global context with the designated role
+    setUser({
+      username: username,
+      role: role // 'vendor', 'officer', or 'apts_manager'
+    });
   };
 
   return (
-    <div className="container d-flex align-items-center justify-content-center min-vh-100 pb-5">
-      <div className="card shadow border-0 rounded-3 p-4 bg-white" style={{ maxWidth: '420px', width: '100%' }}>
-        <div className="text-center mb-4">
-          <div className="bg-primary bg-opacity-10 p-3 rounded-circle d-inline-block mb-3">
-            <i className="bi bi-building-gear text-primary fs-1"></i>
-          </div>
-          <h4 className="fw-bold text-dark mb-1">APTS Web Portal</h4>
-          <p className="text-muted small">Information Technology, Electronics & Communications Dept.</p>
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
+      <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-xl shadow-md">
+        <div>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+            APTS Bills Tracking Portal
+          </h2>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            Sign in to access your dashboard
+          </p>
         </div>
-
-        {error && <div className="alert alert-danger text-center small py-2">{error}</div>}
-
-        <form onSubmit={handleSubmit}>
-          <div className="mb-3">
-            <label className="form-label text-secondary small fw-bold">Portal Access Account Handle</label>
-            <div className="input-group">
-              <span className="input-group-text bg-light border-end-0"><i className="bi bi-person text-muted"></i></span>
-              <input 
-                type="text" 
-                className="form-control bg-light border-start-0 ps-1" 
-                placeholder="Enter workspace user handle..."
-                value={username}
-                onChange={(e) => { setUsername(e.target.value); setError(''); }}
-                required
-              />
-            </div>
-          </div>
-
-          <div className="mb-4">
-            <label className="form-label text-secondary small fw-bold">Security Key / Password</label>
-            <div className="input-group">
-              <span className="input-group-text bg-light border-end-0"><i className="bi bi-lock text-muted"></i></span>
-              <input 
-                type="password" 
-                disabled 
-                className="form-control bg-light border-start-0 ps-1 text-muted" 
-                placeholder="•••••••• (Bypassed for Front-End Dev Mode)" 
-              />
-            </div>
-          </div>
-
-          <button type="submit" className="btn btn-primary w-100 py-2 fw-bold shadow-sm rounded-3">
-            Authenticate Space <i className="bi bi-arrow-right-short ms-1"></i>
-          </button>
-        </form>
-
-        <div className="mt-4 p-3 bg-light rounded-3 border border-dashed">
-          <h6 className="fw-bold text-secondary mb-2 small"><i className="bi bi-shield-check me-1"></i> Developer Test Shortcuts:</h6>
-          <div className="d-flex flex-wrap gap-1">
-            {['akshara', 'rict', 'wision', 'pm_user', 'tpa_user', 'jd_infra'].map(profile => (
-              <button 
-                key={profile}
-                onClick={() => setUsername(profile)}
-                className="btn btn-outline-secondary btn-xs py-0.5 px-2 font-monospace fs-7 text-dark"
-                type="button"
+        <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+          <div className="rounded-md shadow-sm -space-y-px">
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Select Your Role</label>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
-                {profile}
-              </button>
-            ))}
+                <option value="vendor">Vendor</option>
+                <option value="officer">Line Officer / JD Infra</option>
+                <option value="apts_manager">APTS Manager</option>
+              </select>
+            </div>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+              <input
+                type="text"
+                required
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Enter username"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              />
+            </div>
           </div>
-        </div>
+
+          <div>
+            <button
+              type="submit"
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-200"
+            >
+              Sign In
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
-}
+};
+
+export default Login;

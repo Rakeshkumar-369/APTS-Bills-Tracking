@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState } from 'react';
 
 const AppContext = createContext();
 
-// Mock Account Reference Matrix for early sandbox environments
+// Mock Account Reference Matrix for sandbox environments - Added apts_manager
 const MOCK_USERS = {
   vendor_user: {
     username: 'vendor_user',
@@ -28,6 +28,12 @@ const MOCK_USERS = {
     role: 'officer',
     title: 'JD-Infra',
     hasDigitalSignature: true
+  },
+  apts_manager: {
+    username: 'apts_manager',
+    name: 'Sri P. Venkataswamy',
+    role: 'apts_manager',
+    title: 'APTS Manager'
   }
 };
 
@@ -124,12 +130,20 @@ export function AppProvider({ children }) {
             nextStatus = 'Pending Verification (JD-Infra Desk)';
             actionLabel = 'Cleared by Auditor & Forwarded to JD-Infra';
           } else if (sub.currentStage === 'JD-Infra') {
+            nextStage = 'APTS_MANAGER';
+            nextStatus = 'Digitally Signed & Forwarded to APTS Manager';
+            actionLabel = 'Digitally Signed & Forwarded to APTS Manager';
+          } else if (sub.currentStage === 'APTS_MANAGER') {
             nextStage = 'APPROVED_FINAL';
             nextStatus = 'Approved & APTS Operation Cleared';
-            actionLabel = 'Digitally Signed & Final Approval Granted';
+            actionLabel = 'Acknowledged, Settled & Disbursed by APTS';
           }
         } else if (actionType === 'SENDBACK') {
-          if (sub.currentStage === 'JD-Infra') {
+          if (sub.currentStage === 'APTS_MANAGER') {
+            nextStage = 'JD-Infra';
+            nextStatus = 'Returned Back to JD-Infra for Clarification';
+            actionLabel = 'Returned Back to JD-Infra Desk';
+          } else if (sub.currentStage === 'JD-Infra') {
             nextStage = 'TPA';
             nextStatus = 'Returned Back to TPA for Clarification';
             actionLabel = 'Returned Back to TPA Desk';
