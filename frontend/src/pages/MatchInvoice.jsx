@@ -1,110 +1,330 @@
-import React from 'react';
-import { useApp } from '../context/AppContext';
+// src/pages/MatchInvoice.jsx
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { packagesService, vendorsService, projectsService } from '../services';
 
 export default function MatchInvoice() {
-  const { submissions } = useApp();
-  
-  // Filter for cases undergoing active matching operations at the APTS desk
-  const aptsQueue = submissions.filter(s => s.currentStage === 'APTS' || s.invoiceSubmitted);
+  const { user } = useAuth();
+  const [packages, setPackages] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selectedPackage, setSelectedPackage] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
 
-  const triggerMockDownload = (fileName) => {
-    alert(`Initializing high-speed secure download for artifact particulars document:\n[${fileName}]\n(40+ Pages Inventory Statement Package Bundle)`);
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [packagesData, vendorsData, projectsData] = await Promise.all([
+        packagesService.list(),
+        vendorsService.list(),
+        projectsService.list()
+      ]);
+      
+      setPackages(packagesData || []);
+      setVendors(vendorsData || []);
+      setProjects(projectsData || []);
+    } catch (err) {
+      console.error('Error fetching data:', err);
+      setError('Failed to load invoice matching data');
+    } finally {
+      setLoading(false);
+    }
   };
 
+  const getVendorName = (vendorId) => {
+    const vendor = vendors.find(v => v.id === vendorId);
+    return vendor ? vendor.vendor_name : 'N/A';
+  };
+
+  const getProjectName = (projectId) => {
+    const project = projects.find(p => p.id === projectId);
+    return project ? project.project_name : 'N/A';
+  };
+
+  const filteredPackages = packages.filter(pkg => {
+    const matchesSearch = pkg.package_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          getVendorName(pkg.vendor_id).toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = filterStatus ? pkg.status === filterStatus : true;
+    return matchesSearch && matchesStatus;
+  });
+
+  if (loading) {
+    return (
+      <div className="text-center py-5">
+        <div className="spinner-border text-primary" role="status">
+          <span className="visually-hidden">Loading...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-danger">
+        <i className="bi bi-exclamation-triangle-fill me-2"></i>
+        {error}
+        <button className="btn btn-sm btn-outline-danger ms-3" onClick={fetchData}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="container-fluid py-2">
-      <div className="card shadow border-0 rounded-3 p-4 bg-white mb-4">
-        <h5 className="fw-bold text-dark mb-1">
-          <i className="bi bi-bank text-primary me-2"></i>
-          APTS Clearance & Invoice Reconciliation
-        </h5>
-        <p className="text-muted small mb-0">
-          Automated control deck to cross-verify approved ITE&C specifications sheets against final vendor invoices.
-        </p>
+    <div className="container-fluid">
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h4 className="mb-0">
+            <i className="bi bi-file-earmark-check me-2"></i>
+            Match Invoice
+          </h4>
+          <p className="text-muted small">
+            <i className="bi bi-info-circle me-1"></i>
+            Review and match vendor invoices with submitted packages
+          </p>
+        </div>
+        <span className="badge bg-primary">
+          <i className="bi bi-boxes me-1"></i>
+          Total Packages: {packages.length}
+        </span>
       </div>
 
-      <div className="card shadow border-0 rounded-3 p-4 bg-white">
-        {aptsQueue.length === 0 ? (
-          <div className="text-center py-5 text-muted border rounded border-dashed">
-            <i className="bi bi-file-earmark-diff fs-1 text-black-50 d-block mb-2"></i>
-            No active invoices matching in the system right now.
+      {/* Search and Filter */}
+      <div className="card mb-4">
+        <div className="card-body">
+          <div className="row g-3">
+            <div className="col-md-6">
+              <div className="input-group">
+                <span className="input-group-text">
+                  <i className="bi bi-search"></i>
+                </span>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Search by package code or vendor..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="col-md-3">
+              <select
+                className="form-select"
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+              >
+                <option value="">All Statuses</option>
+                <option value="PENDING">Pending</option>
+                <option value="SUBMITTED">Submitted</option>
+                <option value="IN_PROGRESS">In Progress</option>
+                <option value="COMPLETED">Completed</option>
+                <option value="RETURNED">Returned</option>
+                <option value="REJECTED">Rejected</option>
+              </select>
+            </div>
+            <div className="col-md-3">
+              <button 
+                className="btn btn-outline-secondary w-100"
+                onClick={() => {
+                  setSearchTerm('');
+                  setFilterStatus('');
+                }}
+              >
+                <i className="bi bi-arrow-counterclockwise me-1"></i>
+                Reset Filters
+              </button>
+            </div>
           </div>
-        ) : (
-          <div className="table-responsive">
-            <table className="table table-bordered align-middle text-sm">
-              <thead className="table-light text-secondary small text-uppercase">
-                <tr>
-                  <th>Job Ref</th>
-                  <th>Vendor & Project Scope</th>
-                  <th>Approved Specifications Particulars</th>
-                  <th>Submitted Claim Invoice</th>
-                  <th>Automatic Reconciliation Matrix Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {aptsQueue.map(sub => (
-                  <tr key={sub.id}>
-                    <td><span className="badge bg-dark font-monospace">{sub.id}</span></td>
-                    <td>
-                      <div className="fw-bold text-dark">{sub.vendor}</div>
-                      <span className="text-muted text-xs font-monospace">{sub.projectType}</span>
-                    </td>
-                    <td className="bg-light bg-opacity-50">
-                      <div className="small text-success fw-bold d-flex align-items-center gap-1">
-                        <i className="bi bi-patch-check-fill text-success"></i>
-                        ITE&C Certificate Cleared
-                      </div>
-                      <button 
-                        type="button" 
-                        onClick={() => triggerMockDownload(sub.fileName)} 
-                        className="btn btn-link text-decoration-none p-0 mt-1 d-block text-xs text-primary"
-                      >
-                        <i className="bi bi-download me-1"></i> Download Particulars PDF
-                      </button>
-                    </td>
-                    <td>
-                      {sub.invoiceSubmitted ? (
-                        <div>
-                          <div className="small fw-bold text-dark">
-                            <i className="bi bi-receipt text-secondary me-1"></i>
-                            {sub.invoiceData.invoiceNo}
-                          </div>
-                          <div className="text-xs text-primary fw-bold mt-0.5">
-                            Amount: ₹ {Number(sub.invoiceData.totalAmount).toLocaleString('en-IN')}/-
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="badge bg-warning bg-opacity-10 text-dark border border-warning border-opacity-20 px-2 py-1 text-xs">
-                          <i className="bi bi-hourglass-split me-1"></i> Awaiting Vendor Upload
-                        </span>
-                      )}
-                    </td>
-                    <td className="text-center">
-                      {sub.invoiceSubmitted ? (
-                        <div className="p-2 border border-success rounded bg-success bg-opacity-5 text-start">
-                          <span className="text-success fw-bold small d-block mb-1">
-                            <i className="bi bi-shield-fill-check me-1"></i> 100% Data Alignment Match
-                          </span>
-                          <button 
-                            className="btn btn-success btn-xs w-100 py-1 font-bold rounded shadow-xs text-white" 
-                            onClick={() => alert(`Disbursement instruction fired to finance division for Reference ID: ${sub.id}`)}
-                          >
-                            Release Bill Payment
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-muted text-xs italic">
-                          Awaiting invoice documents to trigger automatic matching matrix
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        </div>
       </div>
+
+      {/* Packages Table */}
+      <div className="card">
+        <div className="card-body">
+          {filteredPackages.length === 0 ? (
+            <div className="text-center py-5">
+              <i className="bi bi-inbox fs-1 text-muted"></i>
+              <p className="text-muted mt-2">No packages found matching your criteria</p>
+            </div>
+          ) : (
+            <div className="table-responsive">
+              <table className="table table-hover align-middle">
+                <thead>
+                  <tr>
+                    <th>Package Code</th>
+                    <th>Vendor</th>
+                    <th>Project</th>
+                    <th>Status</th>
+                    <th>Files</th>
+                    <th>Submitted</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredPackages.map((pkg) => (
+                    <tr key={pkg.id}>
+                      <td>
+                        <strong className="text-primary">{pkg.package_code}</strong>
+                      </td>
+                      <td>{getVendorName(pkg.vendor_id)}</td>
+                      <td>{getProjectName(pkg.project_id)}</td>
+                      <td>
+                        <span className={`badge ${
+                          pkg.status === 'COMPLETED' ? 'bg-success' :
+                          pkg.status === 'PENDING' ? 'bg-warning' :
+                          pkg.status === 'IN_PROGRESS' ? 'bg-info' :
+                          pkg.status === 'RETURNED' || pkg.status === 'REJECTED' ? 'bg-danger' :
+                          'bg-secondary'
+                        }`}>
+                          {pkg.status || 'Unknown'}
+                        </span>
+                      </td>
+                      <td>
+                        {pkg.files && pkg.files.length > 0 ? (
+                          <span className="badge bg-info">
+                            <i className="bi bi-file-earmark me-1"></i>
+                            {pkg.files.length}
+                          </span>
+                        ) : (
+                          <span className="badge bg-secondary">0</span>
+                        )}
+                      </td>
+                      <td>
+                        {pkg.created_at ? new Date(pkg.created_at).toLocaleDateString() : 'N/A'}
+                      </td>
+                      <td>
+                        <button
+                          className="btn btn-sm btn-primary"
+                          onClick={() => setSelectedPackage(pkg)}
+                          data-bs-toggle="modal"
+                          data-bs-target="#invoiceModal"
+                        >
+                          <i className="bi bi-eye me-1"></i>
+                          Match
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Invoice Matching Modal */}
+      {selectedPackage && (
+        <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} id="invoiceModal">
+          <div className="modal-dialog modal-lg">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  <i className="bi bi-file-earmark-check me-2"></i>
+                  Match Invoice - {selectedPackage.package_code}
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setSelectedPackage(null)}
+                ></button>
+              </div>
+              <div className="modal-body">
+                <div className="row">
+                  <div className="col-md-6">
+                    <h6 className="text-muted">Package Details</h6>
+                    <dl className="row small">
+                      <dt className="col-5">Package Code</dt>
+                      <dd className="col-7">{selectedPackage.package_code}</dd>
+                      <dt className="col-5">Vendor</dt>
+                      <dd className="col-7">{getVendorName(selectedPackage.vendor_id)}</dd>
+                      <dt className="col-5">Project</dt>
+                      <dd className="col-7">{getProjectName(selectedPackage.project_id)}</dd>
+                      <dt className="col-5">Status</dt>
+                      <dd className="col-7">
+                        <span className={`badge ${
+                          selectedPackage.status === 'COMPLETED' ? 'bg-success' : 'bg-warning'
+                        }`}>
+                          {selectedPackage.status}
+                        </span>
+                      </dd>
+                    </dl>
+                  </div>
+                  <div className="col-md-6">
+                    <h6 className="text-muted">Invoice Details</h6>
+                    <div className="mb-3">
+                      <label className="form-label small">Invoice Number</label>
+                      <input type="text" className="form-control form-control-sm" placeholder="Enter invoice number" />
+                    </div>
+                    <div className="mb-3">
+                      <label className="form-label small">Invoice Amount</label>
+                      <input type="number" className="form-control form-control-sm" placeholder="Enter amount" />
+                    </div>
+                    <div className="mb-3">
+                      <label className="form-label small">Invoice Date</label>
+                      <input type="date" className="form-control form-control-sm" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <h6 className="text-muted">Files Attached</h6>
+                  {selectedPackage.files && selectedPackage.files.length > 0 ? (
+                    <ul className="list-group">
+                      {selectedPackage.files.map((file) => (
+                        <li key={file.id} className="list-group-item d-flex justify-content-between align-items-center">
+                          <span>
+                            <i className="bi bi-file-earmark me-2"></i>
+                            {file.original_name}
+                          </span>
+                          <button className="btn btn-sm btn-outline-primary">
+                            <i className="bi bi-download"></i>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-muted small">No files attached</p>
+                  )}
+                </div>
+
+                <div className="mt-3">
+                  <label className="form-label small">Match Notes</label>
+                  <textarea className="form-control" rows="2" placeholder="Add notes about this match..."></textarea>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setSelectedPackage(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  onClick={() => {
+                    alert('Invoice matched successfully!');
+                    setSelectedPackage(null);
+                  }}
+                >
+                  <i className="bi bi-check-circle me-1"></i>
+                  Match Invoice
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

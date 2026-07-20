@@ -1,8 +1,8 @@
 import React from 'react';
-import { useApp } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function Navbar() {
-  const { user, logout } = useApp();
+  const { user, logout } = useAuth();
 
   return (
     <nav className="navbar navbar-expand-lg navbar-light bg-white border-bottom px-4 py-2 shadow-xs sticky-top">

@@ -1,8 +1,8 @@
 import React from 'react';
-import { useApp } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function Sidebar({ currentTab, setCurrentTab }) {
-  const { user, logout } = useApp();
+  const { user, logout } = useAuth();
 
   if (!user) return null;
 

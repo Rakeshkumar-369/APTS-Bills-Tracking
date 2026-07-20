@@ -1,21 +1,26 @@
 import React, { useState } from 'react';
-import { useApp } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function AptsManagerDashboard({ currentTab }) {
-  const { submissions, calculateDaysElapsed } = useApp();
+  const { user } = useAuth();
   const [selectedSubmission, setSelectedSubmission] = useState(null);
 
-  // Filter tracking nodes that have reached the APTS Manager desk or have been final cleared
+  // MOCK DATA - Replace with actual API calls
+  const [submissions] = useState([]);
+  const calculateDaysElapsed = (date) => {
+    if (!date) return 0;
+    const diff = Date.now() - new Date(date).getTime();
+    return Math.floor(diff / (1000 * 60 * 60 * 24));
+  };
+
   const incomingItems = submissions.filter(
     sub => sub.currentStage === 'APTS_MANAGER' || sub.currentStage === 'APPROVED_FINAL'
   );
 
-  // Fallback function to view or print generated PDF documentation smoothly
   const handleViewPdf = (item) => {
     if (item.fileUrl && item.fileUrl.trim() !== '') {
       window.open(item.fileUrl, '_blank');
     } else {
-      // If mock string placeholder data exists without live blob URL wrapper structures, generate dynamic fallback
       const mockPdfBlob = new Blob(
         [`%PDF-1.4 ... APTS Verification System Document Node Reference: ${item.id} ... Vendor: ${item.vendor}`], 
         { type: 'application/pdf' }
@@ -27,7 +32,6 @@ export default function AptsManagerDashboard({ currentTab }) {
 
   return (
     <div className="p-4 container-fluid animate-fade-in">
-      {/* Dashboard Summary Header Section */}
       <div className="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
         <div>
           <h3 className="fw-bold text-dark mb-1">
@@ -52,7 +56,6 @@ export default function AptsManagerDashboard({ currentTab }) {
       </div>
 
       <div className="row g-4">
-        {/* Main Left Side Items Panel Matrix Listing */}
         <div className={selectedSubmission ? "col-md-7" : "col-md-12"}>
           <div className="card border-0 shadow-sm rounded-3 overflow-hidden">
             <div className="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
@@ -124,7 +127,6 @@ export default function AptsManagerDashboard({ currentTab }) {
           </div>
         </div>
 
-        {/* Right Side Expanded Case Detail View Engine */}
         {selectedSubmission && (
           <div className="col-md-5">
             <div className="card border-0 shadow-sm rounded-3 sticky-top overflow-hidden" style={{ top: '20px' }}>
@@ -140,7 +142,6 @@ export default function AptsManagerDashboard({ currentTab }) {
               </div>
               
               <div className="card-body p-4" style={{ maxHeight: '700px', overflowY: 'auto' }}>
-                {/* Meta Attributes List Container */}
                 <div className="mb-4 bg-light p-3 rounded-3 border">
                   <div className="row g-2 small">
                     <div className="col-4 text-secondary fw-bold">Vendor Name:</div>
@@ -159,7 +160,6 @@ export default function AptsManagerDashboard({ currentTab }) {
                   </div>
                 </div>
 
-                {/* Secure File Reference Attachment View Block */}
                 <h6 className="fw-bold mb-2 text-secondary small uppercase">Document Particulars Reference</h6>
                 <div className="card border mb-4 rounded-3 shadow-xs bg-light">
                   <div className="card-body py-3 d-flex align-items-center justify-content-between bg-white rounded-3">
@@ -181,7 +181,6 @@ export default function AptsManagerDashboard({ currentTab }) {
                   </div>
                 </div>
 
-                {/* Complete Dynamic Historical Trail Audits Display Grid */}
                 <h6 className="fw-bold mb-3 text-secondary border-bottom pb-2">
                   <i className="bi bi-clock-history me-2"></i> Route Workflow History Log
                 </h6>
@@ -201,7 +200,6 @@ export default function AptsManagerDashboard({ currentTab }) {
                   ))}
                 </div>
 
-                {/* Final Processing Action Center Section */}
                 {selectedSubmission.currentStage === 'APTS_MANAGER' ? (
                   <div className="border-top pt-3 mt-3">
                     <div className="alert alert-success border-0 text-center small py-2 mb-3">
