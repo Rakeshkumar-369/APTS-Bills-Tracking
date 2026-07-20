@@ -1,0 +1,158 @@
+import React from 'react';
+
+/**
+ * SubmissionAudit
+ * -----------------
+ * Renders the full activity/audit trail for a single submission ("package").
+ * The source PDF is shown as a link only — clicking it hands control back to
+ * the parent (via onOpenPdf) which switches to the full-page PDF viewer
+ * (PdfViewerPage).
+ *
+ * Props:
+ *  - submission: the active submission object being audited
+ *  - daysElapsed: number of days the package has been sitting at this desk
+ *  - actionRemarks / onRemarksChange: controlled textarea state
+ *  - onBack: return to the inbox list
+ *  - onOpenPdf: switch to the full-page PDF viewer for this submission
+ *  - onSendBack / onForward: trigger the workflow movement actions
+ *  - hasDigitalSignature: whether the current officer signs digitally
+ */
+export default function SubmissionAudit({
+  submission,
+  daysElapsed,
+  actionRemarks,
+  onRemarksChange,
+  onBack,
+  onOpenPdf,
+  onSendBack,
+  onForward,
+  hasDigitalSignature,
+}) {
+  if (!submission) return null;
+
+  return (
+    <div className="card border-0 shadow-sm rounded-4 overflow-hidden bg-white animate-fade-in">
+      <div className="bg-light bg-opacity-60 border-bottom px-4 py-3 d-flex align-items-center justify-content-between">
+        <div className="d-flex align-items-center gap-2">
+          <button
+            onClick={onBack}
+            className="btn btn-outline-secondary btn-sm rounded-circle px-2 py-1 border-0 bg-white shadow-xs"
+          >
+            <i className="bi bi-arrow-left"></i>
+          </button>
+          <div>
+            <h5 className="mb-0 fw-extrabold text-dark tracking-tight">Auditing Node: {submission.id}</h5>
+            <span className="text-muted fs-8 font-monospace">{submission.vendor} &bull; {submission.projectType} Scope</span>
+          </div>
+        </div>
+        <div className="d-flex align-items-center gap-2">
+          <span className="badge bg-warning bg-opacity-15 text-warning border border-warning border-opacity-20 px-3 py-1.5 rounded-pill fs-8 fw-bold">
+            <i className="bi bi-hourglass-split me-1"></i> Desk Age: {daysElapsed} Days
+          </span>
+        </div>
+      </div>
+
+      <div className="p-4">
+        {/* Document reference — shown only as a link. Clicking it opens the full-page PDF viewer */}
+        <div className="mb-4">
+          <label className="form-label fw-bold text-secondary fs-8 font-monospace text-uppercase tracking-wider mb-1">
+            Document Package
+          </label>
+          <div className="bg-light bg-opacity-50 border border-light-subtle rounded-3 p-3 d-flex align-items-center justify-content-between">
+            <div className="d-flex align-items-center gap-2 text-truncate pe-2">
+              <i className="bi bi-file-earmark-pdf-fill text-danger fs-5"></i>
+              <span className="fs-7.5 fw-bold text-dark text-truncate">{submission.fileName}</span>
+              {submission.fileSize && (
+                <span className="text-muted fs-8 font-monospace">({submission.fileSize})</span>
+              )}
+            </div>
+            {submission.fileUrl ? (
+              <button
+                onClick={() => onOpenPdf(submission)}
+                className="btn btn-link btn-sm fw-bold fs-8 text-decoration-underline d-flex align-items-center gap-1 text-primary"
+              >
+                <i className="bi bi-eye-fill"></i> View Document
+              </button>
+            ) : (
+              <span className="text-muted fs-8 font-monospace text-uppercase">
+                <i className="bi bi-exclamation-triangle me-1 text-warning"></i> File missing
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="row g-4">
+          <div className="col-12 col-lg-7">
+            <span className="d-block fw-bold text-secondary fs-8 font-monospace text-uppercase tracking-wider mb-2">
+              Preceding Activity Trails
+            </span>
+            <div className="bg-light bg-opacity-50 border border-light-subtle rounded-3 p-3 overflow-auto" style={{ maxHeight: '320px' }}>
+              {submission.history.map((log, index) => (
+                <div key={index} className="fs-8 border-bottom border-light-subtle pb-2 mb-2 last-border-0">
+                  <div className="d-flex align-items-center justify-content-between mb-0.5">
+                    <span className="fw-bold text-dark">{log.actor}</span>
+                    <span className="text-muted font-monospace">{log.date}</span>
+                  </div>
+                  <span className="d-block text-primary fw-semibold fs-8.5">{log.action}</span>
+                  {log.remarks && (
+                    <p className="text-secondary italic mb-0 mt-0.5 bg-white p-1.5 rounded border shadow-3xs">"{log.remarks}"</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="col-12 col-lg-5 d-flex flex-column justify-content-between">
+            <div>
+              <label className="form-label fw-bold text-secondary fs-8 font-monospace text-uppercase tracking-wider mb-1">
+                Workflow Lifecycle Audit Remarks
+              </label>
+              <textarea
+                className="form-control border border-light-subtle rounded-3 fs-7.5 bg-light bg-opacity-20"
+                rows="6"
+                placeholder="Enter analytical review logs, query specifics, or validation checks..."
+                value={actionRemarks}
+                onChange={(e) => onRemarksChange(e.target.value)}
+              ></textarea>
+              <div className="form-text fs-8 text-muted mt-1">
+                * Action Remarks are mandatory if triggering a back-movement query response loop.
+              </div>
+            </div>
+
+            <div className="pt-4 border-top border-light-subtle d-flex flex-column gap-2 mt-4">
+              <div className="row g-2">
+                <div className="col-6">
+                  <button
+                    onClick={onSendBack}
+                    className="btn btn-outline-danger w-100 py-2.5 rounded-3 fw-bold fs-7 d-flex align-items-center justify-content-center gap-1.5 shadow-sm"
+                    disabled={!actionRemarks.trim()}
+                    title="Add remarks to send package back"
+                  >
+                    <i className="bi bi-reply-all-fill"></i> Send Back
+                  </button>
+                </div>
+                <div className="col-6">
+                  <button
+                    onClick={onForward}
+                    className={`btn w-100 py-2.5 rounded-3 fw-bold fs-7 d-flex align-items-center justify-content-center gap-1.5 shadow-sm ${
+                      hasDigitalSignature ? 'btn-success' : 'btn-primary'
+                    }`}
+                  >
+                    <i className={`bi ${hasDigitalSignature ? 'bi-patch-check-fill' : 'bi-arrow-right-circle-fill'}`}></i>
+                    {hasDigitalSignature ? 'Digital Sign' : 'Approve & Move'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <style>{`
+        .fs-7.5 { font-size: 0.825rem !important; }
+        .fs-8.5 { font-size: 0.775rem !important; }
+        .shadow-3xs { box-shadow: 0 1px 2px rgba(0,0,0,0.03) !important; }
+      `}</style>
+    </div>
+  );
+}
