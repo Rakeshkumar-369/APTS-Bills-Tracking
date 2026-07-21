@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/authMiddleware');
 const { requirePermission } = require('../middleware/permissionMiddleware');
-const { uploadSingleFile, handleMulterError } = require('../middleware/fileUploadMiddleware');
+const { uploadSingleFile, uploadMultipleFiles, handleMulterError } = require('../middleware/fileUploadMiddleware');
 const packageController = require('../controllers/packageController');
 const fileController = require('../controllers/fileController');
 const { createPackageValidation, actionValidation } = require('../validators/packageValidator');
@@ -12,7 +12,7 @@ router.use(authMiddleware);
 // Package CRUD
 router.get('/', requirePermission('package', 'read'), packageController.getAllPackages);
 router.get('/:id', requirePermission('package', 'read'), packageController.getPackageById);
-router.post('/', requirePermission('package', 'create'), createPackageValidation, packageController.createPackage);
+router.post('/', requirePermission('package', 'create'), uploadMultipleFiles, handleMulterError, createPackageValidation, packageController.createPackage);
 
 // Workflow actions
 router.post('/:id/forward', requirePermission('package', 'forward'), actionValidation, packageController.forwardPackage);

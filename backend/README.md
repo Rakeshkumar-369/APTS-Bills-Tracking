@@ -216,14 +216,14 @@ A **workflow** is a named sequence of ordered **steps**. Each step is handled by
 
 | Method | Path | Permission | Description |
 |---|---|---|---|
-| GET | `/api/packages` | `package.read` | List packages. Query: `?status=&vendor_id=&project_id=&search=&limit=&offset=` |
+| GET | `/api/packages` | `package.read` | List packages (scoped by role — vendors see only their own, officers see workflow-involved, admin sees all). Query: `?status=&project_id=&search=&limit=&offset=` |
 | GET | `/api/packages/:id` | `package.read` | Get package with files + history. Query: `?include_details=true/false` |
-| POST | `/api/packages` | `package.create` | **Create package.** Body: `{vendor_id, vendor_contact_user_id?, project_id, remarks?}` — **workflow_id is auto-derived from the project** |
+| POST | `/api/packages` | `package.create` | **Create package** (multipart/form-data). Fields: `vendor_id`, `vendor_contact_user_id?`, `project_id`, `remarks?` + file field: `files[]` (optional, multiple). **workflow_id is auto-derived from the project** |
 | POST | `/api/packages/:id/forward` | `package.forward` | **Forward to next step.** Body: `{remarks}` (mandatory, min 3 chars) |
 | POST | `/api/packages/:id/sendback` | `package.sendback` | **Send back to previous step.** Body: `{remarks}` (mandatory) |
 | POST | `/api/packages/:id/resubmit` | — | **Vendor re-submits** after revision. Body: `{remarks}` (mandatory) |
 | GET | `/api/packages/:id/history` | `package.read` | Get full timeline of the package |
-| POST | `/api/packages/:id/files` | `package.update` | Upload file (multipart form-data, field: `file`, accepts PDF/images) |
+| POST | `/api/packages/:id/files` | `package.update` | Upload file to existing package (multipart form-data, field: `file`, accepts PDF/images). Files can also be uploaded during package creation via the `files[]` field. |
 | DELETE | `/api/packages/:id/files/:fileId` | `package.update` | Delete a file |
 | GET | `/api/packages/:id/files/:fileId/download` | `package.read` | Download/serve a file |
 
@@ -303,6 +303,7 @@ python backend/tests/test_api.py
 - **Mandatory remarks** — every workflow transition requires a remark
 - **Hierarchy enforcement** — users can only CRUD users with roles of lower rank
 - **Permissions as JSON** — fully configurable per role
+- **Data isolation** — vendors see only their own packages; officers see packages where their role is in the workflow chain; admins see all packages
 
 ---
 

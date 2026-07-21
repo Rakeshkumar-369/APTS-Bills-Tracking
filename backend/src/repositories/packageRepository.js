@@ -3,7 +3,7 @@ const pool = require('../config/db');
 class PackageRepository {
   // ── Packages ──
 
-  async getAll({ limit = 50, offset = 0, status, vendor_id, project_id, workflow_id, current_step_id, is_completed, search } = {}) {
+  async getAll({ limit = 50, offset = 0, status, vendor_id, project_id, workflow_id, current_step_id, is_completed, search, involved_role_id, involved_user_id } = {}) {
     let conditions = [];
     let params = [];
 
@@ -16,6 +16,15 @@ class PackageRepository {
     if (search) {
       conditions.push('(p.package_code LIKE ? OR v.vendor_name LIKE ?)');
       params.push(`%${search}%`, `%${search}%`);
+    }
+    if (involved_role_id && involved_user_id) {
+      // Non-vendor, non-admin users: only see packages they're involved with
+      // (their role appears in the workflow steps, or they've acted on it)
+      conditions.push(`(
+        EXISTS (SELECT 1 FROM workflow_steps ws WHERE ws.workflow_id = p.workflow_id AND ws.required_role_id = ?)
+        OR EXISTS (SELECT 1 FROM package_history ph WHERE ph.package_id = p.id AND ph.performed_by = ?)
+      )`);
+      params.push(involved_role_id, involved_user_id);
     }
 
     const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';

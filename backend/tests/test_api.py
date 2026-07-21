@@ -315,14 +315,25 @@ def run_all_tests():
     print("\n─── 7. PACKAGE WORKFLOW (Full Lifecycle) ───")
     pkg_id = None
 
-    # 7a. VENDOR creates a package (NOT Super Admin — only vendors can create)
+    # 7a. VENDOR creates a package with files via multipart form data
     # Note: workflow_id is NOT sent — it's auto-derived from the project
-    create_pkg = vendor.post("/packages", {
-        "vendor_id": 1,  # Vendor user's vendor_id from seed
-        "vendor_contact_user_id": 2,  # Vendor user's own user_id
-        "project_id": 1,  # Video Conferencing (workflow auto-derived)
-        "remarks": "Initial package for Video Conferencing project"
-    }, "Vendor: Create package")
+    pdf_path = generate_test_pdf("test_upload.pdf",
+        "This is a test particulars document for APTS package verification.\n"
+        "Project: Video Conferencing Phase-II\n"
+        "Vendor: Akshara Enterprises\n"
+        "Scope: Baseline specification document for fibre grid connectivity.")
+
+    with open(pdf_path, "rb") as f:
+        create_pkg = vendor.post("/packages",
+            files={
+                "vendor_id": (None, "1"),           # Vendor user's vendor_id from seed
+                "vendor_contact_user_id": (None, "2"),  # Vendor user's own user_id
+                "project_id": (None, "1"),           # Video Conferencing (workflow auto-derived)
+                "remarks": (None, "Initial package for Video Conferencing project"),
+                "files": ("particulars.pdf", f, "application/pdf")
+            },
+            label="Vendor: Create package with files")
+    Path(pdf_path).unlink()  # Clean up temp file
 
     if create_pkg and create_pkg.get("success"):
         pkg_id = create_pkg["data"][0]["id"]
@@ -338,35 +349,27 @@ def run_all_tests():
         pkg_workflow_id = create_pkg["data"][0].get("workflow_id")
         log("Workflow auto-derived from project", "PASS" if pkg_workflow_id == 1 else "FAIL",
             f"workflow_id={pkg_workflow_id} (expected 1)")
+
+        # Verify files were uploaded along with the package
+        files_count = len(create_pkg["data"][0].get("files", []))
+        log("Files uploaded with package", "PASS" if files_count > 0 else "FAIL",
+            f"{files_count} file(s) attached")
+
+        # Get package with details to confirm
+        admin.get(f"/packages/{pkg_id}?include_details=true", label="Get package with files & history")
+        admin.get(f"/packages/{pkg_id}/history", label="Get package history")
     else:
-        # Fallback: try with seed vendor user (Akshara Enterprises)
-        log("Trying with seed vendor (Akshara) as fallback", "PASS", "")
+        # Fallback: try without files using JSON
+        log("Trying JSON fallback (no files)", "PASS", "")
         create_pkg = vendor.post("/packages", {
             "vendor_id": 1,
             "vendor_contact_user_id": 2,
             "project_id": 1,
             "remarks": "Initial package for Video Conferencing project"
-        }, "Vendor: Create package (retry)")
+        }, "Vendor: Create package (fallback)")
         if create_pkg and create_pkg.get("success"):
             pkg_id = create_pkg["data"][0]["id"]
             log("Package created (fallback)", "PASS", f"ID: {pkg_id}")
-
-    # 7b. Upload a file to the package (Vendor uploads, since vendor created it)
-    if pkg_id:
-        pdf_path = generate_test_pdf("test_upload.pdf",
-            "This is a test particulars document for APTS package verification.\n"
-            "Project: Video Conferencing Phase-II\n"
-            "Vendor: Akshara Enterprises\n"
-            "Scope: Baseline specification document for fibre grid connectivity.")
-        with open(pdf_path, "rb") as f:
-            vendor.post(f"/packages/{pkg_id}/files",
-                       files={"file": ("particulars.pdf", f, "application/pdf")},
-                       label="Vendor: Upload file to package")
-        Path(pdf_path).unlink()  # Clean up
-
-        # Get package with details
-        admin.get(f"/packages/{pkg_id}?include_details=true", label="Get package with files & history")
-        admin.get(f"/packages/{pkg_id}/history", label="Get package history")
 
     # 7c. PM forwards to TPA
     if pkg_id:
@@ -482,6 +485,34 @@ def run_all_tests():
         vendor.post(f"/vendors/{test_vendor_id}/projects",
                     {"project_id": test_project_id},
                     "Vendor cannot assign projects (permission)")
+
+    # ── 9b. Data Isolation Tests ────────────────────────────────────────────
+    print("\n─── 9b. DATA ISOLATION ───")
+
+    # Vendor should see packages belonging to their vendor
+    if pkg_id:
+        vendor_pkgs = vendor.get("/packages", label="Vendor: List packages (should see their own)")
+        if vendor_pkgs and vendor_pkgs.get("success"):
+            vendor_pkg_ids = [p["id"] for p in vendor_pkgs["data"]]
+            log("Vendor sees their package", "PASS" if pkg_id in vendor_pkg_ids else "FAIL",
+                f"Package {pkg_id} in vendor's list: {pkg_id in vendor_pkg_ids}")
+
+        # PM should see packages they're involved with (workflow chain)
+        pm_pkgs = pm.get("/packages", label="PM: List packages (workflow chain)")
+        if pm_pkgs and pm_pkgs.get("success"):
+            pm_pkg_ids = [p["id"] for p in pm_pkgs["data"]]
+            log("PM sees package in workflow", "PASS" if pkg_id in pm_pkg_ids else "FAIL",
+                f"Package {pkg_id} in PM's list: {pkg_id in pm_pkg_ids}")
+
+        # Admin should see all packages
+        admin_pkgs = admin.get("/packages", label="Admin: List all packages")
+        if admin_pkgs and admin_pkgs.get("success"):
+            admin_pkg_ids = [p["id"] for p in admin_pkgs["data"]]
+            log("Admin sees all packages", "PASS" if pkg_id in admin_pkg_ids else "FAIL",
+                f"Package {pkg_id} in admin's list: {pkg_id in admin_pkg_ids}")
+            log("Admin sees more packages than vendor",
+                "PASS" if len(admin_pkg_ids) >= len(vendor_pkg_ids if vendor_pkgs else []) else "FAIL",
+                f"Admin: {len(admin_pkg_ids)}, Vendor: {len(vendor_pkg_ids) if vendor_pkgs else 0}")
 
     # ── 10. File Download Test ─────────────────────────────────────────────
     print("\n─── 10. FILE DOWNLOAD ───")

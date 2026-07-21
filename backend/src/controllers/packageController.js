@@ -5,16 +5,32 @@ const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const getAllPackages = async (req, res, next) => {
   try {
     const { limit, offset } = parsePagination(req.query.limit, req.query.offset);
-    const { status, vendor_id, project_id, workflow_id, search } = req.query;
+    const { status, project_id, workflow_id, search, vendor_id: queryVendorId } = req.query;
 
-    const result = await packageService.getAll({
+    const params = {
       limit, offset,
       status,
-      vendor_id: vendor_id ? Number(vendor_id) : undefined,
       project_id: project_id ? Number(project_id) : undefined,
       workflow_id: workflow_id ? Number(workflow_id) : undefined,
       search
-    });
+    };
+
+    // Apply access scoping based on user role
+    if (req.user.role_name !== 'Super Admin') {
+      if (req.user.role_name === 'Vendor') {
+        // Vendors only see their own packages (ignore query param)
+        params.vendor_id = req.user.vendor_id;
+      } else {
+        // Other roles (PM, TPA, etc.) see packages they're involved with
+        params.involved_role_id = req.user.role_id;
+        params.involved_user_id = req.user.user_id;
+      }
+    } else if (queryVendorId) {
+      // Admin can still filter by vendor_id via query param
+      params.vendor_id = Number(queryVendorId);
+    }
+
+    const result = await packageService.getAll(params);
 
     const meta = buildPaginationMeta(result.total, limit, offset, result.rows.length);
     res.json(ApiResponse.success('Packages fetched successfully', result.rows, meta));
@@ -37,7 +53,7 @@ const getPackageById = async (req, res, next) => {
 
 const createPackage = async (req, res, next) => {
   try {
-    const pkg = await packageService.create(req.body, req.user, req.ip);
+    const pkg = await packageService.create(req.body, req.files, req.user, req.ip);
     res.status(201).json(ApiResponse.success('Package created successfully', [pkg]));
   } catch (error) {
     next(error);

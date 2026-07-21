@@ -31,7 +31,7 @@ class PackageService {
 
   // ── Create Package ──
 
-  async create(data, currentUser, ipAddress) {
+  async create(data, files, currentUser, ipAddress) {
     const { vendor_id, vendor_contact_user_id, project_id, remarks } = data;
 
     // Only vendor users can create packages
@@ -40,23 +40,27 @@ class PackageService {
     }
 
     // The creating user must belong to the vendor they're creating for
-    if (currentUser.vendor_id !== vendor_id) {
+    if (currentUser.vendor_id !== Number(vendor_id)) {
       throw new ApiError(403, 'You can only create packages for your own vendor');
     }
 
+    const vendorIdNum = Number(vendor_id);
+    const projectIdNum = Number(project_id);
+
     // Validate vendor contact belongs to the selected vendor
     if (vendor_contact_user_id) {
-      const contactUser = await userRepository.findById(vendor_contact_user_id);
+      const contactUserIdNum = Number(vendor_contact_user_id);
+      const contactUser = await userRepository.findById(contactUserIdNum);
       if (!contactUser) {
         throw new ApiError(400, 'Vendor contact user not found');
       }
-      if (contactUser.vendor_id !== vendor_id) {
+      if (contactUser.vendor_id !== vendorIdNum) {
         throw new ApiError(400, 'Selected contact user does not belong to the chosen vendor');
       }
     }
 
     // Look up the project to get its assigned workflow
-    const project = await projectRepository.getById(project_id);
+    const project = await projectRepository.getById(projectIdNum);
     if (!project) {
       throw new ApiError(400, 'Project not found');
     }
@@ -67,8 +71,8 @@ class PackageService {
     }
 
     // Verify the vendor has access to this project
-    const vendorProjectIds = await projectRepository.getVendorProjectIds(vendor_id);
-    if (!vendorProjectIds.includes(project_id)) {
+    const vendorProjectIds = await projectRepository.getVendorProjectIds(vendorIdNum);
+    if (!vendorProjectIds.includes(projectIdNum)) {
       throw new ApiError(403, 'Your vendor does not have access to the selected project');
     }
 
@@ -86,13 +90,13 @@ class PackageService {
 
     const packageId = await packageRepository.create({
       package_code: packageCode,
-      vendor_id,
-      vendor_contact_user_id,
-      project_id,
+      vendor_id: vendorIdNum,
+      vendor_contact_user_id: vendor_contact_user_id ? Number(vendor_contact_user_id) : null,
+      project_id: projectIdNum,
       workflow_id,
       current_step_id: firstStep.id,
       current_step_order: firstStep.step_order,
-      remarks,
+      remarks: remarks || null,
       created_by: currentUser.user_id
     });
 
@@ -112,10 +116,36 @@ class PackageService {
       table_name: 'packages',
       record_id: packageId,
       action: 'CREATE',
-      new_value: { package_code: packageCode, vendor_id, project_id, workflow_id },
+      new_value: { package_code: packageCode, vendor_id: vendorIdNum, project_id: projectIdNum, workflow_id },
       performed_by: currentUser.user_id,
       ip_address: ipAddress
     });
+
+    // Save uploaded files if any
+    if (files && files.length > 0) {
+      const uploadDir = path.join(UPLOADS_DIR, String(packageId));
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+
+      for (const file of files) {
+        const ext = path.extname(file.originalname);
+        const storedName = `${crypto.randomUUID()}${ext}`;
+        const filePath = path.join(uploadDir, storedName);
+
+        fs.writeFileSync(filePath, file.buffer);
+
+        await packageRepository.createFile({
+          package_id: packageId,
+          original_name: file.originalname,
+          stored_name: storedName,
+          file_path: path.join('uploads/packages', String(packageId), storedName),
+          file_size: file.size,
+          mime_type: file.mimetype || 'application/octet-stream',
+          uploaded_by: currentUser.user_id
+        });
+      }
+    }
 
     return this.getWithDetails(packageId);
   }
