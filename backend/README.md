@@ -26,8 +26,8 @@ Route (HTTP) → Validator → Controller → Service → Repository → MySQL
 
 | Role | Rank | Description |
 |---|---|---|
-| Super Admin | 100 | Full CRUD on everything |
-| Vendor | 10 | Submits packages; responds to sendbacks |
+| Super Admin | 100 | System configuration (vendors, users, roles, workflows, projects) — does NOT create packages |
+| Vendor | 10 | Creates and submits packages; responds to sendbacks — only for assigned projects |
 | PM | 30 | First verification desk |
 | TPA | 40 | Audit & verification desk |
 | JD-Infra | 50 | Digital signature authority |
@@ -56,20 +56,25 @@ A **workflow** is a named sequence of ordered **steps**. Each step is handled by
 ### 3. Package Lifecycle
 
 ```
-[Super Admin creates package] ──→ Step 1 (PM Desk)
-       ↓                              ↓
+[Vendor creates package for an assigned project] ──→ Step 1 (PM Desk)
+       ↓                                             ↓
   Vendor uploads files         PM reviews → FORWARD → Step 2 (TPA Desk)
                                         → SENDBACK → Vendor (for revision)
-       ↓                              ↓
+       ↓                                             ↓
   Vendor re-submits             TPA reviews → FORWARD → Step 3 (JD-Infra Desk)
                                           → SENDBACK → Step 1 (PM)
-       ↓                              ↓
+       ↓                                             ↓
                            JD-Infra reviews → FORWARD → Step 4 (APTS Manager)
                                            → SENDBACK → Step 2 (TPA)
-       ↓                              ↓
+       ↓                                             ↓
                            APTS Manager reviews → COMPLETE → Package Approved
                                                 → SENDBACK → Step 3 (JD-Infra)
 ```
+
+**Key creation rules:**
+- **Only Vendor users** can create packages (Super Admin and officers cannot)
+- **Workflow is auto-derived** from the project — no manual workflow selection
+- **Vendors can only select projects** they have been assigned to by Super Admin
 
 ---
 
@@ -82,7 +87,7 @@ A **workflow** is a named sequence of ordered **steps**. Each step is handled by
 | `users` | All login accounts | `id, email, password_hash, role_id, vendor_id, has_digital_signature` |
 | `roles` | Configurable roles with JSON permissions | `id, role_name, role_rank, permissions` (JSON) |
 | `vendors` | Vendor companies | `id, vendor_name, vendor_code, contact_person, email` |
-| `projects` | Infrastructure project types | `id, project_name, project_code` |
+| `projects` | Infrastructure project types (each linked to a workflow) | `id, project_name, project_code, workflow_id` |
 
 ### Workflow Engine
 
@@ -91,6 +96,12 @@ A **workflow** is a named sequence of ordered **steps**. Each step is handled by
 | `workflow_master` | A named workflow | `id, workflow_name` |
 | `workflow_steps` | Ordered steps within a workflow | `id, workflow_id, step_order, step_name, required_role_id` |
 | `workflow_step_transitions` | Who can move from which step to which | `id, from_step_id, to_step_id, transition_type (FORWARD/SENDBACK), allowed_role_id` |
+
+### Vendor-Project Assignment
+
+| Table | Purpose | Key Columns |
+|---|---|---|
+| `vendor_projects` | Many-to-many: which projects each vendor can access | `vendor_id, project_id` (composite PK) |
 
 ### Package System
 
@@ -157,19 +168,22 @@ A **workflow** is a named sequence of ordered **steps**. Each step is handled by
 | Method | Path | Permission | Description |
 |---|---|---|---|
 | GET | `/api/vendors` | `vendor.read` | List vendors (paginated). Query: `?search=&is_active=&limit=&offset=` |
-| GET | `/api/vendors/:id` | `vendor.read` | Get vendor. Query: `?include_users=true` (includes vendor's contact users) |
+| GET | `/api/vendors/:id` | `vendor.read` | Get vendor. Query: `?include_users=true` (includes contact users), `?include_projects=true` (includes assigned projects) |
 | POST | `/api/vendors` | `vendor.create` | Create vendor. Body: `{vendor_name, vendor_code?, contact_person?, email?, phone?, address?}` |
 | PUT | `/api/vendors/:id` | `vendor.update` | Update vendor. Body: `{vendor_name?, is_active?, ...}` |
 | DELETE | `/api/vendors/:id` | `vendor.delete` | Soft-delete vendor |
+| GET | `/api/vendors/:id/projects` | — | List projects assigned to this vendor |
+| POST | `/api/vendors/:id/projects` | `vendor.update` | Assign a project to vendor. Body: `{project_id}` |
+| DELETE | `/api/vendors/:id/projects/:projectId` | `vendor.update` | Remove a project from vendor |
 
 ### Projects (Super Admin)
 
 | Method | Path | Permission | Description |
 |---|---|---|---|
-| GET | `/api/projects` | `procurement.read` | List projects |
-| GET | `/api/projects/:id` | `procurement.read` | Get project |
-| POST | `/api/projects` | `procurement.create` | Create project. Body: `{project_name, project_code?, description?}` |
-| PUT | `/api/projects/:id` | `procurement.update` | Update project |
+| GET | `/api/projects` | `procurement.read` | List projects (includes `workflow_name` via JOIN) |
+| GET | `/api/projects/:id` | `procurement.read` | Get project by ID |
+| POST | `/api/projects` | `procurement.create` | Create project. Body: `{project_name, project_code?, description?, workflow_id}` **(workflow_id required)** |
+| PUT | `/api/projects/:id` | `procurement.update` | Update project. Body: `{project_name?, workflow_id?, is_active?, ...}` |
 | DELETE | `/api/projects/:id` | `procurement.delete` | Soft-delete project |
 
 ### Roles (Super Admin — dynamic permissions)
@@ -204,7 +218,7 @@ A **workflow** is a named sequence of ordered **steps**. Each step is handled by
 |---|---|---|---|
 | GET | `/api/packages` | `package.read` | List packages. Query: `?status=&vendor_id=&project_id=&search=&limit=&offset=` |
 | GET | `/api/packages/:id` | `package.read` | Get package with files + history. Query: `?include_details=true/false` |
-| POST | `/api/packages` | `package.create` | **Create package.** Body: `{vendor_id, vendor_contact_user_id?, project_id, workflow_id, remarks?}` |
+| POST | `/api/packages` | `package.create` | **Create package.** Body: `{vendor_id, vendor_contact_user_id?, project_id, remarks?}` — **workflow_id is auto-derived from the project** |
 | POST | `/api/packages/:id/forward` | `package.forward` | **Forward to next step.** Body: `{remarks}` (mandatory, min 3 chars) |
 | POST | `/api/packages/:id/sendback` | `package.sendback` | **Send back to previous step.** Body: `{remarks}` (mandatory) |
 | POST | `/api/packages/:id/resubmit` | — | **Vendor re-submits** after revision. Body: `{remarks}` (mandatory) |
