@@ -1,8 +1,9 @@
 const pool = require('../config/db');
 
 class ProjectRepository {
-  async getAll({ limit = 50, offset = 0, search, is_active } = {}) {
+  async getAll({ limit = 50, offset = 0, search, is_active, vendor_id } = {}) {
     let conditions = [];
+    let joins = [];
     let params = [];
 
     if (search) {
@@ -13,13 +14,19 @@ class ProjectRepository {
       conditions.push('p.is_active = ?');
       params.push(is_active);
     }
+    if (vendor_id) {
+      joins.push('JOIN vendor_projects vp ON p.id = vp.project_id AND vp.vendor_id = ?');
+      params.push(vendor_id);
+    }
 
     const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+    const joinClause = joins.join(' ');
 
     const [rows] = await pool.query(
       `SELECT p.*, wm.workflow_name
        FROM projects p
        JOIN workflow_master wm ON p.workflow_id = wm.id
+       ${joinClause}
        ${whereClause}
        ORDER BY p.project_name ASC LIMIT ? OFFSET ?`,
       [...params, limit, offset]
@@ -27,6 +34,7 @@ class ProjectRepository {
 
     const [countResult] = await pool.query(
       `SELECT COUNT(*) as total FROM projects p
+       ${joinClause}
        ${whereClause}`,
       params
     );

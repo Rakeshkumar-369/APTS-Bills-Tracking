@@ -9,7 +9,8 @@ const getAllProjects = async (req, res, next) => {
 
     const result = await projectService.getAll({
       limit, offset, search,
-      is_active: is_active !== undefined ? (is_active === 'true' || is_active === '1' ? 1 : 0) : undefined
+      is_active: is_active !== undefined ? (is_active === 'true' || is_active === '1' ? 1 : 0) : undefined,
+      vendor_id: req.user.vendor_id
     });
 
     const meta = buildPaginationMeta(result.total, limit, offset, result.rows.length);
