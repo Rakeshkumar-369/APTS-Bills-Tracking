@@ -8,9 +8,11 @@ const createVendorValidation = [
     .trim().escape(),
   body('vendor_code')
     .optional()
+    .matches(/^[A-Z0-9]+$/).withMessage('Vendor code can only contain uppercase letters and numbers, no spaces')
     .trim().escape(),
   body('contact_person')
     .optional()
+    .matches(/^[A-Za-z]+(?: [A-Za-z]+)*$/).withMessage('Contact person name can only contain alphabets and single spaces between words')
     .trim().escape(),
   body('email')
     .optional()
@@ -18,6 +20,7 @@ const createVendorValidation = [
     .normalizeEmail().trim(),
   body('phone')
     .optional()
+    .matches(/^[6-9]\d{9}$/).withMessage('Phone must be a valid 10-digit Indian mobile number')
     .trim(),
   body('address')
     .optional()
@@ -32,9 +35,11 @@ const updateVendorValidation = [
     .trim().escape(),
   body('vendor_code')
     .optional()
+    .matches(/^[A-Z0-9]+$/).withMessage('Vendor code can only contain uppercase letters and numbers, no spaces')
     .trim().escape(),
   body('contact_person')
     .optional()
+    .matches(/^[A-Za-z]+(?: [A-Za-z]+)*$/).withMessage('Contact person name can only contain alphabets and single spaces between words')
     .trim().escape(),
   body('email')
     .optional()
@@ -42,6 +47,7 @@ const updateVendorValidation = [
     .normalizeEmail().trim(),
   body('phone')
     .optional()
+    .matches(/^[6-9]\d{9}$/).withMessage('Phone must be a valid 10-digit Indian mobile number')
     .trim(),
   body('address')
     .optional()

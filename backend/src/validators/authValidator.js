@@ -46,7 +46,7 @@ const registerValidation = [
     body('password')
         .isLength({ min: 8, max: 16 })
         .withMessage('Password must be between 8 and 16 characters')
-        .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+        .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/)
         .withMessage('Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character'),
     
     body('name')
@@ -54,6 +54,8 @@ const registerValidation = [
         .withMessage('Name is required')
         .isLength({ min: 2, max: 255 })
         .withMessage('Name must be between 2 and 255 characters')
+        .matches(/^[A-Za-z]+(?: [A-Za-z]+)*$/)
+        .withMessage('Name can only contain alphabets and single spaces between words')
         .trim()
         .escape(),
     
@@ -104,7 +106,7 @@ const changePasswordValidation = [
     body('newPassword')
         .isLength({ min: 8, max: 16 })
         .withMessage('New password must be between 8 and 16 characters')
-        .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+        .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/)
         .withMessage('New password must contain at least one lowercase letter, one uppercase letter, one number, and one special character')
         .custom((value, { req }) => {
             if (value === req.body.currentPassword) {

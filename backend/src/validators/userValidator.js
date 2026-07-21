@@ -8,11 +8,12 @@ const createUserValidation = [
     .normalizeEmail().trim().toLowerCase(),
   body('password')
     .isLength({ min: 8, max: 16 }).withMessage('Password must be between 8 and 16 characters')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/)
     .withMessage('Password must contain at least one lowercase, one uppercase, one number, and one special character'),
   body('name')
     .notEmpty().withMessage('Name is required')
     .isLength({ min: 2, max: 255 }).withMessage('Name must be between 2 and 255 characters')
+    .matches(/^[A-Za-z]+(?: [A-Za-z]+)*$/).withMessage('Name can only contain alphabets and single spaces between words')
     .trim().escape(),
   body('role_id')
     .notEmpty().withMessage('Role is required')
@@ -27,6 +28,7 @@ const createUserValidation = [
     .trim().escape(),
   body('phone')
     .optional()
+    .matches(/^[6-9]\d{9}$/).withMessage('Phone must be a valid 10-digit Indian mobile number')
     .trim(),
   handleValidationErrors
 ];
@@ -35,6 +37,7 @@ const updateUserValidation = [
   body('name')
     .optional()
     .isLength({ min: 2, max: 255 }).withMessage('Name must be between 2 and 255 characters')
+    .matches(/^[A-Za-z]+(?: [A-Za-z]+)*$/).withMessage('Name can only contain alphabets and single spaces between words')
     .trim().escape(),
   body('role_id')
     .optional()
@@ -49,6 +52,7 @@ const updateUserValidation = [
     .trim().escape(),
   body('phone')
     .optional()
+    .matches(/^[6-9]\d{9}$/).withMessage('Phone must be a valid 10-digit Indian mobile number')
     .trim(),
   body('is_active')
     .optional()

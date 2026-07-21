@@ -8,6 +8,7 @@ const createProjectValidation = [
     .trim().escape(),
   body('project_code')
     .optional()
+    .matches(/^[A-Z0-9-]+$/).withMessage('Project code can only contain uppercase letters, numbers, and hyphens, no spaces')
     .trim().escape(),
   body('description')
     .optional()
@@ -26,6 +27,7 @@ const updateProjectValidation = [
     .trim().escape(),
   body('project_code')
     .optional()
+    .matches(/^[A-Z0-9-]+$/).withMessage('Project code can only contain uppercase letters, numbers, and hyphens, no spaces')
     .trim().escape(),
   body('description')
     .optional()

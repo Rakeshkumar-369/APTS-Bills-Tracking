@@ -16,15 +16,18 @@ const createPackageValidation = [
     .toInt(),
   body('remarks')
     .optional()
-    .trim(),
+    .isLength({ max: 500 }).withMessage('Remarks must not exceed 500 characters')
+    .trim()
+    .escape(),
   handleValidationErrors
 ];
 
 const actionValidation = [
   body('remarks')
     .notEmpty().withMessage('Remarks are mandatory')
-    .isLength({ min: 3 }).withMessage('Remarks must be at least 3 characters')
-    .trim(),
+    .isLength({ min: 3, max: 500 }).withMessage('Remarks must be between 3 and 500 characters')
+    .trim()
+    .escape(),
   handleValidationErrors
 ];
 
