@@ -14,10 +14,6 @@ const createPackageValidation = [
     .notEmpty().withMessage('Project is required')
     .isInt({ min: 1 }).withMessage('Project ID must be a positive integer')
     .toInt(),
-  body('workflow_id')
-    .notEmpty().withMessage('Workflow is required')
-    .isInt({ min: 1 }).withMessage('Workflow ID must be a positive integer')
-    .toInt(),
   body('remarks')
     .optional()
     .trim(),

@@ -15,15 +15,16 @@ DROP TABLE IF EXISTS departments;
 DROP TABLE IF EXISTS user_scopes;
 DROP TABLE IF EXISTS role_scopes;
 
--- Drop new tables (in reverse dependency order)
+-- Drop all tables (in reverse dependency order — children before parents)
 DROP TABLE IF EXISTS invoice_submissions;
 DROP TABLE IF EXISTS package_history;
 DROP TABLE IF EXISTS package_files;
 DROP TABLE IF EXISTS packages;
 DROP TABLE IF EXISTS workflow_step_transitions;
 DROP TABLE IF EXISTS workflow_steps;
-DROP TABLE IF EXISTS workflow_master;
+DROP TABLE IF EXISTS vendor_projects;
 DROP TABLE IF EXISTS projects;
+DROP TABLE IF EXISTS workflow_master;
 DROP TABLE IF EXISTS vendors;
 DROP TABLE IF EXISTS blocked_users;
 DROP TABLE IF EXISTS refresh_tokens;
@@ -86,20 +87,7 @@ CREATE TABLE users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- 4. PROJECTS — Infrastructure project classifications
--- =============================================================================
-CREATE TABLE projects (
-  id            INT AUTO_INCREMENT PRIMARY KEY,
-  project_name  VARCHAR(255) NOT NULL,
-  project_code  VARCHAR(50)  NULL UNIQUE,
-  description   TEXT NULL,
-  is_active     BOOLEAN DEFAULT TRUE,
-  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- =============================================================================
--- 5. WORKFLOW MASTER — A named, ordered sequence of steps
+-- 4. WORKFLOW MASTER — A named, ordered sequence of steps
 -- =============================================================================
 CREATE TABLE workflow_master (
   id            INT AUTO_INCREMENT PRIMARY KEY,
@@ -108,6 +96,22 @@ CREATE TABLE workflow_master (
   is_active     BOOLEAN DEFAULT TRUE,
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- 5. PROJECTS — Infrastructure project classifications
+-- =============================================================================
+CREATE TABLE projects (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  project_name  VARCHAR(255) NOT NULL,
+  project_code  VARCHAR(50)  NULL UNIQUE,
+  description   TEXT NULL,
+  workflow_id   INT NOT NULL COMMENT 'Each project is assigned a workflow',
+  is_active     BOOLEAN DEFAULT TRUE,
+  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (workflow_id) REFERENCES workflow_master(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
@@ -163,8 +167,7 @@ CREATE TABLE packages (
   current_step_order    INT DEFAULT 0 COMMENT 'Denormalised for fast queries',
   status                ENUM('PENDING','IN_PROGRESS','SENT_BACK','COMPLETED','REJECTED') DEFAULT 'PENDING',
   remarks               TEXT NULL,
-  is_completed          BOOLEAN DEFAULT FALSE,
-  created_by            INT NOT NULL COMMENT 'Admin who created this package',
+  is_completed          BOOLEAN DEFAULT FALSE,created_by          INT NOT NULL COMMENT 'Vendor user who created this package',
   created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   completed_at          DATETIME NULL,
@@ -269,7 +272,20 @@ CREATE TABLE audit_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- 14. INVOICE SUBMISSIONS — (Future) Vendor submits invoice after completion
+-- 14. VENDOR PROJECTS — Many-to-many: which projects each vendor can access
+-- =============================================================================
+CREATE TABLE vendor_projects (
+  vendor_id   INT NOT NULL,
+  project_id  INT NOT NULL,
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+  PRIMARY KEY (vendor_id, project_id),
+  FOREIGN KEY (vendor_id)  REFERENCES vendors(id) ON DELETE CASCADE,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- 15. INVOICE SUBMISSIONS — (Future) Vendor submits invoice after completion
 -- =============================================================================
 CREATE TABLE invoice_submissions (
   id                INT AUTO_INCREMENT PRIMARY KEY,

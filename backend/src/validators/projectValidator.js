@@ -12,6 +12,10 @@ const createProjectValidation = [
   body('description')
     .optional()
     .trim(),
+  body('workflow_id')
+    .notEmpty().withMessage('Workflow is required — each project must be assigned a workflow')
+    .isInt({ min: 1 }).withMessage('Workflow ID must be a positive integer')
+    .toInt(),
   handleValidationErrors
 ];
 
@@ -26,6 +30,10 @@ const updateProjectValidation = [
   body('description')
     .optional()
     .trim(),
+  body('workflow_id')
+    .optional()
+    .isInt({ min: 1 }).withMessage('Workflow ID must be a positive integer')
+    .toInt(),
   body('is_active')
     .optional()
     .isBoolean().withMessage('is_active must be a boolean'),

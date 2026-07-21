@@ -22,10 +22,22 @@ const getAllVendors = async (req, res, next) => {
 const getVendorById = async (req, res, next) => {
   try {
     const includeUsers = req.query.include_users === 'true';
-    const vendor = includeUsers
-      ? await vendorService.getWithUsers(req.params.id)
-      : await vendorService.getById(req.params.id);
-    res.json(ApiResponse.success('Vendor fetched successfully', [vendor]));
+    const includeProjects = req.query.include_projects === 'true';
+    
+    if (includeUsers && includeProjects) {
+      const vendor = await vendorService.getWithUsers(req.params.id);
+      vendor.projects = await vendorService.getProjects(req.params.id);
+      res.json(ApiResponse.success('Vendor fetched successfully', [vendor]));
+    } else if (includeUsers) {
+      const vendor = await vendorService.getWithUsers(req.params.id);
+      res.json(ApiResponse.success('Vendor fetched successfully', [vendor]));
+    } else if (includeProjects) {
+      const vendor = await vendorService.getWithProjects(req.params.id);
+      res.json(ApiResponse.success('Vendor fetched successfully', [vendor]));
+    } else {
+      const vendor = await vendorService.getById(req.params.id);
+      res.json(ApiResponse.success('Vendor fetched successfully', [vendor]));
+    }
   } catch (error) {
     next(error);
   }
@@ -58,4 +70,37 @@ const deleteVendor = async (req, res, next) => {
   }
 };
 
-module.exports = { getAllVendors, getVendorById, createVendor, updateVendor, deleteVendor };
+// ── Vendor-Project Assignment ──
+
+const getVendorProjects = async (req, res, next) => {
+  try {
+    const projects = await vendorService.getProjects(req.params.id);
+    res.json(ApiResponse.success('Vendor projects fetched successfully', projects));
+  } catch (error) {
+    next(error);
+  }
+};
+
+const assignVendorProject = async (req, res, next) => {
+  try {
+    const { project_id } = req.body;
+    await vendorService.assignProject(req.params.id, project_id, req.user.user_id, req.ip);
+    res.status(201).json(ApiResponse.success('Project assigned to vendor successfully', []));
+  } catch (error) {
+    next(error);
+  }
+};
+
+const removeVendorProject = async (req, res, next) => {
+  try {
+    await vendorService.removeProject(req.params.id, req.params.projectId, req.user.user_id, req.ip);
+    res.json(ApiResponse.success('Project removed from vendor successfully', []));
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = {
+  getAllVendors, getVendorById, createVendor, updateVendor, deleteVendor,
+  getVendorProjects, assignVendorProject, removeVendorProject
+};

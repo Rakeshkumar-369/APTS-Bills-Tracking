@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-APTS Bills Tracking System — API Test Suite
+APTS Bills Tracking System -- API Test Suite
 ============================================
 Tests all endpoints with all seed users through a complete workflow lifecycle.
 Generates PDF files dynamically for file upload testing.
@@ -13,17 +13,23 @@ Usage:
 import sys
 import json
 import time
+import io
 from pathlib import Path
+
+# Fix Unicode output on Windows terminals (cp1252 cannot render box-drawing chars)
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
 try:
     import requests
 except ImportError:
-    print("❌ Missing 'requests' library. Install: pip install requests")
+    print("Missing 'requests' library. Install: pip install requests")
     sys.exit(1)
 
 try:
     from fpdf import FPDF
 except ImportError:
-    print("❌ Missing 'fpdf2' library. Install: pip install fpdf2")
+    print("Missing 'fpdf2' library. Install: pip install fpdf2")
     sys.exit(1)
 
 # ── Configuration ──────────────────────────────────────────────────────────
@@ -197,7 +203,8 @@ def run_all_tests():
     create_proj = admin.post("/projects", {
         "project_name": "Test Project",
         "project_code": "TEST-001",
-        "description": "A test project"
+        "description": "A test project",
+        "workflow_id": 1  # Required: each project must be assigned a workflow
     }, "Create project")
     test_project_id = None
     if create_proj and create_proj.get("success"):
@@ -207,6 +214,31 @@ def run_all_tests():
     if test_project_id:
         admin.get(f"/projects/{test_project_id}", label="Get project by ID")
         admin.put(f"/projects/{test_project_id}", {"project_name": "Test Project Updated"}, "Update project")
+
+    # ── 3b. Super Admin: Assign test project to test vendor ────────────────
+    print("\n─── 3b. VENDOR-PROJECT ASSIGNMENT (Super Admin) ───")
+    if test_vendor_id and test_project_id:
+        # Assign the test project to the test vendor
+        admin.post(f"/vendors/{test_vendor_id}/projects",
+                   {"project_id": test_project_id},
+                   "Assign project to vendor")
+
+        # Also assign project 1 to test vendor (needed for package creation below)
+        admin.post(f"/vendors/{test_vendor_id}/projects",
+                   {"project_id": 1},
+                   "Assign project 1 to vendor")
+
+        # List vendor's projects
+        vendor_projects = admin.get(f"/vendors/{test_vendor_id}/projects",
+                                    label="List vendor's assigned projects")
+        if vendor_projects and vendor_projects.get("success"):
+            project_names = [p["project_name"] for p in vendor_projects["data"]]
+            log("Vendor projects listed", "PASS", f"Projects: {', '.join(project_names)}")
+
+        # Permission check: Vendor should FAIL to assign projects
+        vendor.post(f"/vendors/1/projects",
+                    {"project_id": 1},
+                    "Vendor cannot assign projects (permission)")
 
     # ── 4. Super Admin: CRUD Roles ─────────────────────────────────────────
     print("\n─── 4. ROLES (Super Admin) ───")
@@ -232,7 +264,6 @@ def run_all_tests():
 
     # ── 5. Super Admin: Workflow Management ────────────────────────────────
     print("\n─── 5. WORKFLOWS (Super Admin) ───")
-    workflows = admin.get("/workflows", label="List workflows")
     default_workflow_id = 1  # From seed data
 
     # Get workflow with details
@@ -269,7 +300,7 @@ def run_all_tests():
         "email": "testuser@vendor.com",
         "password": "Test@1234",
         "role_id": 2,
-        "vendor_id": 1,
+        "vendor_id": test_vendor_id if test_vendor_id else 1,
         "designation": "Test Contact"
     }, "Create vendor user")
     test_user_id = None
@@ -284,14 +315,14 @@ def run_all_tests():
     print("\n─── 7. PACKAGE WORKFLOW (Full Lifecycle) ───")
     pkg_id = None
 
-    # 7a. Super Admin creates a package
-    create_pkg = admin.post("/packages", {
-        "vendor_id": 1,
-        "vendor_contact_user_id": 2,
-        "project_id": 1,
-        "workflow_id": default_workflow_id,
+    # 7a. VENDOR creates a package (NOT Super Admin — only vendors can create)
+    # Note: workflow_id is NOT sent — it's auto-derived from the project
+    create_pkg = vendor.post("/packages", {
+        "vendor_id": 1,  # Vendor user's vendor_id from seed
+        "vendor_contact_user_id": 2,  # Vendor user's own user_id
+        "project_id": 1,  # Video Conferencing (workflow auto-derived)
         "remarks": "Initial package for Video Conferencing project"
-    }, "Create package")
+    }, "Vendor: Create package")
 
     if create_pkg and create_pkg.get("success"):
         pkg_id = create_pkg["data"][0]["id"]
@@ -303,7 +334,24 @@ def run_all_tests():
         log("Package at step", "PASS" if "PM" in current_step else "FAIL",
             f"Current: {current_step}")
 
-    # 7b. Upload a file to the package (Super Admin)
+        # Verify workflow was auto-derived from project
+        pkg_workflow_id = create_pkg["data"][0].get("workflow_id")
+        log("Workflow auto-derived from project", "PASS" if pkg_workflow_id == 1 else "FAIL",
+            f"workflow_id={pkg_workflow_id} (expected 1)")
+    else:
+        # Fallback: try with seed vendor user (Akshara Enterprises)
+        log("Trying with seed vendor (Akshara) as fallback", "PASS", "")
+        create_pkg = vendor.post("/packages", {
+            "vendor_id": 1,
+            "vendor_contact_user_id": 2,
+            "project_id": 1,
+            "remarks": "Initial package for Video Conferencing project"
+        }, "Vendor: Create package (retry)")
+        if create_pkg and create_pkg.get("success"):
+            pkg_id = create_pkg["data"][0]["id"]
+            log("Package created (fallback)", "PASS", f"ID: {pkg_id}")
+
+    # 7b. Upload a file to the package (Vendor uploads, since vendor created it)
     if pkg_id:
         pdf_path = generate_test_pdf("test_upload.pdf",
             "This is a test particulars document for APTS package verification.\n"
@@ -311,9 +359,9 @@ def run_all_tests():
             "Vendor: Akshara Enterprises\n"
             "Scope: Baseline specification document for fibre grid connectivity.")
         with open(pdf_path, "rb") as f:
-            admin.post(f"/packages/{pkg_id}/files",
+            vendor.post(f"/packages/{pkg_id}/files",
                        files={"file": ("particulars.pdf", f, "application/pdf")},
-                       label="Upload file to package")
+                       label="Vendor: Upload file to package")
         Path(pdf_path).unlink()  # Clean up
 
         # Get package with details
@@ -350,7 +398,17 @@ def run_all_tests():
         jd_infra.post(f"/packages/{pkg_id}/forward", {"remarks": "Digitally signed and verified. Forwarding for final clearance."},
                       "JD-Infra: Forward → APTS Manager")
 
-    # 7g. APTS Manager completes the package
+    # 7g. Verify package is at step 4 (APTS Clearance) before APTS Manager acts
+    if pkg_id:
+        time.sleep(0.1)
+        pk = admin.get(f"/packages/{pkg_id}", label="Package state before APTS Manager action")
+        if pk and pk.get("success"):
+            pd = pk["data"][0]
+            log(f"Package step check",
+                "PASS" if pd.get('current_step_id') == 4 else "FAIL",
+                f"Expected step_id=4, got step_id={pd.get('current_step_id')} ({pd.get('current_step_name')})")
+
+    # 7h. APTS Manager completes the package
     if pkg_id:
         time.sleep(0.1)
         apts_mgr.post(f"/packages/{pkg_id}/forward", {"remarks": "Final clearance approved. Package is complete. Disbursement initiated."},
@@ -397,27 +455,33 @@ def run_all_tests():
             "PASS" if has_completion else "FAIL",
             "Check DB seed — should be (1,4,NULL,'FORWARD',6,1)" if not has_completion else "")
 
-    # Check what step the package is actually at before APTS Manager tries
-    if pkg_id:
-        pk = admin.get(f"/packages/{pkg_id}", label="Package state before APTS Manager action")
-        if pk and pk.get("success"):
-            pd = pk["data"][0]
-            log(f"Package step check",
-                "PASS" if pd.get('current_step_id') == 4 else "FAIL",
-                f"Expected step_id=4, got step_id={pd.get('current_step_id')} ({pd.get('current_step_name')})")
-
     # For the outbox 500: instruct user to check server logs
     print("  ℹ️  Outbox 500 diagnosis: check server logs at backend/logs/error.log for the stack trace")
 
     # ── 9. Permission Tests ────────────────────────────────────────────────
     print("\n─── 9. PERMISSION CHECKS ───")
+    # Super Admin should FAIL to create packages (only vendors can create)
+    admin.post("/packages", {
+        "vendor_id": 1,
+        "project_id": 1,
+        "remarks": "Super Admin should not be able to create packages"
+    }, "Super Admin cannot create packages (permission change)")
+
     # Vendor should FAIL at creating vendors
-    vendor.post("/vendors", {"vendor_name": "Hack Attempt"}, "Vendor cannot create (permission)")
+    vendor.post("/vendors", {"vendor_name": "Hack Attempt"}, "Vendor cannot create vendor (permission)")
+
     # PM should FAIL at creating users
     pm.post("/users", {"name": "Hack", "email": "hack@test.com", "password": "Test@1234", "role_id": 2},
             "PM cannot create users (permission)")
+
     # Vendor should FAIL at forwarding packages that don't exist
-    vendor.post("/packages/99999/forward", {"remarks": "Hack"}, "Vendor cannot forward (permission)")
+    vendor.post("/packages/99999/forward", {"remarks": "Hack"}, "Vendor cannot forward non-existent package (permission)")
+
+    # Vendor should FAIL at assigning projects to vendors
+    if test_vendor_id and test_project_id:
+        vendor.post(f"/vendors/{test_vendor_id}/projects",
+                    {"project_id": test_project_id},
+                    "Vendor cannot assign projects (permission)")
 
     # ── 10. File Download Test ─────────────────────────────────────────────
     print("\n─── 10. FILE DOWNLOAD ───")
@@ -441,8 +505,22 @@ def run_all_tests():
                 except requests.RequestException as e:
                     log(dl_label, "FAIL", str(e))
 
-    # ── 11. Cleanup ────────────────────────────────────────────────────────
+    # ── 11. Cleanup: Remove test vendor's project assignment + delete test records ──
     print("\n─── 11. CLEANUP ───")
+    if test_vendor_id and test_project_id:
+        # Remove project assignments
+        admin.delete(f"/vendors/{test_vendor_id}/projects/{test_project_id}",
+                     "Remove project from vendor")
+        admin.delete(f"/vendors/{test_vendor_id}/projects/1",
+                     "Remove project 1 from vendor")
+
+        # Verify projects were removed
+        remaining = admin.get(f"/vendors/{test_vendor_id}/projects",
+                              label="Verify vendor has no projects")
+        if remaining and remaining.get("success"):
+            log("Vendor projects cleared", "PASS" if len(remaining["data"]) == 0 else "FAIL",
+                f"{len(remaining['data'])} remaining")
+
     if test_vendor_id:
         admin.delete(f"/vendors/{test_vendor_id}", "Delete test vendor")
     if test_project_id:

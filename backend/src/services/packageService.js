@@ -1,4 +1,5 @@
 const packageRepository = require('../repositories/packageRepository');
+const projectRepository = require('../repositories/projectRepository');
 const userRepository = require('../repositories/userRepository');
 const workflowService = require('./workflowService');
 const auditService = require('./auditService');
@@ -31,7 +32,17 @@ class PackageService {
   // ── Create Package ──
 
   async create(data, currentUser, ipAddress) {
-    const { vendor_id, vendor_contact_user_id, project_id, workflow_id, remarks } = data;
+    const { vendor_id, vendor_contact_user_id, project_id, remarks } = data;
+
+    // Only vendor users can create packages
+    if (currentUser.role_name !== 'Vendor' || !currentUser.vendor_id) {
+      throw new ApiError(403, 'Only vendor users can create packages');
+    }
+
+    // The creating user must belong to the vendor they're creating for
+    if (currentUser.vendor_id !== vendor_id) {
+      throw new ApiError(403, 'You can only create packages for your own vendor');
+    }
 
     // Validate vendor contact belongs to the selected vendor
     if (vendor_contact_user_id) {
@@ -42,6 +53,23 @@ class PackageService {
       if (contactUser.vendor_id !== vendor_id) {
         throw new ApiError(400, 'Selected contact user does not belong to the chosen vendor');
       }
+    }
+
+    // Look up the project to get its assigned workflow
+    const project = await projectRepository.getById(project_id);
+    if (!project) {
+      throw new ApiError(400, 'Project not found');
+    }
+
+    const workflow_id = project.workflow_id;
+    if (!workflow_id) {
+      throw new ApiError(400, 'Selected project has no workflow assigned. Contact admin to configure it.');
+    }
+
+    // Verify the vendor has access to this project
+    const vendorProjectIds = await projectRepository.getVendorProjectIds(vendor_id);
+    if (!vendorProjectIds.includes(project_id)) {
+      throw new ApiError(403, 'Your vendor does not have access to the selected project');
     }
 
     const firstStep = await workflowService.getFirstStep(workflow_id);
@@ -205,7 +233,7 @@ class PackageService {
       newStatus = 'SENT_BACK';
       actionLabel = 'Returned to vendor for revision';
     } else {
-    const backStep = transition.to_step_id ? await workflowService.getStepById(transition.to_step_id).catch(() => null) : null;
+      const backStep = transition.to_step_id ? await workflowService.getStepById(transition.to_step_id).catch(() => null) : null;
       actionLabel = backStep ? `Returned to ${backStep.step_name} for revision` : 'Returned with remarks';
     }
 
