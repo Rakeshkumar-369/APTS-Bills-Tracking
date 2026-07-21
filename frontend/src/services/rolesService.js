@@ -12,8 +12,8 @@ export const rolesService = {
     return response || null;
   },
   
-  async create({ role_name, role_rank, permissions }) {
-    return api.post('/roles', { role_name, role_rank, permissions });
+  async create({ role_name, role_rank, permissions, description }) {
+    return api.post('/roles', { role_name, role_rank, permissions, description });
   },
   
   async update(id, payload) {
