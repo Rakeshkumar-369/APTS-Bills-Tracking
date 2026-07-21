@@ -11,9 +11,11 @@ class UserRepository {
 
   async findByEmail(email) {
     const [rows] = await pool.query(`
-      SELECT u.*, r.role_name, r.permissions, r.role_rank
+      SELECT u.*, r.role_name, r.permissions, r.role_rank,
+             v.vendor_name AS vendor_name
       FROM users u
       JOIN roles r ON u.role_id = r.id
+      LEFT JOIN vendors v ON u.vendor_id = v.id
       WHERE u.email = ? AND u.is_active = true AND r.is_active = true
     `, [email]);
 
@@ -26,9 +28,11 @@ class UserRepository {
 
   async findById(id) {
     const [rows] = await pool.query(`
-      SELECT u.*, r.role_name, r.permissions, r.role_rank
+      SELECT u.*, r.role_name, r.permissions, r.role_rank,
+             v.vendor_name AS vendor_name
       FROM users u
       JOIN roles r ON u.role_id = r.id
+      LEFT JOIN vendors v ON u.vendor_id = v.id
       WHERE u.id = ? AND u.is_active = true
     `, [id]);
 

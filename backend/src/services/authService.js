@@ -125,6 +125,8 @@ const login = async (email, password, ipAddress, userAgent) => {
       sub_departments: user.sub_departments,
       permissions: user.permissions,
       designation: user.designation,
+      vendor_id: user.vendor_id,
+      vendor_name: user.vendor_name,
       last_login: formattedLastLogin
     }
   };
@@ -208,7 +210,9 @@ const refreshAccessToken = async (receivedRefreshToken, ipAddress, userAgent) =>
         departments: authenticatedUser.departments,
         sub_departments: authenticatedUser.sub_departments,
         permissions: authenticatedUser.permissions,
-        designation: authenticatedUser.designation
+        designation: authenticatedUser.designation,
+        vendor_id: authenticatedUser.vendor_id,
+        vendor_name: authenticatedUser.vendor_name
       }
     };
   } catch (error) {
