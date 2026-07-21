@@ -93,57 +93,128 @@ export default function Login() {
     return null;
   }
 
+  const featureList = [
+    { icon: 'bi-shield-check', text: 'Secure Bill Tracking & Management' },
+    { icon: 'bi-diagram-3', text: 'Multi-role Workflow Automation' },
+    { icon: 'bi-people', text: 'Real-time Collaboration & Approvals' },
+    { icon: 'bi-clipboard-data', text: 'Comprehensive Audit Trail' },
+  ];
+
   return (
-    <div className="container-fluid min-vh-100 d-flex align-items-center p-0">
+    <div
+      className="container-fluid min-vh-100 d-flex align-items-center p-0"
+      style={{
+        background: 'linear-gradient(135deg, #eef4ff 0%, #e6edff 45%, #dfe9ff 100%)',
+      }}
+    >
       <div className="row w-100 m-0">
         {/* Left Side - Welcome Message */}
-        <div className="col-lg-6 d-none d-lg-flex flex-column justify-content-center align-items-start bg-primary bg-opacity-10 p-5" style={{ minHeight: '100vh' }}>
-          <div className="px-4">
-            <div className="bg-primary p-3 rounded-circle d-inline-block mb-4">
-              <i className="bi bi-building-gear text-white fs-1"></i>
+        <div
+          className="col-lg-6 d-none d-lg-flex flex-column justify-content-center align-items-start p-5 position-relative overflow-hidden"
+          style={{ minHeight: '100vh' }}
+        >
+          {/* Decorative background blobs */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '-120px',
+              right: '-120px',
+              width: '360px',
+              height: '360px',
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0) 70%)',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '-100px',
+              left: '-100px',
+              width: '300px',
+              height: '300px',
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(37,99,235,0.14) 0%, rgba(37,99,235,0) 70%)',
+            }}
+          />
+
+          <div className="px-4 position-relative">
+            <div 
+              className="d-inline-flex align-items-center justify-content-center mb-4"
+              style={{
+                width: '72px',
+                height: '72px',
+                borderRadius: '22px',
+                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                boxShadow: '0 10px 25px rgba(37, 99, 235, 0.35)'
+              }}
+            >
+              <i className="bi bi-building-gear text-white" style={{ fontSize: '2rem' }}></i>
             </div>
-            <h1 className="display-4 fw-bold text-primary mb-3">Welcome to APTS</h1>
+
+
+            <h1 className="display-4 fw-bold text-primary mb-2" style={{ letterSpacing: '-0.02em' }}>
+              Welcome to APTS
+            </h1>
             <h2 className="display-6 fw-semibold text-dark mb-4">Billing Portal</h2>
-            <p className="lead text-secondary mb-4" style={{ maxWidth: '500px' }}>
+            <p className="lead text-secondary mb-4" style={{ maxWidth: '480px' }}>
               Information Technology, Electronics & Communications Department
             </p>
-            <div className="d-flex flex-column gap-2 mb-4">
-              <div className="d-flex align-items-center">
-                <i className="bi bi-check-circle-fill text-success me-2"></i>
-                <span className="text-secondary">Secure Bill Tracking & Management</span>
-              </div>
-              <div className="d-flex align-items-center">
-                <i className="bi bi-check-circle-fill text-success me-2"></i>
-                <span className="text-secondary">Multi-role Workflow Automation</span>
-              </div>
-              <div className="d-flex align-items-center">
-                <i className="bi bi-check-circle-fill text-success me-2"></i>
-                <span className="text-secondary">Real-time Collaboration & Approvals</span>
-              </div>
-              <div className="d-flex align-items-center">
-                <i className="bi bi-check-circle-fill text-success me-2"></i>
-                <span className="text-secondary">Comprehensive Audit Trail</span>
-              </div>
+
+            <div className="d-flex flex-column gap-3 mb-4">
+              {featureList.map((feature, idx) => (
+                <div className="d-flex align-items-center" key={idx}>
+                  <div
+                    className="d-inline-flex align-items-center justify-content-center me-3 flex-shrink-0"
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '10px',
+                      background: 'rgba(37, 99, 235, 0.1)',
+                    }}
+                  >
+                    <i className={`bi ${feature.icon} text-primary`} style={{ fontSize: '1rem' }}></i>
+                  </div>
+                  <span className="text-secondary fw-medium">{feature.text}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
         {/* Right Side - Login Form */}
         <div className="col-lg-6 d-flex align-items-center justify-content-center p-4">
-          <div className="card border-0 shadow-lg p-4 rounded-4" style={{ width: '100%', maxWidth: '420px' }}>
+          <div
+            className="card border-0 p-4 p-md-5 rounded-4"
+            style={{
+              width: '100%',
+              maxWidth: '440px',
+              boxShadow: '0 20px 60px rgba(37, 99, 235, 0.15), 0 4px 12px rgba(0,0,0,0.04)',
+              background: 'rgba(255,255,255,0.95)',
+              backdropFilter: 'blur(10px)',
+            }}
+          >
             <div className="text-center mb-4">
-              <div className="bg-primary bg-opacity-10 p-3 rounded-circle d-inline-block mb-3 d-lg-none">
-                <i className="bi bi-building-gear text-primary fs-1"></i>
+              <div 
+                className="d-inline-flex align-items-center justify-content-center mb-3 d-lg-none"
+                style={{
+                  width: '64px',
+                  height: '64px',
+                  borderRadius: '20px',
+                  background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                  boxShadow: '0 8px 20px rgba(37, 99, 235, 0.35)'
+                }}
+              >
+                <i className="bi bi-building-gear text-white" style={{ fontSize: '1.75rem' }}></i>
               </div>
-              <h4 className="fw-extrabold text-dark mb-1 d-lg-none">APTS Billing Portal</h4>
-              <h4 className="fw-extrabold text-dark mb-1 d-none d-lg-block">Sign In</h4>
+              <h4 className="fw-bold text-dark mb-1 d-lg-none">APTS Billing Portal</h4>
+              <h3 className="fw-bold text-dark mb-1 d-none d-lg-block">Sign In</h3>
               <p className="text-muted small d-lg-none">ITE&C Department Workflow Node</p>
-              <p className="text-muted small d-none d-lg-block">Enter your credentials to access the portal</p>
+              <p className="text-muted d-none d-lg-block">Enter your credentials to access the portal</p>
             </div>
 
             <form onSubmit={handleSubmit}>
               {error && (
-                <div className="alert alert-danger py-2 text-center small border-0">
+                <div className="alert alert-danger py-2 text-center small border-0 rounded-3 d-flex align-items-center justify-content-center">
                   <i className="bi bi-exclamation-triangle-fill me-2"></i>
                   {error}
                 </div>
@@ -151,32 +222,51 @@ export default function Login() {
               
               <div className="mb-3">
                 <label className="form-label small fw-bold text-secondary">Email Address</label>
-                <input 
-                  type="email" 
-                  className="form-control form-control-lg" 
-                  placeholder="Enter your email"
-                  value={email} 
-                  onChange={(e) => setEmail(e.target.value)} 
-                  required 
-                  autoFocus
-                />
+                <div className="position-relative">
+                  <i
+                    className="bi bi-envelope position-absolute text-muted"
+                    style={{ left: '14px', top: '50%', transform: 'translateY(-50%)' }}
+                  ></i>
+                  <input 
+                    type="email" 
+                    className="form-control form-control-lg rounded-3"
+                    style={{ paddingLeft: '40px' }}
+                    placeholder="Enter your email"
+                    value={email} 
+                    onChange={(e) => setEmail(e.target.value)} 
+                    required 
+                    autoFocus
+                  />
+                </div>
               </div>
               
               <div className="mb-4">
                 <label className="form-label small fw-bold text-secondary">Password</label>
-                <input 
-                  type="password" 
-                  className="form-control form-control-lg" 
-                  placeholder="Enter your password"
-                  value={password} 
-                  onChange={(e) => setPassword(e.target.value)} 
-                  required 
-                />
+                <div className="position-relative">
+                  <i
+                    className="bi bi-lock position-absolute text-muted"
+                    style={{ left: '14px', top: '50%', transform: 'translateY(-50%)' }}
+                  ></i>
+                  <input 
+                    type="password" 
+                    className="form-control form-control-lg rounded-3"
+                    style={{ paddingLeft: '40px' }}
+                    placeholder="Enter your password"
+                    value={password} 
+                    onChange={(e) => setPassword(e.target.value)} 
+                    required 
+                  />
+                </div>
               </div>
               
               <button 
                 type="submit" 
-                className="btn btn-primary w-100 py-2 fw-bold rounded-3 shadow-sm"
+                className="btn btn-primary w-100 py-2 fw-bold rounded-3"
+                style={{
+                  background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                  border: 'none',
+                  boxShadow: '0 8px 20px rgba(37, 99, 235, 0.35)',
+                }}
                 disabled={loading}
               >
                 {loading ? (
@@ -203,7 +293,7 @@ export default function Login() {
                   <button 
                     key={index}
                     type="button"
-                    className="btn btn-sm btn-outline-secondary"
+                    className="btn btn-sm btn-outline-secondary rounded-pill px-3"
                     onClick={() => {
                       console.log('🔑 Using test credentials:', cred.label);
                       setEmail(cred.email);
