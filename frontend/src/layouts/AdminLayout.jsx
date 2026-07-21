@@ -9,9 +9,9 @@ export default function AdminLayout() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Redirect if not admin
+  console.log('🏗️ AdminLayout rendered with user:', user?.email);
+
   useEffect(() => {
-    console.log('🏗️ AdminLayout rendered, user:', user);
     if (!isAuthenticated || !user) {
       console.log('🔒 AdminLayout: No user, redirecting to /login');
       navigate('/login', { replace: true });
@@ -22,6 +22,17 @@ export default function AdminLayout() {
       navigate('/', { replace: true });
     }
   }, [user, isAuthenticated, navigate]);
+
+  // If no user, show loading
+  if (!user) {
+    return (
+      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '100vh' }}>
+        <div className="spinner-border text-primary" role="status">
+          <span className="visually-hidden">Loading...</span>
+        </div>
+      </div>
+    );
+  }
 
   const menuItems = [
     { path: '/admin', label: 'Dashboard', icon: 'bi-grid' },
@@ -39,21 +50,10 @@ export default function AdminLayout() {
     return false;
   };
 
-  // If no user, show loading
-  if (!user) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '100vh' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="d-flex flex-column vh-100 bg-light" style={{ overflow: 'hidden' }}>
       {/* Navbar */}
-      <nav className="navbar navbar-expand-lg navbar-dark bg-primary" style={{ zIndex: 1050 }}>
+      <nav className="navbar navbar-expand-lg navbar-dark bg-primary" style={{ zIndex: 1050, flexShrink: 0 }}>
         <div className="container-fluid">
           <button 
             className="btn btn-outline-light me-2" 
@@ -88,7 +88,7 @@ export default function AdminLayout() {
         {/* Sidebar */}
         <div 
           className={`bg-dark text-white ${sidebarOpen ? 'd-block' : 'd-none'} d-md-block`}
-          style={{ width: '250px', minHeight: '100%', overflowY: 'auto' }}
+          style={{ width: '250px', minHeight: '100%', overflowY: 'auto', flexShrink: 0 }}
         >
           <div className="p-3">
             <h6 className="text-uppercase text-secondary small">Main Menu</h6>

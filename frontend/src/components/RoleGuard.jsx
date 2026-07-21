@@ -1,10 +1,9 @@
 // src/components/RoleGuard.jsx
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function RoleGuard({ 
-  children, 
   allowedRoles = [], 
   allowedRanks = [],
   redirectTo = '/'
@@ -45,5 +44,5 @@ export default function RoleGuard({
     return <Navigate to={redirectTo} replace />;
   }
 
-  return children;
+  return <Outlet />;
 }

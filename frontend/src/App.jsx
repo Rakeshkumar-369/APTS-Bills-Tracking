@@ -8,9 +8,7 @@ import RoleGuard from './components/RoleGuard';
 
 // Layouts
 import AdminLayout from './layouts/AdminLayout';
-import VendorLayout from './layouts/VendorLayout';
-import OfficerLayout from './layouts/OfficerLayout';
-import ManagerLayout from './layouts/ManagerLayout';
+import UnifiedLayout from './layouts/UnifiedLayout';
 
 // Admin Components
 import AdminDashboard from './pages/ADMIN/AdminDashboard';
@@ -23,15 +21,13 @@ import WorkflowDetail from './pages/ADMIN/WorkflowDetail';
 
 // Other Pages
 import Login from './pages/Login';
-import VendorDashboard from './pages/VendorDashboard';
-import OfficerDashboard from './pages/OfficerDashboard';
-import AptsManagerDashboard from './pages/AptsManagerDashboard';
+import UnifiedDashboard from './pages/UnifiedDashboard';
+import PackageCreate from './pages/PackageCreate';
+import ResubmitPackage from './pages/ResubmitPackage';
 import Inbox from './pages/Inbox';
 import MyPackages from './pages/MyPackages';
 import PackageDetail from './pages/PackageDetail';
 import MatchInvoice from './pages/MatchInvoice';
-import PackageCreate from './pages/PackageCreate';
-
 
 // Loading Screen Component
 function LoadingScreen() {
@@ -50,22 +46,13 @@ function LoadingScreen() {
 export default function App() {
   const { user, loading, isAuthenticated } = useAuth();
 
-  // Debug logging
   useEffect(() => {
-    console.log('🔍 App State:');
-    console.log('  - User:', user);
-    console.log('  - Loading:', loading);
-    console.log('  - Is Authenticated:', isAuthenticated);
-    console.log('  - Token in localStorage:', !!localStorage.getItem('accessToken'));
-    console.log('  - User in localStorage:', !!localStorage.getItem('user'));
+    console.log('🔍 App State:', { user, loading, isAuthenticated });
   }, [user, loading, isAuthenticated]);
 
   if (loading) {
-    console.log('⏳ App is loading...');
     return <LoadingScreen />;
   }
-
-  console.log('✅ App rendered with user:', user ? user.email : 'No user');
 
   return (
     <Routes>
@@ -74,35 +61,42 @@ export default function App() {
       <Route path="/" element={<RoleBasedRedirect />} />
 
       {/* ============ ADMIN ROUTES ============ */}
-<Route path="/admin" element={<AdminLayout />}>
-  <Route index element={<AdminDashboard />} />
-  <Route path="users" element={<UsersAdmin />} />
-  <Route path="vendors" element={<VendorsAdmin />} />
-  <Route path="projects" element={<ProjectsAdmin />} />
-  <Route path="roles" element={<RolesAdmin />} />
-  <Route path="workflows" element={<WorkflowsAdmin />} />
-  <Route path="workflows/:id" element={<WorkflowDetail />} />
-  <Route path="packages/create" element={<PackageCreate />} />
-  <Route path="*" element={<Navigate to="/admin" replace />} />
-</Route>
+      <Route element={<ProtectedRoute />}>
+        <Route element={<RoleGuard allowedRanks={[100]} redirectTo="/" />}>
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route index element={<AdminDashboard />} />
+            <Route path="users" element={<UsersAdmin />} />
+            <Route path="vendors" element={<VendorsAdmin />} />
+            <Route path="projects" element={<ProjectsAdmin />} />
+            <Route path="roles" element={<RolesAdmin />} />
+            <Route path="workflows" element={<WorkflowsAdmin />} />
+            <Route path="workflows/:id" element={<WorkflowDetail />} />
+            <Route path="packages/create" element={<PackageCreate />} />
+            <Route path="packages/:id" element={<PackageDetail />} />
+            <Route path="*" element={<Navigate to="/admin" replace />} />
+          </Route>
+        </Route>
+      </Route>
 
       {/* ============ VENDOR ROUTES ============ */}
       <Route element={<ProtectedRoute />}>
         <Route element={<RoleGuard allowedRanks={[10]} redirectTo="/" />}>
-          <Route path="/vendor" element={<VendorLayout />}>
-            <Route index element={<VendorDashboard />} />
+          <Route path="/vendor" element={<UnifiedLayout />}>
+            <Route index element={<UnifiedDashboard />} />
             <Route path="packages" element={<MyPackages />} />
+            <Route path="packages/create" element={<PackageCreate />} />
             <Route path="packages/:id" element={<PackageDetail />} />
+            <Route path="packages/:id/resubmit" element={<ResubmitPackage />} />
             <Route path="*" element={<Navigate to="/vendor" replace />} />
           </Route>
         </Route>
       </Route>
 
-      {/* ============ OFFICER ROUTES ============ */}
+      {/* ============ OFFICER ROUTES (PM, TPA, JD-Infra) ============ */}
       <Route element={<ProtectedRoute />}>
         <Route element={<RoleGuard allowedRanks={[30, 40, 50]} redirectTo="/" />}>
-          <Route path="/officer" element={<OfficerLayout />}>
-            <Route index element={<OfficerDashboard />} />
+          <Route path="/officer" element={<UnifiedLayout />}>
+            <Route index element={<UnifiedDashboard />} />
             <Route path="inbox" element={<Inbox />} />
             <Route path="packages/:id" element={<PackageDetail />} />
             <Route path="*" element={<Navigate to="/officer" replace />} />
@@ -110,11 +104,11 @@ export default function App() {
         </Route>
       </Route>
 
-      {/* ============ MANAGER ROUTES ============ */}
+      {/* ============ MANAGER ROUTES (APTS) ============ */}
       <Route element={<ProtectedRoute />}>
         <Route element={<RoleGuard allowedRanks={[60]} redirectTo="/" />}>
-          <Route path="/manager" element={<ManagerLayout />}>
-            <Route index element={<AptsManagerDashboard />} />
+          <Route path="/manager" element={<UnifiedLayout />}>
+            <Route index element={<UnifiedDashboard />} />
             <Route path="inbox" element={<Inbox />} />
             <Route path="match" element={<MatchInvoice />} />
             <Route path="packages/:id" element={<PackageDetail />} />

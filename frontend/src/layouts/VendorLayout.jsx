@@ -1,5 +1,5 @@
 // src/layouts/VendorLayout.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -9,17 +9,9 @@ export default function VendorLayout() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Redirect if not vendor
-  useEffect(() => {
-    if (user && user.role_rank !== 10) {
-      navigate('/');
-    }
-  }, [user, navigate]);
-
   const menuItems = [
     { path: '/vendor', label: 'Dashboard', icon: 'bi-grid' },
     { path: '/vendor/packages', label: 'My Packages', icon: 'bi-boxes' },
-    { path: '/vendor/history', label: 'History', icon: 'bi-clock-history' },
   ];
 
   const isActive = (path) => {

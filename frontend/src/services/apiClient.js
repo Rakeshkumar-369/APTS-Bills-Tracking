@@ -41,7 +41,6 @@ async function refreshAccessToken() {
           throw new ApiError('Session expired', res.status);
         }
         const body = await res.json();
-        // Handle different response formats
         const token = body?.data?.[0]?.accessToken || 
                      body?.data?.accessToken || 
                      body?.accessToken;
@@ -63,18 +62,13 @@ export function setOnSessionExpired(fn) {
   onSessionExpired = fn;
 }
 
-// Extract data from API response - FIXED to handle your API format
+// Extract data from API response
 function extractResponseData(payload) {
   if (!payload) return null;
   
-  console.log('📦 extractResponseData received:', payload);
-  
   // If payload has success and data (your API format)
   if (payload.success && payload.data !== undefined) {
-    console.log('📦 Found success + data format');
-    // If data is an array, return it directly
     if (Array.isArray(payload.data)) {
-      console.log('📦 Data is an array with length:', payload.data.length);
       return payload.data;
     }
     return payload.data;
@@ -82,27 +76,19 @@ function extractResponseData(payload) {
   
   // If payload has data directly
   if (payload.data !== undefined) {
-    console.log('📦 Found data property');
     return payload.data;
   }
   
   // If payload is array
   if (Array.isArray(payload)) {
-    console.log('📦 Payload is an array with length:', payload.length);
     return payload;
   }
   
-  console.log('📦 Returning payload as-is');
   return payload;
 }
 
 async function request(path, options = {}) {
   const { method = 'GET', body, headers = {}, isForm = false, skipAuth = false, ...rest } = options;
-
-  // Log request for debugging (but not for login to avoid exposing password)
-  if (!path.includes('login')) {
-    console.log(`📡 ${method} ${path}`);
-  }
 
   const doFetch = async () => {
     const finalHeaders = { ...headers };
@@ -115,10 +101,6 @@ async function request(path, options = {}) {
     }
 
     const url = `${BASE_URL}${path}`;
-    if (!path.includes('login')) {
-      console.log('🌐 Fetching:', url);
-    }
-
     const response = await fetch(url, {
       method,
       headers: finalHeaders,
@@ -132,18 +114,12 @@ async function request(path, options = {}) {
 
   let res = await doFetch();
 
-  // Log response status for debugging
-  console.log(`📥 Response status: ${res.status} for ${path}`);
-
   // Handle 401 - try refresh
   if (res.status === 401 && !skipAuth && !path.startsWith('/auth/refresh') && !path.startsWith('/auth/login')) {
     try {
-      console.log('🔄 Token expired, refreshing...');
       await refreshAccessToken();
       res = await doFetch();
-      console.log('📥 Refresh response status:', res.status);
     } catch (err) {
-      console.error('❌ Refresh failed:', err);
       setAccessToken(null);
       onSessionExpired();
       throw new ApiError('Session expired, please log in again', 401);
@@ -157,9 +133,7 @@ async function request(path, options = {}) {
   if (isJson) {
     try {
       payload = await res.json();
-      console.log(`📦 Response payload for ${path}:`, payload);
     } catch (e) {
-      console.error('❌ JSON parse error:', e);
       payload = null;
     }
   } else if (res.status !== 204) {
@@ -179,14 +153,10 @@ async function request(path, options = {}) {
       errorMessage = payload;
     }
     
-    console.error('❌ API Error:', errorMessage);
     throw new ApiError(errorMessage, res.status, payload);
   }
 
-  // For successful responses, extract the data
-  const extractedData = extractResponseData(payload);
-  console.log(`📦 Extracted data for ${path}:`, extractedData);
-  return extractedData;
+  return extractResponseData(payload);
 }
 
 export const api = {
@@ -195,7 +165,6 @@ export const api = {
   put: (path, body, options) => request(path, { ...options, method: 'PUT', body }),
   delete: (path, options) => request(path, { ...options, method: 'DELETE' }),
   postForm: (path, formData, options) => request(path, { ...options, method: 'POST', body: formData, isForm: true }),
-  // Raw request for when you need the full response
   raw: (path, options) => request(path, { ...options, raw: true }),
 };
 

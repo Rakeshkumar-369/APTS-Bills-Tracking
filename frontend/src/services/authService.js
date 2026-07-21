@@ -51,6 +51,14 @@ export const authService = {
       
       // Store user data
       if (userData) {
+        // Log all keys to see what's available
+        console.log('🔍 UserData keys:', Object.keys(userData));
+        console.log('🔍 Full userData:', JSON.stringify(userData, null, 2));
+        
+        // Try different possible vendor_id field names
+        const vendorId = userData.vendor_id || userData.vendorId || userData.vendor?.id || null;
+        const vendorName = userData.vendor_name || userData.vendorName || userData.vendor?.name || null;
+        
         const normalizedUser = {
           id: userData.id,
           name: userData.name || userData.full_name || 'User',
@@ -59,7 +67,8 @@ export const authService = {
           role_name: userData.role_name || userData.role,
           role_rank: userData.role_rank || 0,
           role_id: userData.role_id,
-          vendor_id: userData.vendor_id,
+          vendor_id: vendorId,
+          vendor_name: vendorName,
           permissions: userData.permissions || {},
           designation: userData.designation || '',
           phone: userData.phone || '',
@@ -68,6 +77,8 @@ export const authService = {
           last_login: userData.last_login || '',
           ...userData
         };
+        
+        console.log('✅ Normalized user:', normalizedUser);
         
         localStorage.setItem('user', JSON.stringify(normalizedUser));
         return normalizedUser;
@@ -107,9 +118,9 @@ export const authService = {
     }
   },
 
-  async changePassword(currentPassword, newPassword) {
-    return api.post('/auth/change-password', { currentPassword, newPassword });
-  },
+async changePassword(currentPassword, newPassword, confirmNewPassword ) {
+  return api.post('/auth/change-password', { currentPassword, newPassword, confirmNewPassword  });
+},
   
   // Helper to check if user is logged in
   isAuthenticated() {

@@ -1,356 +1,301 @@
-// src/pages/PackageCreate.jsx
+// src/pages/PackageCreate.jsx (Updated)
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { packagesService, vendorsService, projectsService, workflowsService } from '../services';
+import { packagesService, projectsService } from '../services';
 import { useAuth } from '../context/AuthContext';
 
 export default function PackageCreate() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [vendors, setVendors] = useState([]);
-  const [projects, setProjects] = useState([]);
-  const [workflows, setWorkflows] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
-  
+  const [projects, setProjects] = useState([]);
   const [formData, setFormData] = useState({
-    vendor_id: '',
-    vendor_contact_user_id: '',
     project_id: '',
-    workflow_id: '',
-    remarks: ''
+    remarks: '',
+    files: []
   });
-  
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [fileName, setFileName] = useState('No file chosen');
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchProjects = async () => {
       try {
-        const [vendorsData, projectsData, workflowsData] = await Promise.all([
-          vendorsService.list(),
-          projectsService.list(),
-          workflowsService.list()
-        ]);
-        setVendors(vendorsData || []);
-        setProjects(projectsData || []);
-        setWorkflows(workflowsData || []);
+        setLoading(true);
+        const vendorId = user?.vendor_id;
+        console.log('🔍 Fetching projects for vendor_id:', vendorId);
         
-        // Set default workflow if available
-        if (workflowsData && workflowsData.length > 0) {
-          setFormData(prev => ({ ...prev, workflow_id: workflowsData[0].id }));
+        if (!vendorId) {
+          setError('No vendor ID found. Please contact administrator.');
+          setLoading(false);
+          return;
         }
+        
+        const response = await projectsService.list({ vendor_id: vendorId });
+        console.log('📦 Projects response:', response);
+        setProjects(response || []);
       } catch (err) {
-        console.error('Error fetching data:', err);
-        setError('Failed to load form data');
+        console.error('Error fetching projects:', err);
+        setError('Failed to load projects. Please try again.');
+      } finally {
+        setLoading(false);
       }
     };
-    fetchData();
-  }, []);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    
-    // Auto-populate vendor contact when vendor is selected
-    if (name === 'vendor_id') {
-      const selectedVendor = vendors.find(v => v.id === parseInt(value));
-      if (selectedVendor && selectedVendor.users && selectedVendor.users.length > 0) {
-        // Set first user as contact
-        setFormData(prev => ({
-          ...prev,
-          vendor_contact_user_id: selectedVendor.users[0].id
-        }));
-      }
+    if (user) {
+      fetchProjects();
     }
-  };
-
-  const handleFileSelect = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      // Validate file type
-      const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
-      if (!allowedTypes.includes(file.type)) {
-        setError('Please upload PDF or image files only');
-        e.target.value = '';
-        setFileName('No file chosen');
-        return;
-      }
-      
-      // Validate file size (max 10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        setError('File size must be less than 10MB');
-        e.target.value = '';
-        setFileName('No file chosen');
-        return;
-      }
-      
-      setSelectedFile(file);
-      setFileName(file.name);
-      setError(null);
-    } else {
-      setFileName('No file chosen');
-      setSelectedFile(null);
-    }
-  };
+  }, [user]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Validation
-    if (!formData.vendor_id) {
-      setError('Please select a vendor');
-      return;
-    }
     if (!formData.project_id) {
       setError('Please select a project');
       return;
     }
-    if (!formData.workflow_id) {
-      setError('Please select a workflow');
+
+    if (!formData.remarks || formData.remarks.trim().length < 3) {
+      setError('Please enter remarks (minimum 3 characters)');
       return;
     }
-    if (!formData.remarks || formData.remarks.length < 3) {
-      setError('Please provide remarks (minimum 3 characters)');
-      return;
-    }
+
+    setSubmitting(true);
+    setError(null);
+    setSuccess(null);
 
     try {
-      setLoading(true);
-      setError(null);
-      setSuccess(null);
-
-      // Create package
-      const newPackage = await packagesService.create({
-        vendor_id: formData.vendor_id,
-        vendor_contact_user_id: formData.vendor_contact_user_id || null,
-        project_id: formData.project_id,
-        workflow_id: formData.workflow_id,
-        remarks: formData.remarks
-      });
-
-      const packageId = newPackage?.id || newPackage?.package_id;
+      const vendorId = user?.vendor_id;
+      const userId = user?.id;
       
-      if (!packageId) {
-        throw new Error('Package ID not returned from server');
+      if (!vendorId) {
+        throw new Error('No vendor ID found. Please contact administrator.');
       }
 
-      // Upload file if selected
-      if (selectedFile) {
-        await packagesService.uploadFile(packageId, selectedFile);
+      // Prepare the data as form fields (not JSON)
+      const packageData = {
+        vendor_id: parseInt(vendorId),
+        project_id: parseInt(formData.project_id),
+        remarks: formData.remarks.trim()
+      };
+      
+      // Add vendor_contact_user_id if available
+      if (userId) {
+        packageData.vendor_contact_user_id = parseInt(userId);
       }
+
+      console.log('📦 Creating package with data:', packageData);
+      console.log('📦 Files to upload:', formData.files.length);
+      
+      // Create package with files
+      const createdPackage = await packagesService.create(packageData, formData.files);
+      console.log('✅ Package created successfully:', createdPackage);
 
       setSuccess('Package created successfully!');
-      
-      // Reset form
-      setFormData({
-        vendor_id: '',
-        vendor_contact_user_id: '',
-        project_id: '',
-        workflow_id: workflows.length > 0 ? workflows[0].id : '',
-        remarks: ''
-      });
-      setSelectedFile(null);
-      setFileName('No file chosen');
-      document.getElementById('fileInput').value = '';
-
       setTimeout(() => {
-        navigate('/admin');
+        navigate('/vendor/packages');
       }, 2000);
-      
+
     } catch (err) {
-      console.error('Error creating package:', err);
-      setError(err.message || 'Failed to create package');
+      console.error('❌ Error creating package:', err);
+      
+      let errorMessage = 'Failed to create package. Please try again.';
+      
+      if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
+  const handleFileChange = (e) => {
+    const files = Array.from(e.target.files);
+    setFormData({ ...formData, files });
+  };
+
+  const removeFile = (index) => {
+    const newFiles = [...formData.files];
+    newFiles.splice(index, 1);
+    setFormData({ ...formData, files: newFiles });
+  };
+
+  if (loading) {
+    return (
+      <div className="text-center py-5">
+        <div className="spinner-border text-primary" role="status">
+          <span className="visually-hidden">Loading...</span>
+        </div>
+        <p className="mt-3 text-muted">Loading your projects...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="container py-4">
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <h4>
-          <i className="bi bi-plus-circle me-2"></i>
-          Create New Package
-        </h4>
-        <button 
-          className="btn btn-outline-secondary btn-sm"
-          onClick={() => navigate('/admin')}
-        >
-          <i className="bi bi-arrow-left me-1"></i>
-          Back to Dashboard
-        </button>
-      </div>
+      <div className="row justify-content-center">
+        <div className="col-lg-8">
+          <div className="card border-0 shadow-sm" style={{ borderRadius: '12px' }}>
+            <div className="card-header bg-white border-bottom p-4">
+              <h4 className="mb-0 fw-bold">
+                <i className="bi bi-plus-circle text-primary me-2"></i>
+                Create New Package
+              </h4>
+              <p className="text-muted small mb-0">Submit a new package for approval workflow</p>
+            </div>
 
-      {error && (
-        <div className="alert alert-danger alert-dismissible fade show">
-          <i className="bi bi-exclamation-triangle-fill me-2"></i>
-          {error}
-          <button type="button" className="btn-close" onClick={() => setError(null)}></button>
-        </div>
-      )}
+            <div className="card-body p-4">
+              {error && (
+                <div className="alert alert-danger alert-dismissible fade show">
+                  <i className="bi bi-exclamation-triangle-fill me-2"></i>
+                  {error}
+                  <button type="button" className="btn-close" onClick={() => setError(null)}></button>
+                </div>
+              )}
 
-      {success && (
-        <div className="alert alert-success alert-dismissible fade show">
-          <i className="bi bi-check-circle-fill me-2"></i>
-          {success}
-          <button type="button" className="btn-close" onClick={() => setSuccess(null)}></button>
-        </div>
-      )}
+              {success && (
+                <div className="alert alert-success alert-dismissible fade show">
+                  <i className="bi bi-check-circle-fill me-2"></i>
+                  {success}
+                  <button type="button" className="btn-close" onClick={() => setSuccess(null)}></button>
+                </div>
+              )}
 
-      <div className="card">
-        <div className="card-body">
-          <form onSubmit={handleSubmit}>
-            <div className="row">
-              {/* Vendor Selection */}
-              <div className="col-md-6 mb-3">
-                <label className="form-label fw-bold">
-                  <i className="bi bi-building me-1"></i>
-                  Vendor *
-                </label>
-                <select
-                  className="form-select"
-                  name="vendor_id"
-                  value={formData.vendor_id}
-                  onChange={handleInputChange}
-                  required
-                >
-                  <option value="">Select a vendor</option>
-                  {vendors.map(vendor => (
-                    <option key={vendor.id} value={vendor.id}>
-                      {vendor.vendor_name} {vendor.vendor_code ? `(${vendor.vendor_code})` : ''}
-                    </option>
-                  ))}
-                </select>
-                {formData.vendor_id && (
-                  <small className="text-muted">
-                    Contact user will be auto-assigned
-                  </small>
-                )}
-              </div>
+              <form onSubmit={handleSubmit}>
+                <div className="mb-4">
+                  <label className="form-label fw-semibold">
+                    <i className="bi bi-folder text-primary me-1"></i>
+                    Select Project <span className="text-danger">*</span>
+                  </label>
+                  <select
+                    className="form-select"
+                    value={formData.project_id}
+                    onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
+                    required
+                  >
+                    <option value="">Choose a project...</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.project_name || project.name} {project.project_code ? `(${project.project_code})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {projects.length === 0 && (
+                    <div className="mt-2">
+                      <small className="text-warning">
+                        <i className="bi bi-exclamation-triangle me-1"></i>
+                        No projects assigned to you. Please contact the administrator.
+                      </small>
+                    </div>
+                  )}
+                </div>
 
-              {/* Project Selection */}
-              <div className="col-md-6 mb-3">
-                <label className="form-label fw-bold">
-                  <i className="bi bi-folder me-1"></i>
-                  Project *
-                </label>
-                <select
-                  className="form-select"
-                  name="project_id"
-                  value={formData.project_id}
-                  onChange={handleInputChange}
-                  required
-                >
-                  <option value="">Select a project</option>
-                  {projects.map(project => (
-                    <option key={project.id} value={project.id}>
-                      {project.project_name} {project.project_code ? `(${project.project_code})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Workflow Selection */}
-              <div className="col-md-6 mb-3">
-                <label className="form-label fw-bold">
-                  <i className="bi bi-diagram-3 me-1"></i>
-                  Workflow *
-                </label>
-                <select
-                  className="form-select"
-                  name="workflow_id"
-                  value={formData.workflow_id}
-                  onChange={handleInputChange}
-                  required
-                >
-                  <option value="">Select a workflow</option>
-                  {workflows.map(workflow => (
-                    <option key={workflow.id} value={workflow.id}>
-                      {workflow.workflow_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* File Upload */}
-              <div className="col-md-6 mb-3">
-                <label className="form-label fw-bold">
-                  <i className="bi bi-file-earmark me-1"></i>
-                  Upload Document
-                </label>
-                <div className="input-group">
-                  <input
-                    id="fileInput"
-                    type="file"
-                    className="d-none"
-                    onChange={handleFileSelect}
-                    accept=".pdf,.jpg,.jpeg,.png"
+                <div className="mb-4">
+                  <label className="form-label fw-semibold">
+                    <i className="bi bi-chat text-primary me-1"></i>
+                    Remarks <span className="text-danger">*</span>
+                  </label>
+                  <textarea
+                    className="form-control"
+                    rows="4"
+                    placeholder="Provide details about this package..."
+                    value={formData.remarks}
+                    onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                    required
+                    minLength="3"
                   />
+                  <small className="text-muted">
+                    Minimum 3 characters. Describe the package contents and purpose.
+                  </small>
+                </div>
+
+                <div className="mb-4">
+                  <label className="form-label fw-semibold">
+                    <i className="bi bi-file-earmark-arrow-up text-primary me-1"></i>
+                    Attach Files
+                  </label>
+                  <input
+                    type="file"
+                    className="form-control"
+                    multiple
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+                    onChange={handleFileChange}
+                  />
+                  <small className="text-muted">
+                    Supported formats: PDF, Word, Excel, Images (Max 10MB each)
+                  </small>
+
+                  {formData.files.length > 0 && (
+                    <div className="mt-3">
+                      <label className="fw-semibold small">Selected Files:</label>
+                      <div className="list-group mt-1">
+                        {formData.files.map((file, index) => (
+                          <div key={index} className="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                              <i className="bi bi-file-earmark-pdf text-danger me-2"></i>
+                              {file.name}
+                              <span className="text-muted ms-2 small">
+                                ({(file.size / 1024).toFixed(1)} KB)
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline-danger"
+                              onClick={() => removeFile(index)}
+                            >
+                              <i className="bi bi-x"></i>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="d-flex gap-2">
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={submitting || projects.length === 0}
+                  >
+                    {submitting ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                        Creating Package...
+                      </>
+                    ) : (
+                      <>
+                        <i className="bi bi-check-circle me-1"></i>
+                        Create Package
+                      </>
+                    )}
+                  </button>
                   <button
                     type="button"
                     className="btn btn-outline-secondary"
-                    onClick={() => document.getElementById('fileInput').click()}
+                    onClick={() => navigate('/vendor/packages')}
                   >
-                    <i className="bi bi-folder-open me-1"></i>
-                    Choose File
+                    Cancel
                   </button>
-                  <span className="form-control bg-light">{fileName}</span>
                 </div>
-                {selectedFile && (
-                  <div className="mt-2">
-                    <span className="badge bg-info">
-                      <i className="bi bi-file-earmark me-1"></i>
-                      {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)
-                    </span>
-                  </div>
-                )}
-                <small className="text-muted">
-                  <i className="bi bi-info-circle me-1"></i>
-                  Optional - PDF or image files, max 10MB
-                </small>
-              </div>
+              </form>
+            </div>
 
-              {/* Remarks */}
-              <div className="col-12 mb-3">
-                <label className="form-label fw-bold">
-                  <i className="bi bi-chat me-1"></i>
-                  Remarks *
-                </label>
-                <textarea
-                  className="form-control"
-                  name="remarks"
-                  rows="3"
-                  value={formData.remarks}
-                  onChange={handleInputChange}
-                  placeholder="Enter creation remarks (minimum 3 characters)..."
-                  required
-                />
-              </div>
-
-              {/* Submit Button */}
-              <div className="col-12">
-                <button
-                  type="submit"
-                  className="btn btn-primary btn-lg w-100"
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <>
-                      <span className="spinner-border spinner-border-sm me-2"></span>
-                      Creating Package...
-                    </>
-                  ) : (
-                    <>
-                      <i className="bi bi-plus-circle me-2"></i>
-                      Create Package
-                    </>
-                  )}
-                </button>
+            <div className="card-footer bg-light p-4">
+              <div className="d-flex align-items-start gap-2">
+                <i className="bi bi-info-circle text-primary mt-1"></i>
+                <div>
+                  <h6 className="mb-1 fw-semibold">Package Workflow Information</h6>
+                  <p className="mb-0 small text-muted">
+                    Once created, your package will be submitted to the Project Manager for review.
+                    You will be notified of any updates or requests for revision.
+                  </p>
+                </div>
               </div>
             </div>
-          </form>
+          </div>
         </div>
       </div>
     </div>
