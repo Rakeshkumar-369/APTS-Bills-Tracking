@@ -2,12 +2,14 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import ChangePasswordModal from '../components/ChangePasswordModal';
 
 export default function AdminLayout() {
   const { user, logout, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   console.log('🏗️ AdminLayout rendered with user:', user?.email);
 
@@ -41,7 +43,6 @@ export default function AdminLayout() {
     { path: '/admin/projects', label: 'Projects', icon: 'bi-folder' },
     { path: '/admin/roles', label: 'Roles', icon: 'bi-shield-lock' },
     { path: '/admin/workflows', label: 'Workflows', icon: 'bi-diagram-3' },
-    { path: '/admin/packages/create', label: 'Create Package', icon: 'bi-plus-circle' },
   ];
 
   const isActive = (path) => {
@@ -65,11 +66,18 @@ export default function AdminLayout() {
             <i className="bi bi-building-gear me-2"></i>
             APTS Admin Panel
           </span>
-          <div className="navbar-nav ms-auto">
+          <div className="navbar-nav ms-auto d-flex flex-row align-items-center">
             <span className="navbar-text text-white me-3">
               <i className="bi bi-person-circle me-1"></i>
               {user?.name || 'Admin'}
             </span>
+            <button
+              className="btn btn-outline-light btn-sm me-2"
+              onClick={() => setShowChangePassword(true)}
+            >
+              <i className="bi bi-shield-lock me-1"></i>
+              Change Password
+            </button>
             <button
               className="btn btn-outline-light btn-sm"
               onClick={() => {
@@ -121,6 +129,11 @@ export default function AdminLayout() {
           <Outlet />
         </main>
       </div>
+
+      <ChangePasswordModal
+        show={showChangePassword}
+        onClose={() => setShowChangePassword(false)}
+      />
     </div>
   );
 }
