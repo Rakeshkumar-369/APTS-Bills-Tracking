@@ -143,9 +143,7 @@ export default function AdminDashboard() {
                 <button className="btn btn-warning" onClick={() => navigate('/admin/roles')}>
                   <i className="bi bi-shield-plus me-1"></i> Manage Roles
                 </button>
-                <button className="btn btn-primary" onClick={() => navigate('/admin/packages/create')}>
-                  <i className="bi bi-plus-circle me-1"></i> Create Package
-                </button>
+    
               </div>
             </div>
           </div>
