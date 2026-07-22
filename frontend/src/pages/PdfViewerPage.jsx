@@ -1,65 +1,135 @@
-import React from 'react';
+// src/pages/PdfViewerPage.jsx
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 
-/**
- * PdfViewerPage
- * -------------------
- * Displays the submission's PDF across the entire page (not split with any
- * other panel). Reached only via the "View Document" link inside
- * SubmissionAudit. onBack returns to the audit view for that same submission.
- */
-export default function PdfViewerPage({ submission, onBack }) {
-  if (!submission) return null;
+export default function PdfViewerPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const submission = location.state?.submission || null;
+  const [loadError, setLoadError] = useState(false);
+
+  console.log('📄 PdfViewerPage - Submission:', submission);
+
+  useEffect(() => {
+    // Log the file URL for debugging
+    if (submission) {
+      console.log('📄 File URL:', submission.fileUrl);
+      console.log('📄 File Name:', submission.fileName);
+    }
+  }, [submission]);
+
+  if (!submission) {
+    return (
+      <div className="d-flex align-items-center justify-content-center vh-100 bg-light">
+        <div className="text-center">
+          <i className="bi bi-file-earmark-pdf fs-1 text-muted mb-3 d-block"></i>
+          <h5 className="text-muted">No document to display</h5>
+          <p className="text-muted small">No submission data was provided</p>
+          <button 
+            className="btn btn-primary mt-3"
+            onClick={() => navigate(-1)}
+          >
+            <i className="bi bi-arrow-left me-1"></i> Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Check if fileUrl exists and is valid
+  const hasValidFile = submission.fileUrl && 
+                       submission.fileUrl !== 'null' && 
+                       submission.fileUrl !== 'undefined' &&
+                       submission.fileUrl.trim() !== '';
+
+  console.log('📄 Has valid file:', hasValidFile);
 
   return (
-    <div className="d-flex flex-column" style={{ height: 'calc(100vh - 32px)' }}>
-      <div className="bg-white border-bottom px-3 py-2 d-flex align-items-center justify-content-between shadow-3xs">
-        <div className="d-flex align-items-center gap-2 text-truncate pe-2">
+    <div className="d-flex flex-column vh-100 bg-light">
+      {/* Header */}
+      <div className="bg-white border-bottom px-4 py-3 d-flex align-items-center justify-content-between shadow-sm" style={{ zIndex: 10, flexShrink: 0 }}>
+        <div className="d-flex align-items-center gap-3">
           <button
-            onClick={onBack}
-            className="btn btn-outline-secondary btn-sm rounded-circle px-2 py-1 border-0 bg-white shadow-xs me-2"
+            onClick={() => navigate(-1)}
+            className="btn btn-outline-secondary btn-sm"
           >
-            <i className="bi bi-arrow-left"></i>
+            <i className="bi bi-arrow-left me-1"></i> Back
           </button>
-          <i className="bi bi-file-earmark-pdf-fill text-danger fs-5"></i>
-          <span className="fs-7.5 fw-bold text-dark text-truncate">{submission.fileName}</span>
-          {submission.fileSize && (
-            <span className="text-muted fs-8 font-monospace">({submission.fileSize})</span>
-          )}
+          <div>
+            <h5 className="mb-0 fw-bold">
+              <i className="bi bi-file-earmark-pdf-fill text-danger me-2"></i>
+              {submission.fileName || 'Document'}
+            </h5>
+            <small className="text-muted">
+              {submission.id} • {submission.fileSize || 'N/A'}
+            </small>
+          </div>
         </div>
-        {submission.fileUrl && (
+        {hasValidFile && (
           <a
             href={submission.fileUrl}
             target="_blank"
             rel="noreferrer"
-            className="btn btn-outline-primary btn-xs px-2 py-1 rounded d-flex align-items-center gap-1 font-monospace fs-8 fw-bold bg-white shadow-3xs"
+            className="btn btn-primary btn-sm"
           >
-            <i className="bi bi-fullscreen"></i> Open In New Tab
+            <i className="bi bi-box-arrow-up-right me-1"></i> Open in New Tab
           </a>
         )}
       </div>
 
-      <div className="flex-grow-1 p-0 bg-secondary bg-opacity-10">
-        {submission.fileUrl ? (
-          <iframe
-            src={submission.fileUrl}
-            title="Workflow Particulars Document Canvas Layer"
-            className="w-100 h-100 border-0"
-          />
+      {/* PDF Viewer */}
+      <div className="flex-grow-1 p-0" style={{ height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
+        {hasValidFile ? (
+          !loadError ? (
+            <iframe
+              src={submission.fileUrl}
+              title="PDF Viewer"
+              className="w-100 h-100 border-0"
+              style={{ backgroundColor: '#f8fafc' }}
+              onError={() => {
+                console.error('❌ Iframe failed to load PDF:', submission.fileUrl);
+                setLoadError(true);
+              }}
+            />
+          ) : (
+            <div className="d-flex align-items-center justify-content-center h-100">
+              <div className="text-center">
+                <i className="bi bi-exclamation-triangle fs-1 text-danger mb-3 d-block"></i>
+                <h5 className="text-danger">Failed to load PDF</h5>
+                <p className="text-muted small">The document could not be loaded. Please try opening in a new tab.</p>
+                <a 
+                  href={submission.fileUrl} 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="btn btn-primary mt-2"
+                >
+                  <i className="bi bi-box-arrow-up-right me-1"></i> Open in New Tab
+                </a>
+                <button 
+                  className="btn btn-secondary mt-2 ms-2"
+                  onClick={() => navigate(-1)}
+                >
+                  <i className="bi bi-arrow-left me-1"></i> Go Back
+                </button>
+              </div>
+            </div>
+          )
         ) : (
-          <div className="d-flex align-items-center justify-content-center h-100 p-5 text-muted font-monospace fs-8 text-uppercase">
-            <i className="bi bi-exclamation-triangle me-1 text-warning"></i> File buffer location path vector missing
+          <div className="d-flex align-items-center justify-content-center h-100">
+            <div className="text-center">
+              <i className="bi bi-file-earmark-pdf fs-1 text-muted mb-3 d-block"></i>
+              <h5 className="text-muted">No PDF available</h5>
+              <p className="text-muted small">The document file could not be found for this package</p>
+              <button 
+                className="btn btn-secondary mt-3"
+                onClick={() => navigate(-1)}
+              >
+                <i className="bi bi-arrow-left me-1"></i> Go Back
+              </button>
+            </div>
           </div>
         )}
       </div>
-
-      <div className="bg-light border-top p-2.5 text-center fs-8 fw-bold text-muted uppercase font-monospace">
-        Portal Embedded Document Canvas Frame v3.0 &bull; Live Render Model
-      </div>
-
-      <style>{`
-        .fs-7.5 { font-size: 0.825rem !important; }
-        .shadow-3xs { box-shadow: 0 1px 2px rgba(0,0,0,0.03) !important; }
-      `}</style>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-// src/services/packagesService.js (Updated download method)
+// src/services/packagesService.js
 import api from './apiClient';
 import { toQueryString } from './queryString';
 
@@ -16,16 +16,15 @@ export const packagesService = {
   },
 
   async get(id, { includeDetails = true } = {}) {
-  try {
-    const response = await api.get(`/packages/${id}${toQueryString({ include_details: includeDetails })}`);
-    // Backend wraps a single package in a one-item array — unwrap it here.
-    const pkg = Array.isArray(response) ? response[0] : response;
-    return pkg || null;
-  } catch (error) {
-    console.error('❌ packagesService.get error:', error);
-    return null;
-  }
-},
+    try {
+      const response = await api.get(`/packages/${id}${toQueryString({ include_details: includeDetails })}`);
+      const pkg = Array.isArray(response) ? response[0] : response;
+      return pkg || null;
+    } catch (error) {
+      console.error('❌ packagesService.get error:', error);
+      return null;
+    }
+  },
 
   async create(data, files = []) {
     console.log('📦 packagesService.create called with:', data, 'Files:', files.length);
@@ -164,6 +163,12 @@ export const packagesService = {
     return `${base}/packages/${packageId}/files/${fileId}/download`;
   },
 
+  fileViewUrl(packageId, fileId) {
+    const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+    // Using the download endpoint with view=true parameter
+    return `${base}/packages/${packageId}/files/${fileId}/download?view=true`;
+  },
+
   async downloadFile(packageId, fileId, filename) {
     try {
       const token = localStorage.getItem('accessToken');
@@ -188,7 +193,6 @@ export const packagesService = {
         throw new Error(`Download failed: ${response.status} - ${errorText}`);
       }
       
-      // Get the filename from Content-Disposition header if available
       let downloadFilename = filename || 'download';
       const contentDisposition = response.headers.get('Content-Disposition');
       if (contentDisposition) {
@@ -216,6 +220,47 @@ export const packagesService = {
       throw error;
     }
   },
+
+  async viewFile(packageId, fileId) {
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (!token) {
+        throw new Error('No access token found');
+      }
+
+      const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+      // Using the download endpoint with view=true parameter
+      const url = `${base}/packages/${packageId}/files/${fileId}/download?view=true`;
+      
+      console.log('👁️ Viewing file from:', url);
+      
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ View failed:', errorText);
+        throw new Error(`View failed: ${response.status} - ${errorText}`);
+      }
+      
+      const blob = await response.blob();
+      const contentType = response.headers.get('Content-Type') || 'application/pdf';
+      const viewUrl = window.URL.createObjectURL(blob);
+      
+      return {
+        blob,
+        viewUrl,
+        contentType
+      };
+      
+    } catch (error) {
+      console.error('❌ View error:', error);
+      throw error;
+    }
+  }
 };
 
 export default packagesService;

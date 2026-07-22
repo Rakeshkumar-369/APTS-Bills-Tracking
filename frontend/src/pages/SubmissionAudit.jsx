@@ -1,3 +1,4 @@
+// src/components/SubmissionAudit.jsx
 import React from 'react';
 
 /**
@@ -87,18 +88,22 @@ export default function SubmissionAudit({
               Preceding Activity Trails
             </span>
             <div className="bg-light bg-opacity-50 border border-light-subtle rounded-3 p-3 overflow-auto" style={{ maxHeight: '320px' }}>
-              {submission.history.map((log, index) => (
-                <div key={index} className="fs-8 border-bottom border-light-subtle pb-2 mb-2 last-border-0">
-                  <div className="d-flex align-items-center justify-content-between mb-0.5">
-                    <span className="fw-bold text-dark">{log.actor}</span>
-                    <span className="text-muted font-monospace">{log.date}</span>
+              {submission.history && submission.history.length > 0 ? (
+                submission.history.map((log, index) => (
+                  <div key={index} className="fs-8 border-bottom border-light-subtle pb-2 mb-2 last-border-0">
+                    <div className="d-flex align-items-center justify-content-between mb-0.5">
+                      <span className="fw-bold text-dark">{log.actor}</span>
+                      <span className="text-muted font-monospace">{log.date}</span>
+                    </div>
+                    <span className="d-block text-primary fw-semibold fs-8.5">{log.action}</span>
+                    {log.remarks && (
+                      <p className="text-secondary italic mb-0 mt-0.5 bg-white p-1.5 rounded border shadow-3xs">"{log.remarks}"</p>
+                    )}
                   </div>
-                  <span className="d-block text-primary fw-semibold fs-8.5">{log.action}</span>
-                  {log.remarks && (
-                    <p className="text-secondary italic mb-0 mt-0.5 bg-white p-1.5 rounded border shadow-3xs">"{log.remarks}"</p>
-                  )}
-                </div>
-              ))}
+                ))
+              ) : (
+                <div className="text-center text-muted py-3">No activity history available</div>
+              )}
             </div>
           </div>
 

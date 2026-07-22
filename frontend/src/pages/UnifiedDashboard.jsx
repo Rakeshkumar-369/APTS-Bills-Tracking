@@ -1,4 +1,4 @@
-// src/pages/UnifiedDashboard.jsx (Fixed handleViewPackage)
+// src/pages/UnifiedDashboard.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { packagesService } from '../services';
@@ -21,6 +21,7 @@ export default function UnifiedDashboard() {
   const [successMessage, setSuccessMessage] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [viewingFile, setViewingFile] = useState(false);
   const [inboxStats, setInboxStats] = useState({
     total: 0,
     pending: 0,
@@ -163,7 +164,6 @@ export default function UnifiedDashboard() {
         const packagesWithDetails = await Promise.all(
           packagesData.map(async (pkg) => {
             try {
-              // Get the package ID - handle different possible field names
               const pkgId = pkg.id || pkg.package_id || pkg.ID;
               if (pkgId) {
                 const details = await packagesService.get(pkgId, { includeDetails: true });
@@ -224,8 +224,60 @@ export default function UnifiedDashboard() {
     }
   };
 
+  // Handle View File - Using packagesService
+  const handleViewFile = async (packageId, fileId, filename) => {
+    if (!packageId || !fileId) {
+      alert('Invalid file or package ID');
+      return;
+    }
+
+    setViewingFile(true);
+    try {
+      console.log('👁️ Viewing file:', filename, 'Package:', packageId, 'File:', fileId);
+      
+      // Use the service to get the file
+      const result = await packagesService.viewFile(packageId, fileId);
+      
+      if (!result || !result.viewUrl) {
+        throw new Error('Failed to get file for viewing');
+      }
+      
+      // Check if the content type is a PDF or image that can be displayed
+      const isPDF = result.contentType?.includes('pdf');
+      const isImage = result.contentType?.includes('image');
+      const isText = result.contentType?.includes('text');
+      
+      if (isPDF || isImage || isText) {
+        // Open in new tab with the blob URL
+        const newWindow = window.open(result.viewUrl, '_blank');
+        if (!newWindow || newWindow.closed) {
+          // If popup blocked, try alternative - create a temporary link
+          alert('Please allow popups for this site to view documents.');
+          // Clean up the URL
+          window.URL.revokeObjectURL(result.viewUrl);
+        } else {
+          // Clean up the URL after a delay
+          setTimeout(() => {
+            window.URL.revokeObjectURL(result.viewUrl);
+          }, 30000);
+        }
+      } else {
+        // For other file types, download instead
+        alert('This file type cannot be viewed directly. Please use the download button.');
+        window.URL.revokeObjectURL(result.viewUrl);
+        // Trigger download
+        await handleDownloadFile(packageId, fileId, filename);
+      }
+      
+    } catch (err) {
+      console.error('❌ View file error:', err);
+      alert(`Failed to view document: ${err.message || 'Unknown error'}`);
+    } finally {
+      setViewingFile(false);
+    }
+  };
+
   const handleViewPackage = async (item) => {
-    // Get the package ID - handle different possible field names
     const pkgId = item?.id || item?.package_id || item?.ID;
     
     if (!pkgId) {
@@ -237,14 +289,12 @@ export default function UnifiedDashboard() {
     setLoadingDetails(true);
     try {
       console.log('🔍 Fetching package details for ID:', pkgId);
-      // Fetch full details with files
       const details = await packagesService.get(pkgId, { includeDetails: true });
       console.log('📦 Package details:', details);
       setSelectedItem(details || item);
       setShowViewModal(true);
     } catch (err) {
       console.error('❌ Error fetching package details:', err);
-      // Fallback: use the existing item data
       setSelectedItem(item);
       setShowViewModal(true);
     } finally {
@@ -270,7 +320,6 @@ export default function UnifiedDashboard() {
         throw new Error('No access token found');
       }
 
-      // Get the package ID
       const pkgId = selectedItem?.id || selectedItem?.package_id || selectedItem?.ID;
       if (!pkgId) {
         throw new Error('Package ID not found');
@@ -453,49 +502,49 @@ export default function UnifiedDashboard() {
       )}
 
       {/* Header Section */}
-<div className="rounded-4 p-4 mb-4" style={{
-  background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-  boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
-}}>
-  <div className="d-flex flex-wrap justify-content-between align-items-center">
-    <div>
-      <h2 className="mb-1 fw-bold text-white d-flex align-items-center gap-2">
-        <i className="bi bi-speedometer2"></i>
-        {roleDisplayName} Dashboard
-      </h2>
-      <p className="text-white-50 small mb-0">
-        <i className="bi bi-person-circle me-1"></i>
-        {userDisplayName} • {roleDescription}
-      </p>
-    </div>
-    <div className="d-flex gap-2 flex-wrap">
-      <button 
-        className="btn btn-light btn-sm fw-semibold"
-        onClick={() => {
-          fetchData();
-          if (['pm', 'tpa', 'jdinfra', 'apts'].includes(userRole)) {
-            fetchInboxStats();
-          }
-        }}
-        style={{ borderRadius: '8px' }}
-      >
-        <i className="bi bi-arrow-counterclockwise me-1"></i> Refresh
-      </button>
-      <span className="badge bg-white text-dark p-2 fw-semibold" style={{ 
-  borderRadius: '8px',
-  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-}}>
-  <i className="bi bi-calendar3 me-1 text-primary"></i>
-  {new Date().toLocaleDateString('en-US', { 
-    weekday: 'short', 
-    year: 'numeric', 
-    month: 'short', 
-    day: 'numeric' 
-  })}
-</span>
-    </div>
-  </div>
-</div>
+      <div className="rounded-4 p-4 mb-4" style={{
+        background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
+      }}>
+        <div className="d-flex flex-wrap justify-content-between align-items-center">
+          <div>
+            <h2 className="mb-1 fw-bold text-white d-flex align-items-center gap-2">
+              <i className="bi bi-speedometer2"></i>
+              {roleDisplayName} Dashboard
+            </h2>
+            <p className="text-white-50 small mb-0">
+              <i className="bi bi-person-circle me-1"></i>
+              {userDisplayName} • {roleDescription}
+            </p>
+          </div>
+          <div className="d-flex gap-2 flex-wrap">
+            <button 
+              className="btn btn-light btn-sm fw-semibold"
+              onClick={() => {
+                fetchData();
+                if (['pm', 'tpa', 'jdinfra', 'apts'].includes(userRole)) {
+                  fetchInboxStats();
+                }
+              }}
+              style={{ borderRadius: '8px' }}
+            >
+              <i className="bi bi-arrow-counterclockwise me-1"></i> Refresh
+            </button>
+            <span className="badge bg-white text-dark p-2 fw-semibold" style={{ 
+              borderRadius: '8px',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+              <i className="bi bi-calendar3 me-1 text-primary"></i>
+              {new Date().toLocaleDateString('en-US', { 
+                weekday: 'short', 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+              })}
+            </span>
+          </div>
+        </div>
+      </div>
 
       {/* Stats Cards */}
       <div className="row g-3 mb-4">
@@ -791,7 +840,7 @@ export default function UnifiedDashboard() {
                               ) : (
                                 <i className="bi bi-eye me-1"></i>
                               )}
-                              View
+                              View 
                             </button>
                             {item.status?.toUpperCase() === 'RETURNED' && userRole === 'vendor' && (
                               <button 
@@ -848,7 +897,7 @@ export default function UnifiedDashboard() {
         </div>
       </div>
 
-      {/* View Modal */}
+      {/* View Modal with View Document buttons */}
       {showViewModal && selectedItem && (
         <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9998 }}>
           <div className="modal-dialog modal-dialog-centered modal-lg">
@@ -906,7 +955,7 @@ export default function UnifiedDashboard() {
                     </div>
                   </div>
                   
-                  {/* Files Section */}
+                  {/* Files Section with View and Download buttons */}
                   <div className="col-12">
                     <div className="bg-light p-3 rounded-3">
                       <label className="text-muted small fw-semibold">Attached Files</label>
@@ -915,28 +964,48 @@ export default function UnifiedDashboard() {
                           {selectedItem.files.map((file, idx) => {
                             const fileId = file.id || file.file_id || file.ID;
                             const pkgId = selectedItem.id || selectedItem.package_id || selectedItem.ID;
+                            const fileName = file.original_name || file.filename || `File ${idx + 1}`;
+                            
                             return (
                               <div key={idx} className="d-flex align-items-center gap-2 mb-2 p-2 bg-white rounded border">
                                 <i className="bi bi-file-earmark-pdf-fill text-danger fs-4"></i>
                                 <div className="flex-grow-1">
-                                  <div className="fw-semibold">{file.original_name || file.filename || `File ${idx + 1}`}</div>
+                                  <div className="fw-semibold">{fileName}</div>
                                   <small className="text-muted">
                                     {file.file_size ? `${(file.file_size / 1024).toFixed(1)} KB` : ''}
                                     {file.mime_type ? ` • ${file.mime_type}` : ''}
                                   </small>
                                 </div>
-                                <button 
-                                  className="btn btn-sm btn-primary"
-                                  onClick={() => handleDownloadFile(pkgId, fileId, file.original_name || file.filename)}
-                                  disabled={downloading || !pkgId || !fileId}
-                                >
-                                  {downloading ? (
-                                    <span className="spinner-border spinner-border-sm me-1" role="status"></span>
-                                  ) : (
-                                    <i className="bi bi-download me-1"></i>
-                                  )}
-                                  Download
-                                </button>
+                                <div className="d-flex gap-2">
+                                  {/* View Document Button */}
+                                  <button 
+                                    className="btn btn-sm btn-outline-primary"
+                                    style={{ borderRadius: '6px' }}
+                                    onClick={() => handleViewFile(pkgId, fileId, fileName)}
+                                    disabled={viewingFile || !pkgId || !fileId}
+                                  >
+                                    {viewingFile ? (
+                                      <span className="spinner-border spinner-border-sm me-1" role="status"></span>
+                                    ) : (
+                                      <i className="bi bi-eye me-1"></i>
+                                    )}
+                                    View pdf
+                                  </button>
+                                  {/* Download Button */}
+                                  <button 
+                                    className="btn btn-sm btn-primary"
+                                    style={{ borderRadius: '6px' }}
+                                    onClick={() => handleDownloadFile(pkgId, fileId, fileName)}
+                                    disabled={downloading || !pkgId || !fileId}
+                                  >
+                                    {downloading ? (
+                                      <span className="spinner-border spinner-border-sm me-1" role="status"></span>
+                                    ) : (
+                                      <i className="bi bi-download me-1"></i>
+                                    )}
+                                    Download
+                                  </button>
+                                </div>
                               </div>
                             );
                           })}

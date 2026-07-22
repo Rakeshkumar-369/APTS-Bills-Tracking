@@ -28,6 +28,7 @@ import Inbox from './pages/Inbox';
 import MyPackages from './pages/MyPackages';
 import PackageDetail from './pages/PackageDetail';
 import MatchInvoice from './pages/MatchInvoice';
+import PdfViewerPage from './pages/PdfViewerPage';
 
 // Loading Screen Component
 function LoadingScreen() {
@@ -59,6 +60,11 @@ export default function App() {
       {/* Public Routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<RoleBasedRedirect />} />
+
+      {/* ============ PDF VIEWER - Outside of any layout ============ */}
+      <Route element={<ProtectedRoute />}>
+        <Route path="/pdf-viewer" element={<PdfViewerPage />} />
+      </Route>
 
       {/* ============ ADMIN ROUTES ============ */}
       <Route element={<ProtectedRoute />}>
