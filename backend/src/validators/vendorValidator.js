@@ -58,4 +58,12 @@ const updateVendorValidation = [
   handleValidationErrors
 ];
 
-module.exports = { createVendorValidation, updateVendorValidation };
+const assignVendorProjectValidation = [
+  body('project_id')
+    .notEmpty().withMessage('Project ID is required')
+    .isInt({ min: 1 }).withMessage('Project ID must be a positive integer')
+    .toInt(),
+  handleValidationErrors
+];
+
+module.exports = { createVendorValidation, updateVendorValidation, assignVendorProjectValidation };
