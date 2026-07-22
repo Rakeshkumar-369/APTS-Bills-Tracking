@@ -453,41 +453,49 @@ export default function UnifiedDashboard() {
       )}
 
       {/* Header Section */}
-      <div className="rounded-4 p-4 mb-4" style={{
-        background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
-      }}>
-        <div className="d-flex flex-wrap justify-content-between align-items-center">
-          <div>
-            <h2 className="mb-1 fw-bold text-white d-flex align-items-center gap-2">
-              <i className="bi bi-speedometer2"></i>
-              {roleDisplayName} Dashboard
-            </h2>
-            <p className="text-white-50 small mb-0">
-              <i className="bi bi-person-circle me-1"></i>
-              {userDisplayName} • {roleDescription}
-            </p>
-          </div>
-          <div className="d-flex gap-2 flex-wrap">
-            <button 
-              className="btn btn-light btn-sm fw-semibold"
-              onClick={() => {
-                fetchData();
-                if (['pm', 'tpa', 'jdinfra', 'apts'].includes(userRole)) {
-                  fetchInboxStats();
-                }
-              }}
-              style={{ borderRadius: '8px' }}
-            >
-              <i className="bi bi-arrow-counterclockwise me-1"></i> Refresh
-            </button>
-            <span className="badge bg-white bg-opacity-20 text-white p-2" style={{ borderRadius: '8px' }}>
-              <i className="bi bi-clock me-1"></i>
-              {new Date().toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
-            </span>
-          </div>
-        </div>
-      </div>
+<div className="rounded-4 p-4 mb-4" style={{
+  background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+  boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
+}}>
+  <div className="d-flex flex-wrap justify-content-between align-items-center">
+    <div>
+      <h2 className="mb-1 fw-bold text-white d-flex align-items-center gap-2">
+        <i className="bi bi-speedometer2"></i>
+        {roleDisplayName} Dashboard
+      </h2>
+      <p className="text-white-50 small mb-0">
+        <i className="bi bi-person-circle me-1"></i>
+        {userDisplayName} • {roleDescription}
+      </p>
+    </div>
+    <div className="d-flex gap-2 flex-wrap">
+      <button 
+        className="btn btn-light btn-sm fw-semibold"
+        onClick={() => {
+          fetchData();
+          if (['pm', 'tpa', 'jdinfra', 'apts'].includes(userRole)) {
+            fetchInboxStats();
+          }
+        }}
+        style={{ borderRadius: '8px' }}
+      >
+        <i className="bi bi-arrow-counterclockwise me-1"></i> Refresh
+      </button>
+      <span className="badge bg-white text-dark p-2 fw-semibold" style={{ 
+  borderRadius: '8px',
+  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+}}>
+  <i className="bi bi-calendar3 me-1 text-primary"></i>
+  {new Date().toLocaleDateString('en-US', { 
+    weekday: 'short', 
+    year: 'numeric', 
+    month: 'short', 
+    day: 'numeric' 
+  })}
+</span>
+    </div>
+  </div>
+</div>
 
       {/* Stats Cards */}
       <div className="row g-3 mb-4">
