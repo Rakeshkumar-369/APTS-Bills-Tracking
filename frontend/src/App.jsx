@@ -77,8 +77,6 @@ export default function App() {
             <Route path="roles" element={<RolesAdmin />} />
             <Route path="workflows" element={<WorkflowsAdmin />} />
             <Route path="workflows/:id" element={<WorkflowDetail />} />
-            <Route path="packages/create" element={<PackageCreate />} />
-            <Route path="packages/:id" element={<PackageDetail />} />
             <Route path="*" element={<Navigate to="/admin" replace />} />
           </Route>
         </Route>

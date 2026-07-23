@@ -7,7 +7,6 @@ import ProjectsAdmin from './ProjectsAdmin';
 import RolesAdmin from './RolesAdmin';
 import WorkflowsAdmin from './WorkflowsAdmin';
 import WorkflowDetail from './WorkflowDetail';
-import PackageCreate from '../PackageCreate';
 import { useAuth } from '../../context/AuthContext';
 import { packagesService, usersService, vendorsService, projectsService } from '../../services';
 
@@ -174,7 +173,6 @@ export default function AdminDashboard() {
         <Route path="roles" element={<RolesAdmin />} />
         <Route path="workflows" element={<WorkflowsAdmin />} />
         <Route path="workflows/:id" element={<WorkflowDetail />} />
-        <Route path="packages/create" element={<PackageCreate />} />
       </Routes>
     </div>
   );

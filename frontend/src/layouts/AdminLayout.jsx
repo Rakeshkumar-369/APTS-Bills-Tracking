@@ -96,7 +96,6 @@ export default function AdminLayout() {
     { path: '/admin/projects', label: 'Projects', icon: 'bi-folder' },
     { path: '/admin/roles', label: 'Roles', icon: 'bi-shield-lock' },
     { path: '/admin/workflows', label: 'Workflows', icon: 'bi-diagram-3' },
-    { path: '/admin/packages/create', label: 'Create Package', icon: 'bi-plus-circle' },
   ];
 
   const isActive = (path) => {

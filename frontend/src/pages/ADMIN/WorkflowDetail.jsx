@@ -53,12 +53,17 @@ export default function WorkflowDetail({ workflow, roles, onBack }) {
     try {
       setLoading(true);
       setError(null);
+
+      const payload = {
+        ...stepForm,
+        step_code: stepForm.step_code.trim()
+      };
       
       if (editingStep) {
-        await workflowsService.updateStep(editingStep.id, stepForm);
+        await workflowsService.updateStep(editingStep.id, payload);
         setSuccess('Step updated successfully!');
       } else {
-        await workflowsService.createStep(workflow.id, stepForm);
+        await workflowsService.createStep(workflow.id, payload);
         setSuccess('Step created successfully!');
       }
       
@@ -66,8 +71,8 @@ export default function WorkflowDetail({ workflow, roles, onBack }) {
       resetStepForm();
       fetchWorkflowDetails();
       setTimeout(() => setSuccess(null), 3000);
-    } catch (err) {
-      setError(err.message || 'Failed to save step');
+   } catch (err) {
+  setError(err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to save step');
     } finally {
       setLoading(false);
     }
@@ -94,7 +99,7 @@ export default function WorkflowDetail({ workflow, roles, onBack }) {
       fetchWorkflowDetails();
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to create transition');
+  setError(err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to create transition');
     } finally {
       setLoading(false);
     }
@@ -110,7 +115,7 @@ export default function WorkflowDetail({ workflow, roles, onBack }) {
       fetchWorkflowDetails();
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to delete step');
+  setError(err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to delete step');
     } finally {
       setLoading(false);
     }
@@ -126,7 +131,7 @@ export default function WorkflowDetail({ workflow, roles, onBack }) {
       fetchWorkflowDetails();
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to delete transition');
+  setError(err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to delete transition');
     } finally {
       setLoading(false);
     }
@@ -213,13 +218,6 @@ export default function WorkflowDetail({ workflow, roles, onBack }) {
           </button>
         </div>
       </div>
-
-      {error && (
-        <div className="alert alert-danger alert-dismissible fade show">
-          {error}
-          <button type="button" className="btn-close" onClick={() => setError(null)}></button>
-        </div>
-      )}
 
       {success && (
         <div className="alert alert-success alert-dismissible fade show">
@@ -340,8 +338,14 @@ export default function WorkflowDetail({ workflow, roles, onBack }) {
               </div>
               <form onSubmit={handleStepSubmit}>
                 <div className="modal-body">
-                  <div className="mb-3">
-                    <label className="form-label">Step Order *</label>
+  {error && (
+    <div className="alert alert-danger alert-dismissible fade show py-2">
+      {error}
+      <button type="button" className="btn-close" onClick={() => setError(null)}></button>
+    </div>
+  )}
+  <div className="mb-3">
+    <label className="form-label">Step Order *</label>
                     <input
                       type="number"
                       className="form-control"
@@ -416,8 +420,14 @@ export default function WorkflowDetail({ workflow, roles, onBack }) {
               </div>
               <form onSubmit={handleTransitionSubmit}>
                 <div className="modal-body">
-                  <div className="mb-3">
-                    <label className="form-label">From Step (Optional)</label>
+  {error && (
+    <div className="alert alert-danger alert-dismissible fade show py-2">
+      {error}
+      <button type="button" className="btn-close" onClick={() => setError(null)}></button>
+    </div>
+  )}
+  <div className="mb-3">
+    <label className="form-label">From Step (Optional)</label>
                     <select
                       className="form-select"
                       name="from_step_id"
