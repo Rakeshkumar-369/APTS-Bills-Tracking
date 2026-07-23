@@ -18,6 +18,20 @@ Route (HTTP) → Validator → Controller → Service → Repository → MySQL
 
 **Convention:** CommonJS (`require`/`module.exports`), functional services, class-based repositories.
 
+### Validation Rules
+
+All names (role names, workflow names, step names) follow these rules:
+
+| Rule | Applied to | Regex / Check |
+|------|-----------|---------------|
+| **Alphabets + numbers + spaces only** | `role_name`, `workflow_name`, `step_name` | `/^[A-Za-z0-9]+(?: [A-Za-z0-9]+)*$/` — no hyphens, underscores, or special chars |
+| **Trimmed** | All name fields | `.trim()` runs before `.matches()` — leading/trailing spaces stripped first, then validated |
+| **Unique** | `role_name`, `workflow_name` | DB `UNIQUE` constraint + app-layer 409 check on create & update |
+| **Escaped** | All text fields | `.escape()` converts HTML entities to prevent XSS |
+
+Example valid names: `Standard Workflow`, `PM 2`, `AuditStep3`
+Example invalid names: `JD-Infra` (hyphen), `PM_Verify` (underscore), `  Lead ` (leading space)
+
 ---
 
 ## Complete Flow
@@ -159,7 +173,7 @@ A **workflow** is a named sequence of ordered **steps**. Each step is handled by
 | GET | `/api/users` | `user_management.read` | List users (paginated). Query: `?search=&role_id=&is_active=&vendor_id=&limit=&offset=` |
 | GET | `/api/users/roles` | — | List all roles (for dropdowns) |
 | GET | `/api/users/:id` | `user_management.read` | Get user by ID |
-| POST | `/api/users` | `user_management.create` | Create user. Body: `{name, email, password, role_id, vendor_id?, designation?, phone?}` |
+| POST | `/api/users` | `user_management.create` | Create user. Body: `{name, email, password, role_id, vendor_id?, designation?, phone?}` — **duplicate email checked against ALL users** (active + deleted) |
 | PUT | `/api/users/:id` | `user_management.update` | Update user. Body: `{name?, role_id?, vendor_id?, is_active?, has_digital_signature?}` |
 | DELETE | `/api/users/:id` | `user_management.delete` | Soft-delete user |
 
@@ -210,6 +224,7 @@ A **workflow** is a named sequence of ordered **steps**. Each step is handled by
 | DELETE | `/api/workflows/steps/:id` | `workflow.configure_steps` | Soft-delete step |
 | GET | `/api/workflows/:id/transitions` | `workflow.configure_steps` | Get transitions |
 | POST | `/api/workflows/:id/transitions` | `workflow.configure_steps` | Create transition. Body: `{from_step_id?, to_step_id, transition_type, allowed_role_id}` |
+| PUT | `/api/workflows/transitions/:id` | `workflow.configure_steps` | Update transition (all fields optional). Body: `{from_step_id?, to_step_id?, transition_type?, allowed_role_id?, is_active?}` |
 | DELETE | `/api/workflows/transitions/:id` | `workflow.configure_steps` | Soft-delete transition |
 
 ### Packages (Core Workflow)

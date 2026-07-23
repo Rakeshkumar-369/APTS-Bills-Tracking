@@ -152,6 +152,14 @@ class UserRepository {
 
   // ── USER MANAGEMENT ──
 
+  async findByEmailAll(email) {
+    const [rows] = await pool.query(
+      'SELECT id, email, is_active FROM users WHERE email = ?',
+      [email]
+    );
+    return rows[0];
+  }
+
   async createUser({ name, email, password_hash, role_id, designation, phone, vendor_id }) {
     const [result] = await pool.query(
       `INSERT INTO users (name, email, password_hash, role_id, designation, phone, vendor_id)

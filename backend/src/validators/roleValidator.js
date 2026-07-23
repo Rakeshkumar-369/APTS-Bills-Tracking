@@ -5,8 +5,9 @@ const createRoleValidation = [
   body('role_name')
     .notEmpty().withMessage('Role name is required')
     .isLength({ min: 2, max: 20 }).withMessage('Role name must be between 2 and 20 characters')
-    .matches(/^[A-Za-z]+(?:[ -][A-Za-z]+)*$/).withMessage('Role name can only contain alphabets, spaces, and hyphens between words')
-    .trim().escape(),
+    .trim()
+    .matches(/^[A-Za-z0-9]+(?: [A-Za-z0-9]+)*$/).withMessage('Role name can only contain alphabets, numbers, and single spaces between words')
+    .escape(),
   body('description')
     .optional()
     .isLength({ max: 500 }).withMessage('Description must not exceed 500 characters')
@@ -38,8 +39,9 @@ const updateRoleValidation = [
   body('role_name')
     .optional()
     .isLength({ min: 2, max: 20 }).withMessage('Role name must be between 2 and 20 characters')
-    .matches(/^[A-Za-z]+(?:[ -][A-Za-z]+)*$/).withMessage('Role name can only contain alphabets, spaces, and hyphens between words')
-    .trim().escape(),
+    .trim()
+    .matches(/^[A-Za-z0-9]+(?: [A-Za-z0-9]+)*$/).withMessage('Role name can only contain alphabets, numbers, and single spaces between words')
+    .escape(),
   body('description')
     .optional()
     .isLength({ max: 500 }).withMessage('Description must not exceed 500 characters')

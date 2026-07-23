@@ -91,7 +91,7 @@ CREATE TABLE users (
 -- =============================================================================
 CREATE TABLE workflow_master (
   id            INT AUTO_INCREMENT PRIMARY KEY,
-  workflow_name VARCHAR(255) NOT NULL,
+  workflow_name VARCHAR(255) NOT NULL UNIQUE,
   description   TEXT NULL,
   is_active     BOOLEAN DEFAULT TRUE,
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,

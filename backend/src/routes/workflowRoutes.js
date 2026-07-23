@@ -9,7 +9,8 @@ const {
   updateWorkflowValidation,
   createWorkflowStepValidation,
   updateWorkflowStepValidation,
-  createWorkflowTransitionValidation
+  createWorkflowTransitionValidation,
+  updateWorkflowTransitionValidation
 } = require('../validators/workflowValidator');
 const { validatePagination, validateId } = require('../validators/common');
 
@@ -31,6 +32,7 @@ router.delete('/workflow-steps/:id', requirePermission('workflow', 'configure_st
 // Workflow transitions
 router.get('/:id/transitions', requirePermission('workflow', 'configure_steps'), validateId(), workflowController.getWorkflowTransitions);
 router.post('/:id/transitions', requirePermission('workflow', 'configure_steps'), validateId(), createWorkflowTransitionValidation, workflowController.createWorkflowTransition);
+router.put('/transitions/:id', requirePermission('workflow', 'configure_steps'), validateId(), updateWorkflowTransitionValidation, workflowController.updateWorkflowTransition);
 router.delete('/transitions/:id', requirePermission('workflow', 'configure_steps'), validateId(), workflowController.deleteWorkflowTransition);
 
 module.exports = router;

@@ -121,6 +121,20 @@ const createWorkflowTransition = async (req, res, next) => {
   }
 };
 
+const updateWorkflowTransition = async (req, res, next) => {
+  try {
+    const transition = await workflowService.updateTransition(
+      req.params.id,
+      req.body,
+      req.user.user_id,
+      req.ip
+    );
+    res.json(ApiResponse.success('Workflow transition updated successfully', [transition]));
+  } catch (error) {
+    next(error);
+  }
+};
+
 const deleteWorkflowTransition = async (req, res, next) => {
   try {
     await workflowService.deleteTransition(req.params.id, req.user.user_id, req.ip);
@@ -133,5 +147,5 @@ const deleteWorkflowTransition = async (req, res, next) => {
 module.exports = {
   getAllWorkflows, getWorkflowById, createWorkflow, updateWorkflow,
   getWorkflowSteps, createWorkflowStep, updateWorkflowStep, deleteWorkflowStep,
-  getWorkflowTransitions, createWorkflowTransition, deleteWorkflowTransition
+  getWorkflowTransitions, createWorkflowTransition, updateWorkflowTransition, deleteWorkflowTransition
 };

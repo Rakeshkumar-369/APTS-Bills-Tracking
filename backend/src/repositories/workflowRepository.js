@@ -232,6 +232,25 @@ class WorkflowRepository {
     return result.insertId;
   }
 
+  async updateTransition(id, { from_step_id, to_step_id, transition_type, allowed_role_id, is_active }) {
+    const updates = [];
+    const params = [];
+
+    if (from_step_id !== undefined) { updates.push('from_step_id = ?'); params.push(from_step_id || null); }
+    if (to_step_id !== undefined) { updates.push('to_step_id = ?'); params.push(to_step_id || null); }
+    if (transition_type !== undefined) { updates.push('transition_type = ?'); params.push(transition_type); }
+    if (allowed_role_id !== undefined) { updates.push('allowed_role_id = ?'); params.push(allowed_role_id); }
+    if (is_active !== undefined) { updates.push('is_active = ?'); params.push(is_active); }
+
+    if (updates.length === 0) return;
+
+    params.push(id);
+    await pool.query(
+      `UPDATE workflow_step_transitions SET ${updates.join(', ')}, updated_at = NOW() WHERE id = ?`,
+      params
+    );
+  }
+
   async deleteTransition(id) {
     await pool.query('UPDATE workflow_step_transitions SET is_active = 0 WHERE id = ?', [id]);
   }

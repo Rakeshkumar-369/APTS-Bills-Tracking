@@ -260,6 +260,21 @@ def run_all_tests():
     if test_role_id:
         admin.get(f"/roles/{test_role_id}", label="Get role by ID")
         admin.put(f"/roles/{test_role_id}", {"role_name": "TestObserverV2"}, "Update role")
+
+        # Duplicate role name check — should fail with 409
+        admin.post("/roles", {
+            "role_name": "TestObserverV2",
+            "role_rank": 5,
+            "permissions": {}
+        }, "Create role with duplicate name (expect 409)")
+
+        # Invalid role name — hyphens not allowed — should fail with 400
+        admin.post("/roles", {
+            "role_name": "Hyphen-Role",
+            "role_rank": 5,
+            "permissions": {}
+        }, "Create role with invalid name (hyphen, expect 400)")
+
         admin.delete(f"/roles/{test_role_id}", "Delete test role")
 
     # ── 5. Super Admin: Workflow Management ────────────────────────────────
@@ -277,8 +292,28 @@ def run_all_tests():
         step_names = [s["step_name"] for s in steps]
         log("Workflow steps extracted", "PASS", f"Steps: {', '.join(step_names)}")
 
-    # Get transitions
-    admin.get(f"/workflows/{default_workflow_id}/transitions", label="Get workflow transitions")
+    # Get transitions and test PUT update
+    trans_get = admin.get(f"/workflows/{default_workflow_id}/transitions", label="Get workflow transitions")
+    if trans_get and trans_get.get("success") and len(trans_get["data"]) > 0:
+        # Update the first forward transition — change allowed_role_id
+        transition_id_to_update = trans_get["data"][0]["id"]
+        admin.put(f"/workflows/transitions/{transition_id_to_update}",
+                  {"transition_type": "FORWARD", "is_active": 1},
+                  "Update workflow transition")
+
+    # Create a new workflow and test duplicate name check
+    # Use a timestamp suffix to avoid conflicts on repeat runs
+    import datetime
+    ts = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    test_wf_name = f"Test Workflow {ts}"
+    admin.post("/workflows", {
+        "workflow_name": test_wf_name,
+        "description": "Testing workflow name validation"
+    }, "Create workflow")
+    admin.post("/workflows", {
+        "workflow_name": test_wf_name,
+        "description": "Should fail due to duplicate name"
+    }, "Create workflow with duplicate name (expect 409)")
 
     # Create a new step
     create_step = admin.post(f"/workflows/{default_workflow_id}/steps", {
@@ -310,6 +345,14 @@ def run_all_tests():
     if test_user_id:
         admin.put(f"/users/{test_user_id}", {"designation": "Senior Test Contact"}, "Update user")
         admin.delete(f"/users/{test_user_id}", "Delete user")
+
+        # Try creating a user with the same email as the deleted user — should fail with 409
+        admin.post("/users", {
+            "name": "Another User",
+            "email": "testuser@vendor.com",
+            "password": "Test@1234",
+            "role_id": 2
+        }, "Create user with deleted user's email (expect 409)")
 
     # ── 7. Package Creation & Full Workflow ────────────────────────────────
     print("\n─── 7. PACKAGE WORKFLOW (Full Lifecycle) ───")

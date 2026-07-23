@@ -15,6 +15,15 @@ class WorkflowService {
   }
 
   async create({ workflow_name, description }, performedBy, ipAddress) {
+    // Check for duplicate workflow name
+    const existingWorkflows = await workflowRepository.getAll({ search: workflow_name, limit: 1, offset: 0 });
+    const exactMatch = existingWorkflows.rows.find(
+      w => w.workflow_name.toLowerCase() === workflow_name.toLowerCase()
+    );
+    if (exactMatch) {
+      throw new ApiError(409, 'A workflow with this name already exists');
+    }
+
     const id = await workflowRepository.create({ workflow_name, description });
 
     await auditService.log({
@@ -31,6 +40,17 @@ class WorkflowService {
 
   async update(id, { workflow_name, description, is_active }, performedBy, ipAddress) {
     const existing = await this.getById(id);
+
+    // Check for duplicate workflow name if name is being changed
+    if (workflow_name && workflow_name.toLowerCase() !== existing.workflow_name.toLowerCase()) {
+      const existingWorkflows = await workflowRepository.getAll({ search: workflow_name, limit: 1, offset: 0 });
+      const exactMatch = existingWorkflows.rows.find(
+        w => w.workflow_name.toLowerCase() === workflow_name.toLowerCase()
+      );
+      if (exactMatch) {
+        throw new ApiError(409, 'A workflow with this name already exists');
+      }
+    }
 
     await workflowRepository.update(id, { workflow_name, description, is_active });
 
@@ -136,6 +156,35 @@ class WorkflowService {
     });
 
     return workflowRepository.getTransitionById(transitionId);
+  }
+
+  async updateTransition(id, data, performedBy, ipAddress) {
+    const existing = await workflowRepository.getTransitionById(id);
+    if (!existing) throw new ApiError(404, 'Transition not found');
+
+    const { from_step_id, to_step_id, transition_type, allowed_role_id, is_active } = data;
+
+    await workflowRepository.updateTransition(id, {
+      from_step_id, to_step_id, transition_type, allowed_role_id, is_active
+    });
+
+    await auditService.log({
+      table_name: 'workflow_step_transitions',
+      record_id: id,
+      action: 'UPDATE',
+      old_value: {
+        from_step_id: existing.from_step_id,
+        to_step_id: existing.to_step_id,
+        transition_type: existing.transition_type,
+        allowed_role_id: existing.allowed_role_id,
+        is_active: existing.is_active
+      },
+      new_value: { from_step_id, to_step_id, transition_type, allowed_role_id, is_active },
+      performed_by: performedBy,
+      ip_address: ipAddress
+    });
+
+    return workflowRepository.getTransitionById(id);
   }
 
   async deleteTransition(id, performedBy, ipAddress) {
