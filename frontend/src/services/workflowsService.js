@@ -71,6 +71,11 @@ export const workflowsService = {
     // Backend: DELETE /transitions/:id
     return api.delete(`/workflows/transitions/${transitionId}`);
   },
+
+  async updateTransition(transitionId, payload) {
+    // Backend: PUT /transitions/:id
+    return api.put(`/workflows/transitions/${transitionId}`, payload);
+  }
 };
 
 export default workflowsService;

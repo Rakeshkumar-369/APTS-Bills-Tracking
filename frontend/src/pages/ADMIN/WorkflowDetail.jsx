@@ -91,15 +91,20 @@ export default function WorkflowDetail({ workflow, roles, onBack }) {
         allowed_role_id: transitionForm.allowed_role_id
       };
       
-      await workflowsService.createTransition(workflow.id, data);
-      setSuccess('Transition created successfully!');
+      if (editingTransition) {
+        await workflowsService.updateTransition(editingTransition.id, data);
+        setSuccess('Transition updated successfully!');
+      } else {
+        await workflowsService.createTransition(workflow.id, data);
+        setSuccess('Transition created successfully!');
+      }
       
       setShowTransitionModal(false);
       resetTransitionForm();
       fetchWorkflowDetails();
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-  setError(err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to create transition');
+  setError(err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to save transition');
     } finally {
       setLoading(false);
     }
@@ -175,8 +180,19 @@ export default function WorkflowDetail({ workflow, roles, onBack }) {
     setShowStepModal(true);
   };
 
-  const openTransitionModal = () => {
-    resetTransitionForm();
+  const openTransitionModal = (transition = null) => {
+    if (transition) {
+      setEditingTransition(transition);
+      setTransitionForm({
+        from_step_id: transition.from_step_id || '',
+        to_step_id: transition.to_step_id || '',
+        transition_type: transition.transition_type || 'FORWARD',
+        allowed_role_id: transition.allowed_role_id || '',
+        is_active: transition.is_active !== undefined ? transition.is_active : true
+      });
+    } else {
+      resetTransitionForm();
+    }
     setShowTransitionModal(true);
   };
 
@@ -213,7 +229,7 @@ export default function WorkflowDetail({ workflow, roles, onBack }) {
           <button className="btn btn-primary me-2" onClick={() => openStepModal()}>
             <i className="bi bi-plus-circle me-1"></i> Add Step
           </button>
-          <button className="btn btn-success" onClick={openTransitionModal}>
+          <button className="btn btn-success" onClick={() => openTransitionModal()}>
             <i className="bi bi-arrow-left-right me-1"></i> Add Transition
           </button>
         </div>
@@ -308,6 +324,12 @@ export default function WorkflowDetail({ workflow, roles, onBack }) {
                           </small>
                         </div>
                         <div>
+                          <button 
+                            className="btn btn-sm btn-outline-primary me-1"
+                            onClick={() => openTransitionModal(transition)}
+                          >
+                            <i className="bi bi-pencil"></i>
+                          </button>
                           <button 
                             className="btn btn-sm btn-outline-danger"
                             onClick={() => handleDeleteTransition(transition.id)}
@@ -415,7 +437,9 @@ export default function WorkflowDetail({ workflow, roles, onBack }) {
           <div className="modal-dialog">
             <div className="modal-content">
               <div className="modal-header">
-                <h5 className="modal-title">Add New Transition</h5>
+                <h5 className="modal-title">
+                  {editingTransition ? 'Edit Transition' : 'Add New Transition'}
+                </h5>
                 <button type="button" className="btn-close" onClick={() => setShowTransitionModal(false)}></button>
               </div>
               <form onSubmit={handleTransitionSubmit}>
@@ -495,7 +519,7 @@ export default function WorkflowDetail({ workflow, roles, onBack }) {
                     Cancel
                   </button>
                   <button type="submit" className="btn btn-success" disabled={loading}>
-                    {loading ? 'Creating...' : 'Create Transition'}
+                    {loading ? 'Saving...' : (editingTransition ? 'Update' : 'Create Transition')}
                   </button>
                 </div>
               </form>
