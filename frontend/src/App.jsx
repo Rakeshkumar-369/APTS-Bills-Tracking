@@ -63,7 +63,7 @@ export default function App() {
 
       {/* ============ PDF VIEWER - Outside of any layout ============ */}
       <Route element={<ProtectedRoute />}>
-        <Route path="/pdf-viewer" element={<PdfViewerPage />} />
+        <Route path="/pdf-viewer/:packageId" element={<PdfViewerPage />} />
       </Route>
 
       {/* ============ ADMIN ROUTES ============ */}

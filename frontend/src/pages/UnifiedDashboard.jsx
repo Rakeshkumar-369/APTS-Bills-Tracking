@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { packagesService } from '../services';
 import { useAuth } from '../context/AuthContext';
+import SubmissionAudit from './SubmissionAudit';
 
 export default function UnifiedDashboard() {
   const { user } = useAuth();
@@ -15,13 +16,13 @@ export default function UnifiedDashboard() {
   const [selectedItem, setSelectedItem] = useState(null);
   const [showProcessModal, setShowProcessModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
+  const [showAuditView, setShowAuditView] = useState(false);
   const [processAction, setProcessAction] = useState('');
   const [processRemarks, setProcessRemarks] = useState('');
   const [processing, setProcessing] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
-  const [viewingFile, setViewingFile] = useState(false);
   const [inboxStats, setInboxStats] = useState({
     total: 0,
     pending: 0,
@@ -34,9 +35,33 @@ export default function UnifiedDashboard() {
     returned: 0,
     inProgress: 0
   });
+  const [selectedSubmission, setSelectedSubmission] = useState(null);
+  const [actionRemarks, setActionRemarks] = useState('');
 
   // Get API base URL from environment or use default
   const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+
+  // Base origin of the API server (strips a trailing "/api") e.g. "http://localhost:5000"
+  // Used to turn relative file paths returned by the backend into absolute URLs.
+  const SERVER_ORIGIN = API_BASE.replace(/\/api\/?$/, '');
+
+  // Converts any relative path returned by the backend (e.g. "/uploads/xss2.pdf")
+  // into a full absolute URL against the API server's origin. Without this, an
+  // <iframe src="..."> or <a href="..."> resolves a relative path against the
+  // CURRENT page (the frontend app), not the API server — which is why the PDF
+  // viewer was silently loading the frontend app itself (and its catch-all route)
+  // instead of the actual file.
+  const toAbsoluteUrl = (path) => {
+    if (!path) return null;
+    if (/^https?:\/\//i.test(path)) return path.replace(/\\/g, '/'); // already absolute, just normalize slashes
+
+    // Backend may store Windows-style paths (e.g. "uploads\\packages\\10\\file.pdf").
+    // Backslashes are not valid URL separators, so normalize to forward slashes first.
+    let normalized = path.replace(/\\/g, '/');
+    normalized = normalized.replace(/^\/?/, '/'); // ensure exactly one leading slash
+
+    return `${SERVER_ORIGIN}${normalized}`;
+  };
 
   // Determine user role based on role_rank
   const userRole = user?.role_rank === 100 ? 'admin' :
@@ -154,7 +179,6 @@ export default function UnifiedDashboard() {
           packagesData = await packagesService.list({});
       }
 
-      // Log the first package to see its structure
       if (packagesData && packagesData.length > 0) {
         console.log('📦 First package structure:', packagesData[0]);
       }
@@ -224,59 +248,6 @@ export default function UnifiedDashboard() {
     }
   };
 
-  // Handle View File - Using packagesService
-  const handleViewFile = async (packageId, fileId, filename) => {
-    if (!packageId || !fileId) {
-      alert('Invalid file or package ID');
-      return;
-    }
-
-    setViewingFile(true);
-    try {
-      console.log('👁️ Viewing file:', filename, 'Package:', packageId, 'File:', fileId);
-      
-      // Use the service to get the file
-      const result = await packagesService.viewFile(packageId, fileId);
-      
-      if (!result || !result.viewUrl) {
-        throw new Error('Failed to get file for viewing');
-      }
-      
-      // Check if the content type is a PDF or image that can be displayed
-      const isPDF = result.contentType?.includes('pdf');
-      const isImage = result.contentType?.includes('image');
-      const isText = result.contentType?.includes('text');
-      
-      if (isPDF || isImage || isText) {
-        // Open in new tab with the blob URL
-        const newWindow = window.open(result.viewUrl, '_blank');
-        if (!newWindow || newWindow.closed) {
-          // If popup blocked, try alternative - create a temporary link
-          alert('Please allow popups for this site to view documents.');
-          // Clean up the URL
-          window.URL.revokeObjectURL(result.viewUrl);
-        } else {
-          // Clean up the URL after a delay
-          setTimeout(() => {
-            window.URL.revokeObjectURL(result.viewUrl);
-          }, 30000);
-        }
-      } else {
-        // For other file types, download instead
-        alert('This file type cannot be viewed directly. Please use the download button.');
-        window.URL.revokeObjectURL(result.viewUrl);
-        // Trigger download
-        await handleDownloadFile(packageId, fileId, filename);
-      }
-      
-    } catch (err) {
-      console.error('❌ View file error:', err);
-      alert(`Failed to view document: ${err.message || 'Unknown error'}`);
-    } finally {
-      setViewingFile(false);
-    }
-  };
-
   const handleViewPackage = async (item) => {
     const pkgId = item?.id || item?.package_id || item?.ID;
     
@@ -291,14 +262,205 @@ export default function UnifiedDashboard() {
       console.log('🔍 Fetching package details for ID:', pkgId);
       const details = await packagesService.get(pkgId, { includeDetails: true });
       console.log('📦 Package details:', details);
-      setSelectedItem(details || item);
-      setShowViewModal(true);
+      
+      // Debug: Log the full details to see file structure
+      console.log('📦 Full details structure:', JSON.stringify(details, null, 2));
+      console.log('📦 Files array:', details?.files);
+      console.log('📦 First file:', details?.files?.[0]);
+      
+      // Get the file URL - check multiple possible locations
+      let fileUrl = null;
+      let fileName = 'document.pdf';
+      let fileSize = 'N/A';
+      
+      if (details?.files && details.files.length > 0) {
+        const file = details.files[0];
+        fileName = file.original_name || file.filename || 'document.pdf';
+        fileSize = file.file_size ? `${(file.file_size / 1024).toFixed(1)} KB` : 'N/A';
+        
+        // Check for URL in multiple possible fields, always normalized to an
+        // absolute URL so the browser doesn't resolve it against this app's origin
+        const rawUrl = file.url || file.file_path || file.download_url || file.public_url || null;
+        fileUrl = toAbsoluteUrl(rawUrl);
+        
+        // If no URL found but we have a file ID, construct the absolute download URL
+        if (!fileUrl && file.id) {
+          fileUrl = `${API_BASE}/packages/${pkgId}/files/${file.id}/download`;
+        }
+      }
+      
+      // If no files array, check if the details itself has a file_url or attachment_url
+      if (!fileUrl && details?.file_url) {
+        fileUrl = toAbsoluteUrl(details.file_url);
+      }
+      if (!fileUrl && details?.attachment_url) {
+        fileUrl = toAbsoluteUrl(details.attachment_url);
+      }
+      if (!fileUrl && details?.document_url) {
+        fileUrl = toAbsoluteUrl(details.document_url);
+      }
+      
+      // Log the file URL for debugging
+      console.log('📄 File URL found:', fileUrl);
+      console.log('📄 File name:', fileName);
+      
+      const submissionData = {
+        id: details?.id || details?.packageCode || pkgId,
+        code: details?.package_code,
+        packageId: pkgId, // real numeric ID, used for navigation/refetching (unlike the display code above)
+        vendor: details?.vendor_name || details?.vendor || 'N/A',
+        projectType: details?.project_name || details?.project?.project_name || 'N/A',
+        fileName: fileName,
+        fileSize: fileSize,
+        fileUrl: fileUrl,
+        history: details?.history || [
+          { actor: 'Vendor', date: new Date(details?.created_at).toLocaleString(), action: 'Package Created', remarks: 'Initial submission' },
+          { actor: 'PM Desk', date: new Date().toLocaleString(), action: 'Under Review', remarks: 'Awaiting verification' }
+        ],
+        status: details?.status || 'PENDING'
+      };
+      
+      console.log('📦 Submission data prepared:', submissionData);
+      
+      setSelectedSubmission(submissionData);
+      setShowAuditView(true);
+      setShowViewModal(false);
+      setActionRemarks('');
     } catch (err) {
       console.error('❌ Error fetching package details:', err);
-      setSelectedItem(item);
-      setShowViewModal(true);
+      // Fallback: use the existing item data
+      const fallbackData = {
+        id: item?.package_code || item?.packageCode || pkgId,
+        packageId: pkgId,
+        vendor: item?.vendor_name || item?.vendor || 'N/A',
+        projectType: item?.project_name || item?.project?.project_name || 'N/A',
+        fileName: 'document.pdf',
+        fileSize: 'N/A',
+        fileUrl: null,
+        history: [
+          { actor: 'System', date: new Date().toLocaleString(), action: 'Package Retrieved', remarks: 'Basic view' }
+        ],
+        status: item?.status || 'PENDING'
+      };
+      setSelectedSubmission(fallbackData);
+      setShowAuditView(true);
+      setShowViewModal(false);
+      setActionRemarks('');
     } finally {
       setLoadingDetails(false);
+    }
+  };
+
+  // Handle PDF View - Navigate to standalone PDF viewer.
+  // We navigate by package ID in the URL (not via router state) so the viewer
+  // page can independently (re)fetch its own data. Router state doesn't survive
+  // a hard reload, a dev-server HMR full-reload, or opening the link in a new
+  // tab — all of which would otherwise leave PdfViewerPage with nothing to show.
+  const handleOpenPdf = (submission) => {
+    if (!submission.fileUrl) {
+      alert('No document available for this package');
+      return;
+    }
+    if (!submission.packageId) {
+      alert('Unable to determine package ID for this document');
+      return;
+    }
+
+    navigate(`/pdf-viewer/${submission.packageId}`);
+  };
+
+  // Handle Back from Audit
+  const handleBackFromAudit = () => {
+    setShowAuditView(false);
+    setSelectedSubmission(null);
+    setActionRemarks('');
+  };
+
+  // Handle Send Back
+  const handleSendBack = async () => {
+    if (!actionRemarks.trim()) {
+      alert('Please enter remarks before sending back');
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (!token) throw new Error('No access token found');
+
+      const pkgId = selectedSubmission?.id;
+      if (!pkgId) throw new Error('Package ID not found');
+
+      const response = await fetch(`${API_BASE}/packages/${pkgId}/sendback`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ remarks: actionRemarks })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send back package');
+      }
+
+      setSuccessMessage(`Package ${pkgId} has been sent back successfully!`);
+      setShowAuditView(false);
+      setSelectedSubmission(null);
+      setActionRemarks('');
+      await fetchData();
+      
+      setTimeout(() => setSuccessMessage(''), 5000);
+    } catch (err) {
+      console.error('❌ Error sending back:', err);
+      alert('Failed to send back package: ' + err.message);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // Handle Forward
+  const handleForward = async () => {
+    if (!actionRemarks.trim()) {
+      alert('Please enter remarks before forwarding');
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (!token) throw new Error('No access token found');
+
+      const pkgId = selectedSubmission?.id;
+      if (!pkgId) throw new Error('Package ID not found');
+
+      const response = await fetch(`${API_BASE}/packages/${pkgId}/forward`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ remarks: actionRemarks })
+      });
+
+      let result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.message || `Request failed with status ${response.status}`);
+      }
+
+      setSuccessMessage(`Package ${pkgId} has been forwarded successfully!`);
+      setShowAuditView(false);
+      setSelectedSubmission(null);
+      setActionRemarks('');
+      await fetchData();
+      
+      setTimeout(() => setSuccessMessage(''), 5000);
+    } catch (err) {
+      console.error('❌ Error forwarding:', err);
+      alert('Failed to forward package: ' + err.message);
+    } finally {
+      setProcessing(false);
     }
   };
 
@@ -484,6 +646,28 @@ export default function UnifiedDashboard() {
     );
   }
 
+  // If Audit View is active
+  if (showAuditView && selectedSubmission) {
+    const daysElapsed = Math.floor(Math.random() * 10) + 1;
+    
+    return (
+      <div className="container-fluid p-4" style={{ backgroundColor: '#f8fafc', minHeight: '100vh' }}>
+        <SubmissionAudit
+          submission={selectedSubmission}
+          daysElapsed={daysElapsed}
+          actionRemarks={actionRemarks}
+          onRemarksChange={setActionRemarks}
+          onBack={handleBackFromAudit}
+          onOpenPdf={handleOpenPdf}
+          onSendBack={handleSendBack}
+          onForward={handleForward}
+          hasDigitalSignature={userRole === 'jdinfra' || userRole === 'apts'}
+        />
+      </div>
+    );
+  }
+
+  // Main Dashboard Render
   return (
     <div className="container-fluid p-4" style={{ backgroundColor: '#f8fafc', minHeight: '100vh' }}>
       {successMessage && (
@@ -517,7 +701,7 @@ export default function UnifiedDashboard() {
               {userDisplayName} • {roleDescription}
             </p>
           </div>
-          <div className="d-flex gap-2 flex-wrap">
+          <div className="d-flex gap-2 flex-wrap align-items-center">
             <button 
               className="btn btn-light btn-sm fw-semibold"
               onClick={() => {
@@ -532,7 +716,8 @@ export default function UnifiedDashboard() {
             </button>
             <span className="badge bg-white text-dark p-2 fw-semibold" style={{ 
               borderRadius: '8px',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+              fontSize: '0.85rem'
             }}>
               <i className="bi bi-calendar3 me-1 text-primary"></i>
               {new Date().toLocaleDateString('en-US', { 
@@ -840,7 +1025,7 @@ export default function UnifiedDashboard() {
                               ) : (
                                 <i className="bi bi-eye me-1"></i>
                               )}
-                              View 
+                              View
                             </button>
                             {item.status?.toUpperCase() === 'RETURNED' && userRole === 'vendor' && (
                               <button 
@@ -897,7 +1082,7 @@ export default function UnifiedDashboard() {
         </div>
       </div>
 
-      {/* View Modal with View Document buttons */}
+      {/* View Modal */}
       {showViewModal && selectedItem && (
         <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9998 }}>
           <div className="modal-dialog modal-dialog-centered modal-lg">
@@ -955,7 +1140,7 @@ export default function UnifiedDashboard() {
                     </div>
                   </div>
                   
-                  {/* Files Section with View and Download buttons */}
+                  {/* Files Section */}
                   <div className="col-12">
                     <div className="bg-light p-3 rounded-3">
                       <label className="text-muted small fw-semibold">Attached Files</label>
@@ -964,48 +1149,28 @@ export default function UnifiedDashboard() {
                           {selectedItem.files.map((file, idx) => {
                             const fileId = file.id || file.file_id || file.ID;
                             const pkgId = selectedItem.id || selectedItem.package_id || selectedItem.ID;
-                            const fileName = file.original_name || file.filename || `File ${idx + 1}`;
-                            
                             return (
                               <div key={idx} className="d-flex align-items-center gap-2 mb-2 p-2 bg-white rounded border">
                                 <i className="bi bi-file-earmark-pdf-fill text-danger fs-4"></i>
                                 <div className="flex-grow-1">
-                                  <div className="fw-semibold">{fileName}</div>
+                                  <div className="fw-semibold">{file.original_name || file.filename || `File ${idx + 1}`}</div>
                                   <small className="text-muted">
                                     {file.file_size ? `${(file.file_size / 1024).toFixed(1)} KB` : ''}
                                     {file.mime_type ? ` • ${file.mime_type}` : ''}
                                   </small>
                                 </div>
-                                <div className="d-flex gap-2">
-                                  {/* View Document Button */}
-                                  <button 
-                                    className="btn btn-sm btn-outline-primary"
-                                    style={{ borderRadius: '6px' }}
-                                    onClick={() => handleViewFile(pkgId, fileId, fileName)}
-                                    disabled={viewingFile || !pkgId || !fileId}
-                                  >
-                                    {viewingFile ? (
-                                      <span className="spinner-border spinner-border-sm me-1" role="status"></span>
-                                    ) : (
-                                      <i className="bi bi-eye me-1"></i>
-                                    )}
-                                    View pdf
-                                  </button>
-                                  {/* Download Button */}
-                                  <button 
-                                    className="btn btn-sm btn-primary"
-                                    style={{ borderRadius: '6px' }}
-                                    onClick={() => handleDownloadFile(pkgId, fileId, fileName)}
-                                    disabled={downloading || !pkgId || !fileId}
-                                  >
-                                    {downloading ? (
-                                      <span className="spinner-border spinner-border-sm me-1" role="status"></span>
-                                    ) : (
-                                      <i className="bi bi-download me-1"></i>
-                                    )}
-                                    Download
-                                  </button>
-                                </div>
+                                <button 
+                                  className="btn btn-sm btn-primary"
+                                  onClick={() => handleDownloadFile(pkgId, fileId, file.original_name || file.filename)}
+                                  disabled={downloading || !pkgId || !fileId}
+                                >
+                                  {downloading ? (
+                                    <span className="spinner-border spinner-border-sm me-1" role="status"></span>
+                                  ) : (
+                                    <i className="bi bi-download me-1"></i>
+                                  )}
+                                  Download
+                                </button>
                               </div>
                             );
                           })}

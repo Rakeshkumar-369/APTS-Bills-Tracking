@@ -6,15 +6,14 @@ import React from 'react';
  * -----------------
  * Renders the full activity/audit trail for a single submission ("package").
  * The source PDF is shown as a link only — clicking it hands control back to
- * the parent (via onOpenPdf) which switches to the full-page PDF viewer
- * (PdfViewerPage).
+ * the parent (via onOpenPdf) which switches to the in-page PDF viewer.
  *
  * Props:
  *  - submission: the active submission object being audited
  *  - daysElapsed: number of days the package has been sitting at this desk
  *  - actionRemarks / onRemarksChange: controlled textarea state
  *  - onBack: return to the inbox list
- *  - onOpenPdf: switch to the full-page PDF viewer for this submission
+ *  - onOpenPdf: switch to the in-page PDF viewer for this submission
  *  - onSendBack / onForward: trigger the workflow movement actions
  *  - hasDigitalSignature: whether the current officer signs digitally
  */
@@ -42,19 +41,22 @@ export default function SubmissionAudit({
             <i className="bi bi-arrow-left"></i>
           </button>
           <div>
-            <h5 className="mb-0 fw-extrabold text-dark tracking-tight">Auditing Node: {submission.id}</h5>
+            <h5 className="mb-0 fw-extrabold text-dark tracking-tight">{submission.code}</h5>
             <span className="text-muted fs-8 font-monospace">{submission.vendor} &bull; {submission.projectType} Scope</span>
           </div>
         </div>
         <div className="d-flex align-items-center gap-2">
-          <span className="badge bg-warning bg-opacity-15 text-warning border border-warning border-opacity-20 px-3 py-1.5 rounded-pill fs-8 fw-bold">
+          <span
+            className="px-3 py-2 rounded-pill fs-8 fw-bold d-inline-flex align-items-center"
+            style={{ backgroundColor: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' }}
+          >
             <i className="bi bi-hourglass-split me-1"></i> Desk Age: {daysElapsed} Days
           </span>
         </div>
       </div>
 
       <div className="p-4">
-        {/* Document reference — shown only as a link. Clicking it opens the full-page PDF viewer */}
+        {/* Document reference — shown only as a link. Clicking it opens the in-page PDF viewer */}
         <div className="mb-4">
           <label className="form-label fw-bold text-secondary fs-8 font-monospace text-uppercase tracking-wider mb-1">
             Document Package
