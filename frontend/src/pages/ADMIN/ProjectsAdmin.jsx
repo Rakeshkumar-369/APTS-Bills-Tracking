@@ -39,6 +39,7 @@ export default function ProjectsAdmin() {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
+    if (error) setError(null);
   };
 
   const handleSubmit = async (e) => {
@@ -60,7 +61,7 @@ export default function ProjectsAdmin() {
       fetchProjects();
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to save project');
+      setError(err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to save project');
     } finally {
       setLoading(false);
     }
@@ -94,6 +95,7 @@ export default function ProjectsAdmin() {
 
   const openCreateModal = () => {
     resetForm();
+    setError(null);
     setShowModal(true);
   };
 
@@ -105,6 +107,7 @@ export default function ProjectsAdmin() {
       description: project.description || '',
       is_active: project.is_active !== undefined ? project.is_active : true
     });
+    setError(null);
     setShowModal(true);
   };
 
@@ -127,13 +130,6 @@ export default function ProjectsAdmin() {
           Add Project
         </button>
       </div>
-
-      {error && (
-        <div className="alert alert-danger alert-dismissible fade show">
-          {error}
-          <button type="button" className="btn-close" onClick={() => setError(null)}></button>
-        </div>
-      )}
 
       {success && (
         <div className="alert alert-success alert-dismissible fade show">
@@ -203,10 +199,16 @@ export default function ProjectsAdmin() {
                 <h5 className="modal-title">
                   {editingProject ? 'Edit Project' : 'Create New Project'}
                 </h5>
-                <button type="button" className="btn-close" onClick={() => setShowModal(false)}></button>
+                <button type="button" className="btn-close" onClick={() => { setShowModal(false); setError(null); }}></button>
               </div>
               <form onSubmit={handleSubmit}>
                 <div className="modal-body">
+                  {error && (
+                    <div className="alert alert-danger fade show py-2 d-flex justify-content-between align-items-center">
+                      <span>{error}</span>
+                      <button type="button" className="btn-close" onClick={() => setError(null)}></button>
+                    </div>
+                  )}
                   <div className="mb-3">
                     <label className="form-label">Project Name *</label>
                     <input
@@ -252,7 +254,7 @@ export default function ProjectsAdmin() {
                   </div>
                 </div>
                 <div className="modal-footer">
-                  <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>
+                  <button type="button" className="btn btn-secondary" onClick={() => { setShowModal(false); setError(null); }}>
                     Cancel
                   </button>
                   <button type="submit" className="btn btn-primary" disabled={loading}>

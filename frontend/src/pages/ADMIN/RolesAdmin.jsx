@@ -41,6 +41,7 @@ export default function RolesAdmin() {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
+    if (error) setError(null);
   };
 
   const handlePermissionsChange = (e) => {
@@ -54,6 +55,7 @@ export default function RolesAdmin() {
     } catch (err) {
       // Invalid JSON, don't update
     }
+    if (error) setError(null);
   };
 
   const handleSubmit = async (e) => {
@@ -89,7 +91,7 @@ export default function RolesAdmin() {
       fetchRoles();
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to save role');
+      setError(err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to save role');
     } finally {
       setLoading(false);
     }
@@ -125,6 +127,7 @@ export default function RolesAdmin() {
 
   const openCreateModal = () => {
     resetForm();
+    setError(null);
     setShowModal(true);
   };
 
@@ -139,6 +142,7 @@ export default function RolesAdmin() {
       permissions: role.permissions || {},
       is_active: role.is_active !== undefined ? role.is_active : true
     });
+    setError(null);
     setShowModal(true);
   };
 
@@ -161,13 +165,6 @@ export default function RolesAdmin() {
           Add Role
         </button>
       </div>
-
-      {error && (
-        <div className="alert alert-danger alert-dismissible fade show">
-          {error}
-          <button type="button" className="btn-close" onClick={() => setError(null)}></button>
-        </div>
-      )}
 
       {success && (
         <div className="alert alert-success alert-dismissible fade show">
@@ -249,10 +246,16 @@ export default function RolesAdmin() {
                 <h5 className="modal-title">
                   {editingRole ? 'Edit Role' : 'Create New Role'}
                 </h5>
-                <button type="button" className="btn-close" onClick={() => setShowModal(false)}></button>
+                <button type="button" className="btn-close" onClick={() => { setShowModal(false); setError(null); }}></button>
               </div>
               <form onSubmit={handleSubmit}>
                 <div className="modal-body">
+                  {error && (
+                    <div className="alert alert-danger fade show py-2 d-flex justify-content-between align-items-center">
+                      <span>{error}</span>
+                      <button type="button" className="btn-close" onClick={() => setError(null)}></button>
+                    </div>
+                  )}
                   <div className="row">
                     <div className="col-md-6 mb-3">
                       <label className="form-label">Role Name *</label>
@@ -316,7 +319,7 @@ export default function RolesAdmin() {
                   </div>
                 </div>
                 <div className="modal-footer">
-                  <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>
+                  <button type="button" className="btn btn-secondary" onClick={() => { setShowModal(false); setError(null); }}>
                     Cancel
                   </button>
                   <button type="submit" className="btn btn-primary" disabled={loading}>

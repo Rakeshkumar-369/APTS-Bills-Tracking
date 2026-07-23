@@ -48,20 +48,27 @@ export default function UsersAdmin() {
   };
 
   const handleInputChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-  };
+  const { name, value, type, checked } = e.target;
+  setFormData(prev => ({
+    ...prev,
+    [name]: type === 'checkbox' ? checked : value,
+    ...(name === 'role_id' && String(value) !== '2' ? { vendor_id: '' } : {})
+  }));
+  if (error) setError(null);
+};
+ const handleSubmit = async (e) => {
+  e.preventDefault();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      setLoading(true);
-      setError(null);
-      
-      if (editingUser) {
+  if (String(formData.role_id) === '2' && !formData.vendor_id) {
+    setError('Vendor is required for this role');
+    return;
+  }
+
+  try {
+    setLoading(true);
+    setError(null);
+    
+    if (editingUser) {
         // Update user
         await usersService.update(editingUser.id, formData);
         setSuccess('User updated successfully!');
@@ -77,7 +84,7 @@ export default function UsersAdmin() {
       
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to save user');
+  setError(err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to save user');
     } finally {
       setLoading(false);
     }
@@ -116,6 +123,7 @@ export default function UsersAdmin() {
 
   const openCreateModal = () => {
     resetForm();
+    setError(null);
     setShowModal(true);
   };
 
@@ -155,12 +163,7 @@ export default function UsersAdmin() {
         </button>
       </div>
 
-      {error && (
-        <div className="alert alert-danger alert-dismissible fade show">
-          {error}
-          <button type="button" className="btn-close" onClick={() => setError(null)}></button>
-        </div>
-      )}
+      
 
       {success && (
         <div className="alert alert-success alert-dismissible fade show">
@@ -250,10 +253,16 @@ export default function UsersAdmin() {
                 <button type="button" className="btn-close" onClick={() => setShowModal(false)}></button>
               </div>
               <form onSubmit={handleSubmit}>
-                <div className="modal-body">
-                  <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Name *</label>
+  <div className="modal-body">
+    {error && (
+      <div className="alert alert-danger fade show py-2 d-flex justify-content-between align-items-center">
+        <span>{error}</span>
+        <button type="button" className="btn-close" onClick={() => setError(null)}></button>
+      </div>
+    )}
+    <div className="row">
+      <div className="col-md-6 mb-3">
+        <label className="form-label">Name *</label>
                       <input
                         type="text"
                         className="form-control"
@@ -306,22 +315,25 @@ export default function UsersAdmin() {
                         ))}
                       </select>
                     </div>
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Vendor</label>
-                      <select
-                        className="form-select"
-                        name="vendor_id"
-                        value={formData.vendor_id}
-                        onChange={handleInputChange}
-                      >
-                        <option value="">No Vendor</option>
-                        {vendors.map(vendor => (
-                          <option key={vendor.id} value={vendor.id}>
-                            {vendor.vendor_name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                   {String(formData.role_id) === '2' && (
+  <div className="col-md-6 mb-3">
+    <label className="form-label">Vendor *</label>
+    <select
+      className="form-select"
+      name="vendor_id"
+      value={formData.vendor_id}
+      onChange={handleInputChange}
+      required
+    >
+      <option value="">Select Vendor</option>
+      {vendors.map(vendor => (
+        <option key={vendor.id} value={vendor.id}>
+          {vendor.vendor_name}
+        </option>
+      ))}
+    </select>
+  </div>
+)}
                     <div className="col-md-6 mb-3">
                       <label className="form-label">Designation</label>
                       <input
@@ -342,28 +354,30 @@ export default function UsersAdmin() {
                         onChange={handleInputChange}
                       />
                     </div>
-                    <div className="col-md-6 mb-3">
-                      <div className="form-check mt-4">
-                        <input
-                          type="checkbox"
-                          className="form-check-input"
-                          name="is_active"
-                          checked={formData.is_active}
-                          onChange={handleInputChange}
-                        />
-                        <label className="form-check-label">Active</label>
-                      </div>
-                      <div className="form-check">
-                        <input
-                          type="checkbox"
-                          className="form-check-input"
-                          name="has_digital_signature"
-                          checked={formData.has_digital_signature}
-                          onChange={handleInputChange}
-                        />
-                        <label className="form-check-label">Has Digital Signature</label>
-                      </div>
-                    </div>
+                   {editingUser && (
+  <div className="col-md-6 mb-3">
+    <div className="form-check mt-4">
+      <input
+        type="checkbox"
+        className="form-check-input"
+        name="is_active"
+        checked={formData.is_active}
+        onChange={handleInputChange}
+      />
+      <label className="form-check-label">Active</label>
+    </div>
+    <div className="form-check">
+      <input
+        type="checkbox"
+        className="form-check-input"
+        name="has_digital_signature"
+        checked={formData.has_digital_signature}
+        onChange={handleInputChange}
+      />
+      <label className="form-check-label">Has Digital Signature</label>
+    </div>
+  </div>
+)}
                   </div>
                 </div>
                 <div className="modal-footer">

@@ -36,13 +36,14 @@ export default function VendorsAdmin() {
     }
   };
 
-  const handleInputChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-  };
+ const handleInputChange = (e) => {
+  const { name, value, type, checked } = e.target;
+  setFormData(prev => ({
+    ...prev,
+    [name]: type === 'checkbox' ? checked : value
+  }));
+  if (error) setError(null);
+};
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -62,8 +63,8 @@ export default function VendorsAdmin() {
       resetForm();
       fetchVendors();
       setTimeout(() => setSuccess(null), 3000);
-    } catch (err) {
-      setError(err.message || 'Failed to save vendor');
+   } catch (err) {
+  setError(err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to save vendor');
     } finally {
       setLoading(false);
     }
@@ -98,24 +99,26 @@ export default function VendorsAdmin() {
     setEditingVendor(null);
   };
 
-  const openCreateModal = () => {
-    resetForm();
-    setShowModal(true);
-  };
+ const openCreateModal = () => {
+  resetForm();
+  setError(null);
+  setShowModal(true);
+};
 
-  const openEditModal = (vendor) => {
-    setEditingVendor(vendor);
-    setFormData({
-      vendor_name: vendor.vendor_name || '',
-      vendor_code: vendor.vendor_code || '',
-      contact_person: vendor.contact_person || '',
-      email: vendor.email || '',
-      phone: vendor.phone || '',
-      address: vendor.address || '',
-      is_active: vendor.is_active !== undefined ? vendor.is_active : true
-    });
-    setShowModal(true);
-  };
+const openEditModal = (vendor) => {
+  setEditingVendor(vendor);
+  setFormData({
+    vendor_name: vendor.vendor_name || '',
+    vendor_code: vendor.vendor_code || '',
+    contact_person: vendor.contact_person || '',
+    email: vendor.email || '',
+    phone: vendor.phone || '',
+    address: vendor.address || '',
+    is_active: vendor.is_active !== undefined ? vendor.is_active : true
+  });
+  setError(null);
+  setShowModal(true);
+};
 
   if (loading) {
     return (
@@ -136,13 +139,6 @@ export default function VendorsAdmin() {
           Add Vendor
         </button>
       </div>
-
-      {error && (
-        <div className="alert alert-danger alert-dismissible fade show">
-          {error}
-          <button type="button" className="btn-close" onClick={() => setError(null)}></button>
-        </div>
-      )}
 
       {success && (
         <div className="alert alert-success alert-dismissible fade show">
@@ -219,10 +215,16 @@ export default function VendorsAdmin() {
                 <button type="button" className="btn-close" onClick={() => setShowModal(false)}></button>
               </div>
               <form onSubmit={handleSubmit}>
-                <div className="modal-body">
-                  <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Vendor Name *</label>
+  <div className="modal-body">
+    {error && (
+  <div className="alert alert-danger fade show py-2 d-flex justify-content-between align-items-center">
+    <span>{error}</span>
+    <button type="button" className="btn-close" onClick={() => setError(null)}></button>
+  </div>
+)}
+    <div className="row">
+      <div className="col-md-6 mb-3">
+        <label className="form-label">Vendor Name *</label>
                       <input
                         type="text"
                         className="form-control"

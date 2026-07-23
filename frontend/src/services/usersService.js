@@ -20,11 +20,11 @@ export const usersService = {
   },
   
   async create({ name, email, password, role_id, vendor_id, designation, phone }) {
-    return api.post('/users', { name, email, password, role_id, vendor_id, designation, phone });
+    return api.post('/users', { name, email, password, role_id, vendor_id: vendor_id || null, designation, phone });
   },
   
-  async update(id, { name, role_id, vendor_id, is_active, has_digital_signature }) {
-    return api.put(`/users/${id}`, { name, role_id, vendor_id, is_active, has_digital_signature });
+  async update(id, { name, role_id, vendor_id, is_active, has_digital_signature, phone }) {
+    return api.put(`/users/${id}`, { name, role_id, vendor_id: vendor_id || null, is_active, has_digital_signature, phone });
   },
   
   async remove(id) {
