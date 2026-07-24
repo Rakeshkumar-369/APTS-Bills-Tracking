@@ -23,8 +23,8 @@ export const usersService = {
     return api.post('/users', { name, email, password, role_id, vendor_id: vendor_id || null, designation, phone });
   },
   
-  async update(id, { name, role_id, vendor_id, is_active, has_digital_signature, phone }) {
-    return api.put(`/users/${id}`, { name, role_id, vendor_id: vendor_id || null, is_active, has_digital_signature, phone });
+  async update(id, { name, role_id, vendor_id, is_active, has_digital_signature, phone, password }) {
+    return api.put(`/users/${id}`, { name, role_id, vendor_id: vendor_id || null, is_active, has_digital_signature, phone, password });
   },
   
   async remove(id) {

@@ -1,7 +1,6 @@
-// src/pages/PackageCreate.jsx (Updated)
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { packagesService, projectsService } from '../services';
+import { packagesService, projectsService, poService } from '../services';
 import { useAuth } from '../context/AuthContext';
 
 export default function PackageCreate() {
@@ -12,49 +11,66 @@ export default function PackageCreate() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [projects, setProjects] = useState([]);
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [formData, setFormData] = useState({
     project_id: '',
+    po_id: '',
     remarks: '',
-    files: []
+    files: [],
   });
 
+  // Fetch vendor's projects and purchase orders on mount
   useEffect(() => {
-    const fetchProjects = async () => {
+    const fetchInitialData = async () => {
       try {
         setLoading(true);
         const vendorId = user?.vendor_id;
-        console.log('🔍 Fetching projects for vendor_id:', vendorId);
-        
         if (!vendorId) {
           setError('No vendor ID found. Please contact administrator.');
           setLoading(false);
           return;
         }
-        
-        const response = await projectsService.list({ vendor_id: vendorId });
-        console.log('📦 Projects response:', response);
-        setProjects(response || []);
+
+        // Fetch projects assigned to this vendor
+        const projectList = await projectsService.list({ vendor_id: vendorId });
+        setProjects(projectList || []);
+
+        // Fetch all POs for this vendor (will be filtered later by project)
+        const { data: poList } = await poService.list({ vendor_id: vendorId });
+        setPurchaseOrders(poList || []);
       } catch (err) {
-        console.error('Error fetching projects:', err);
-        setError('Failed to load projects. Please try again.');
+        console.error('Error fetching data:', err);
+        setError('Failed to load required data. Please try again.');
       } finally {
         setLoading(false);
       }
     };
 
-    if (user) {
-      fetchProjects();
-    }
+    if (user) fetchInitialData();
   }, [user]);
+
+  // Filter POs based on selected project (and ensure they are active)
+  const filteredPOs = purchaseOrders.filter(
+    po => po.status === 'ACTIVE' && (!formData.project_id || po.project_id === parseInt(formData.project_id))
+  );
+
+  // Reset PO selection when project changes
+  const handleProjectChange = (e) => {
+    const projectId = e.target.value;
+    setFormData(prev => ({ ...prev, project_id: projectId, po_id: '' }));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.project_id) {
       setError('Please select a project');
       return;
     }
-
+    if (!formData.po_id) {
+      setError('Please select a Purchase Order');
+      return;
+    }
     if (!formData.remarks || formData.remarks.trim().length < 3) {
       setError('Please enter remarks (minimum 3 characters)');
       return;
@@ -67,45 +83,27 @@ export default function PackageCreate() {
     try {
       const vendorId = user?.vendor_id;
       const userId = user?.id;
-      
-      if (!vendorId) {
-        throw new Error('No vendor ID found. Please contact administrator.');
-      }
 
-      // Prepare the data as form fields (not JSON)
+      if (!vendorId) throw new Error('No vendor ID found. Please contact administrator.');
+
       const packageData = {
         vendor_id: parseInt(vendorId),
         project_id: parseInt(formData.project_id),
-        remarks: formData.remarks.trim()
+        po_id: parseInt(formData.po_id),
+        remarks: formData.remarks.trim(),
       };
-      
-      // Add vendor_contact_user_id if available
       if (userId) {
         packageData.vendor_contact_user_id = parseInt(userId);
       }
 
-      console.log('📦 Creating package with data:', packageData);
-      console.log('📦 Files to upload:', formData.files.length);
-      
-      // Create package with files
       const createdPackage = await packagesService.create(packageData, formData.files);
-      console.log('✅ Package created successfully:', createdPackage);
+      console.log('Package created:', createdPackage);
 
       setSuccess('Package created successfully!');
-      setTimeout(() => {
-        navigate('/vendor/packages');
-      }, 2000);
-
+      setTimeout(() => navigate('/vendor/packages'), 2000);
     } catch (err) {
-      console.error('❌ Error creating package:', err);
-      
-      let errorMessage = 'Failed to create package. Please try again.';
-      
-      if (err.message) {
-        errorMessage = err.message;
-      }
-      
-      setError(errorMessage);
+      console.error('Error creating package:', err);
+      setError(err.message || 'Failed to create package. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -113,13 +111,13 @@ export default function PackageCreate() {
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
-    setFormData({ ...formData, files });
+    setFormData(prev => ({ ...prev, files }));
   };
 
   const removeFile = (index) => {
     const newFiles = [...formData.files];
     newFiles.splice(index, 1);
-    setFormData({ ...formData, files: newFiles });
+    setFormData(prev => ({ ...prev, files: newFiles }));
   };
 
   if (loading) {
@@ -128,7 +126,7 @@ export default function PackageCreate() {
         <div className="spinner-border text-primary" role="status">
           <span className="visually-hidden">Loading...</span>
         </div>
-        <p className="mt-3 text-muted">Loading your projects...</p>
+        <p className="mt-3 text-muted">Loading your projects and purchase orders...</p>
       </div>
     );
   }
@@ -154,7 +152,6 @@ export default function PackageCreate() {
                   <button type="button" className="btn-close" onClick={() => setError(null)}></button>
                 </div>
               )}
-
               {success && (
                 <div className="alert alert-success alert-dismissible fade show">
                   <i className="bi bi-check-circle-fill me-2"></i>
@@ -164,6 +161,7 @@ export default function PackageCreate() {
               )}
 
               <form onSubmit={handleSubmit}>
+                {/* Project */}
                 <div className="mb-4">
                   <label className="form-label fw-semibold">
                     <i className="bi bi-folder text-primary me-1"></i>
@@ -172,13 +170,14 @@ export default function PackageCreate() {
                   <select
                     className="form-select"
                     value={formData.project_id}
-                    onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
+                    onChange={handleProjectChange}
                     required
                   >
                     <option value="">Choose a project...</option>
-                    {projects.map((project) => (
+                    {projects.map(project => (
                       <option key={project.id} value={project.id}>
-                        {project.project_name || project.name} {project.project_code ? `(${project.project_code})` : ''}
+                        {project.project_name || project.name}
+                        {project.project_code ? ` (${project.project_code})` : ''}
                       </option>
                     ))}
                   </select>
@@ -192,6 +191,39 @@ export default function PackageCreate() {
                   )}
                 </div>
 
+                {/* Purchase Order */}
+                <div className="mb-4">
+                  <label className="form-label fw-semibold">
+                    <i className="bi bi-receipt text-primary me-1"></i>
+                    Select Purchase Order <span className="text-danger">*</span>
+                  </label>
+                  <select
+                    className="form-select"
+                    value={formData.po_id}
+                    onChange={(e) => setFormData(prev => ({ ...prev, po_id: e.target.value }))}
+                    required
+                    disabled={!formData.project_id}
+                  >
+                    <option value="">
+                      {!formData.project_id ? 'Select a project first' : 'Choose a PO...'}
+                    </option>
+                    {filteredPOs.map(po => (
+                      <option key={po.id} value={po.id}>
+                        {po.po_number} - ₹{parseFloat(po.amount).toLocaleString('en-IN')}
+                      </option>
+                    ))}
+                  </select>
+                  {formData.project_id && filteredPOs.length === 0 && (
+                    <div className="mt-2">
+                      <small className="text-warning">
+                        <i className="bi bi-exclamation-triangle me-1"></i>
+                        No active Purchase Orders found for this project. Please contact the administrator.
+                      </small>
+                    </div>
+                  )}
+                </div>
+
+                {/* Remarks */}
                 <div className="mb-4">
                   <label className="form-label fw-semibold">
                     <i className="bi bi-chat text-primary me-1"></i>
@@ -202,7 +234,7 @@ export default function PackageCreate() {
                     rows="4"
                     placeholder="Provide details about this package..."
                     value={formData.remarks}
-                    onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                    onChange={(e) => setFormData(prev => ({ ...prev, remarks: e.target.value }))}
                     required
                     minLength="3"
                   />
@@ -211,6 +243,7 @@ export default function PackageCreate() {
                   </small>
                 </div>
 
+                {/* File attachments */}
                 <div className="mb-4">
                   <label className="form-label fw-semibold">
                     <i className="bi bi-file-earmark-arrow-up text-primary me-1"></i>

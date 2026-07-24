@@ -18,7 +18,7 @@ import ProjectsAdmin from './pages/ADMIN/ProjectsAdmin';
 import RolesAdmin from './pages/ADMIN/RolesAdmin';
 import WorkflowsAdmin from './pages/ADMIN/WorkflowsAdmin';
 import WorkflowDetail from './pages/ADMIN/WorkflowDetail';
-
+import PurchaseOrdersAdmin from './pages/ADMIN/PurchaseOrdersAdmin';
 // Other Pages
 import Login from './pages/Login';
 import UnifiedDashboard from './pages/UnifiedDashboard';
@@ -68,7 +68,7 @@ export default function App() {
 
       {/* ============ ADMIN ROUTES ============ */}
       <Route element={<ProtectedRoute />}>
-        <Route element={<RoleGuard allowedRanks={[100]} redirectTo="/" />}>
+        <Route element={<RoleGuard allowedRanks={[100, 80]} redirectTo="/" />}>
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<AdminDashboard />} />
             <Route path="users" element={<UsersAdmin />} />
@@ -77,6 +77,7 @@ export default function App() {
             <Route path="roles" element={<RolesAdmin />} />
             <Route path="workflows" element={<WorkflowsAdmin />} />
             <Route path="workflows/:id" element={<WorkflowDetail />} />
+            <Route path="purchase-orders" element={<PurchaseOrdersAdmin />} />
             <Route path="*" element={<Navigate to="/admin" replace />} />
           </Route>
         </Route>

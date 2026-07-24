@@ -15,31 +15,24 @@ export default function AdminLayout() {
 
   console.log('🏗️ AdminLayout rendered with user:', user?.email);
 
-  // Handle window resize for responsive behavior
+  // Handle window resize
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      if (!mobile) {
-        setSidebarOpen(true); // Auto-open on desktop
-      } else {
-        setSidebarOpen(false); // Auto-close on mobile
-      }
+      if (!mobile) setSidebarOpen(true);
+      else setSidebarOpen(false);
     };
-
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Get last login time
+  // Last login tracking
   useEffect(() => {
     if (user) {
-      // Try to get last login from localStorage
-      const storedLastLogin = localStorage.getItem(`lastLogin_${user.id || user.email}`);
-      if (storedLastLogin) {
-        setLastLogin(new Date(parseInt(storedLastLogin)));
-      } else {
-        // If no last login found, set current time as first login
+      const stored = localStorage.getItem(`lastLogin_${user.id || user.email}`);
+      if (stored) setLastLogin(new Date(parseInt(stored)));
+      else {
         const now = Date.now();
         localStorage.setItem(`lastLogin_${user.id || user.email}`, now.toString());
         setLastLogin(new Date(now));
@@ -47,41 +40,31 @@ export default function AdminLayout() {
     }
   }, [user]);
 
-  // Update last login when user is active
   useEffect(() => {
     if (user) {
-      // Update last login time periodically or on activity
-      const updateLastLogin = () => {
-        const now = Date.now();
-        localStorage.setItem(`lastLogin_${user.id || user.email}`, now.toString());
+      const update = () => {
+        localStorage.setItem(`lastLogin_${user.id || user.email}`, Date.now().toString());
       };
-      
-      // Update on page load
-      updateLastLogin();
-
-      // Update every 5 minutes
-      const interval = setInterval(updateLastLogin, 5 * 60 * 1000);
-
+      update();
+      const interval = setInterval(update, 5 * 60 * 1000);
       return () => clearInterval(interval);
     }
   }, [user]);
 
+  // Authorization: allow only rank 100 or 80
   useEffect(() => {
     if (!isAuthenticated || !user) {
-      console.log('🔒 AdminLayout: No user, redirecting to /login');
       navigate('/login', { replace: true });
       return;
     }
-    if (user.role_rank !== 100) {
-      console.log('🔒 AdminLayout: Not admin, redirecting to /');
+    if (user.role_rank !== 100 && user.role_rank !== 80) {
       navigate('/', { replace: true });
     }
   }, [user, isAuthenticated, navigate]);
 
-  // If no user, show loading
   if (!user) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '100vh' }}>
+      <div className="d-flex justify-content-center align-items-center vh-100">
         <div className="spinner-border text-primary" role="status">
           <span className="visually-hidden">Loading...</span>
         </div>
@@ -89,14 +72,28 @@ export default function AdminLayout() {
     );
   }
 
-  const menuItems = [
-    { path: '/admin', label: 'Dashboard', icon: 'bi-grid' },
-    { path: '/admin/users', label: 'Users', icon: 'bi-people' },
-    { path: '/admin/vendors', label: 'Vendors', icon: 'bi-building' },
-    { path: '/admin/projects', label: 'Projects', icon: 'bi-folder' },
-    { path: '/admin/roles', label: 'Roles', icon: 'bi-shield-lock' },
-    { path: '/admin/workflows', label: 'Workflows', icon: 'bi-diagram-3' },
-  ];
+  // === Build menu items based on role ===
+  const isSuperAdmin = user.role_rank === 100;
+  const isAdminPO = user.role_rank === 80;
+
+  let menuItems = [];
+  if (isSuperAdmin) {
+    // Super Admin: full menu (no Purchase Orders)
+    menuItems = [
+      { path: '/admin', label: 'Dashboard', icon: 'bi-grid' },
+      { path: '/admin/users', label: 'Users', icon: 'bi-people' },
+      { path: '/admin/vendors', label: 'Vendors', icon: 'bi-building' },
+      { path: '/admin/projects', label: 'Projects', icon: 'bi-folder' },
+      { path: '/admin/roles', label: 'Roles', icon: 'bi-shield-lock' },
+      { path: '/admin/workflows', label: 'Workflows', icon: 'bi-diagram-3' },
+    ];
+  } else if (isAdminPO) {
+    // Admin PO: only Dashboard and Purchase Orders
+    menuItems = [
+      { path: '/admin', label: 'Dashboard', icon: 'bi-grid' },
+      { path: '/admin/purchase-orders', label: 'Purchase Orders', icon: 'bi-receipt' },
+    ];
+  }
 
   const isActive = (path) => {
     if (path === '/admin' && location.pathname === '/admin') return true;
@@ -104,7 +101,6 @@ export default function AdminLayout() {
     return false;
   };
 
-  // Format last login time
   const formatLastLogin = (date) => {
     if (!date) return 'Never';
     const now = new Date();
@@ -112,39 +108,23 @@ export default function AdminLayout() {
     const minutes = Math.floor(diff / 60000);
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
-
     if (minutes < 1) return 'Just now';
     if (minutes < 60) return `${minutes}m ago`;
     if (hours < 24) return `${hours}h ago`;
     if (days < 7) return `${days}d ago`;
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  // Toggle sidebar function with overlay handling for mobile
-  const toggleSidebar = () => {
-    setSidebarOpen(!sidebarOpen);
-  };
-
-  // Close sidebar on mobile when clicking outside
-  const closeSidebar = () => {
-    if (isMobile && sidebarOpen) {
-      setSidebarOpen(false);
-    }
-  };
+  const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
+  const closeSidebar = () => { if (isMobile && sidebarOpen) setSidebarOpen(false); };
 
   return (
     <div className="d-flex flex-column vh-100 bg-light" style={{ overflow: 'hidden' }}>
       {/* Navbar */}
       <nav className="navbar navbar-expand-lg navbar-dark bg-primary" style={{ zIndex: 1050, flexShrink: 0 }}>
         <div className="container-fluid">
-          <button 
-            className="btn btn-outline-light me-2 hamburger-btn"
+          <button
+            className="btn btn-outline-light me-2"
             onClick={toggleSidebar}
             aria-label="Toggle sidebar"
             style={{
@@ -165,9 +145,7 @@ export default function AdminLayout() {
           >
             <i className="bi bi-list"></i>
           </button>
-          <span className="navbar-brand">
-            APTS Admin Panel
-          </span>
+          <span className="navbar-brand">APTS Admin Panel</span>
           <div className="navbar-nav ms-auto d-flex flex-row align-items-center">
             <span className="navbar-text text-white me-3 d-none d-md-inline">
               <i className="bi bi-clock-history me-1"></i>
@@ -178,7 +156,7 @@ export default function AdminLayout() {
               {user?.name || 'Admin'}
             </span>
             <button
-              className="btn btn-outline-light btn-sm me-2 change-password-btn"
+              className="btn btn-outline-light btn-sm me-2"
               onClick={() => setShowChangePassword(true)}
               style={{
                 transition: 'all 0.3s ease',
@@ -201,7 +179,7 @@ export default function AdminLayout() {
               <span className="d-none d-md-inline">Change Password</span>
             </button>
             <button
-              className="btn btn-danger btn-sm logout-btn"
+              className="btn btn-danger btn-sm"
               onClick={() => {
                 logout();
                 navigate('/login');
@@ -231,26 +209,22 @@ export default function AdminLayout() {
       </nav>
 
       <div className="d-flex flex-grow-1" style={{ overflow: 'hidden', position: 'relative' }}>
-        {/* Sidebar Overlay for mobile */}
+        {/* Mobile overlay */}
         {isMobile && sidebarOpen && (
-          <div 
+          <div
             className="position-fixed top-0 start-0 w-100 h-100"
-            style={{ 
-              zIndex: 1040, 
-              backgroundColor: 'rgba(0,0,0,0.5)',
-              cursor: 'pointer'
-            }}
+            style={{ zIndex: 1040, backgroundColor: 'rgba(0,0,0,0.5)', cursor: 'pointer' }}
             onClick={closeSidebar}
           ></div>
         )}
 
         {/* Sidebar */}
-        <div 
+        <div
           className={`bg-dark text-white ${sidebarOpen ? 'd-block' : 'd-none'}`}
-          style={{ 
-            width: '250px', 
-            minHeight: '100%', 
-            overflowY: 'auto', 
+          style={{
+            width: '250px',
+            minHeight: '100%',
+            overflowY: 'auto',
             flexShrink: 0,
             position: isMobile ? 'fixed' : 'relative',
             top: isMobile ? '56px' : '0',
@@ -271,9 +245,7 @@ export default function AdminLayout() {
                     className={`nav-link text-white ${isActive(item.path) ? 'active bg-primary' : ''}`}
                     onClick={() => {
                       navigate(item.path);
-                      if (isMobile) {
-                        setSidebarOpen(false);
-                      }
+                      if (isMobile) setSidebarOpen(false);
                     }}
                     style={{
                       borderRadius: '5px',
@@ -293,23 +265,17 @@ export default function AdminLayout() {
           </div>
         </div>
 
-        {/* Main Content */}
-        <main 
+        {/* Main content */}
+        <main
           className="flex-grow-1 overflow-auto p-3"
           onClick={closeSidebar}
-          style={{
-            marginLeft: isMobile ? '0' : '0',
-            transition: 'margin-left 0.3s ease-in-out'
-          }}
+          style={{ marginLeft: isMobile ? '0' : '0', transition: 'margin-left 0.3s ease-in-out' }}
         >
           <Outlet />
         </main>
       </div>
 
-      <ChangePasswordModal
-        show={showChangePassword}
-        onClose={() => setShowChangePassword(false)}
-      />
+      <ChangePasswordModal show={showChangePassword} onClose={() => setShowChangePassword(false)} />
     </div>
   );
 }

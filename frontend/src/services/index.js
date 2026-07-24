@@ -8,3 +8,4 @@ export { default as rolesService } from './rolesService';
 export { default as workflowsService } from './workflowsService';
 export { default as packagesService } from './packagesService';
 export { default as inboxService } from './inboxService';
+export { default as poService } from './poService';

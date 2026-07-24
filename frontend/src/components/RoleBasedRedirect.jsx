@@ -11,7 +11,6 @@ export default function RoleBasedRedirect() {
     console.log('🔄 RoleBasedRedirect - User:', user?.email, 'Loading:', loading);
     
     if (!loading) {
-      // Check localStorage as fallback
       const storedUser = localStorage.getItem('user');
       const token = localStorage.getItem('accessToken');
       
@@ -32,13 +31,20 @@ export default function RoleBasedRedirect() {
       console.log('🔀 Redirecting based on role_rank:', roleRank);
       
       let redirectPath = '/login';
-      if (roleRank === 100) redirectPath = '/admin';
+      // Map ranks to routes
+      if (roleRank === 100) redirectPath = '/admin';        // Super Admin
+      else if (roleRank === 80) redirectPath = '/admin';    // Admin (PO Manager) – shares admin route
       else if (roleRank === 10) redirectPath = '/vendor';
       else if (roleRank === 60) redirectPath = '/manager';
       else if (roleRank >= 30 && roleRank <= 50) redirectPath = '/officer';
+      else redirectPath = '/login';
       
       console.log('🔀 Redirecting to:', redirectPath);
-      navigate(redirectPath, { replace: true });
+      // Prevent redirect loop: only navigate if we're not already on that path
+      const currentPath = window.location.pathname;
+      if (currentPath !== redirectPath) {
+        navigate(redirectPath, { replace: true });
+      }
     }
   }, [user, loading, isAuthenticated, navigate]);
 

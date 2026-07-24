@@ -6,3 +6,5 @@ export function toQueryString(params = {}) {
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
   return parts.length ? `?${parts.join('&')}` : '';
 }
+
+export default toQueryString;

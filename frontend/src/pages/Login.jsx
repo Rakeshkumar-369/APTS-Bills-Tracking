@@ -18,7 +18,7 @@ export default function Login() {
       console.log('🔀 User already logged in, redirecting...');
       const roleRank = user.role_rank;
       let path = '/';
-      if (roleRank === 100) path = '/admin';
+      if (roleRank === 100 || roleRank === 80) path = '/admin';   // Super Admin & Admin
       else if (roleRank === 10) path = '/vendor';
       else if (roleRank === 60) path = '/manager';
       else if (roleRank >= 30 && roleRank <= 50) path = '/officer';
@@ -26,9 +26,10 @@ export default function Login() {
     }
   }, [isAuthenticated, user, authLoading, navigate]);
 
-  // Test credentials
+  // Test credentials – includes Admin (PO) with rank 80
   const testCredentials = [
     { label: 'Super Admin', email: 'admin@apts.gov.in', password: 'Admin@123' },
+    { label: 'Admin (PO)', email: 'admin1@gov.in', password: 'Admin@123' },
     { label: 'PM', email: 'pm_user@apts.gov.in', password: 'password123' },
     { label: 'TPA', email: 'tpa_user@apts.gov.in', password: 'password123' },
     { label: 'JD-Infra', email: 'jd_infra@apts.gov.in', password: 'password123' },
@@ -51,7 +52,7 @@ export default function Login() {
         const userData = result.user;
         const roleRank = userData.role_rank;
         let path = '/';
-        if (roleRank === 100) path = '/admin';
+        if (roleRank === 100 || roleRank === 80) path = '/admin';
         else if (roleRank === 10) path = '/vendor';
         else if (roleRank === 60) path = '/manager';
         else if (roleRank >= 30 && roleRank <= 50) path = '/officer';
@@ -113,7 +114,6 @@ export default function Login() {
           className="col-lg-6 d-none d-lg-flex flex-column justify-content-center align-items-start p-5 position-relative overflow-hidden"
           style={{ minHeight: '100vh' }}
         >
-          {/* Decorative background blobs */}
           <div
             style={{
               position: 'absolute',
@@ -150,7 +150,6 @@ export default function Login() {
             >
               <i className="bi bi-building-gear text-white" style={{ fontSize: '2rem' }}></i>
             </div>
-
 
             <h1 className="display-4 fw-bold text-primary mb-2" style={{ letterSpacing: '-0.02em' }}>
               Welcome to APTS

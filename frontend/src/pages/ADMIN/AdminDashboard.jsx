@@ -20,9 +20,7 @@ export default function AdminDashboard() {
 
   console.log('📊 AdminDashboard rendered with user:', user);
 
-  // Fetch stats when on dashboard
   useEffect(() => {
-    console.log('📍 AdminDashboard location:', location.pathname);
     if (location.pathname === '/admin' || location.pathname === '/admin/') {
       fetchStats();
     }
@@ -33,15 +31,12 @@ export default function AdminDashboard() {
       setLoading(true);
       setError(null);
       console.log('📊 Fetching stats...');
-      
-      // Fetch all data with error handling for each
       const [users, vendors, projects, packages] = await Promise.all([
         usersService.list().catch(() => []),
         vendorsService.list().catch(() => []),
         projectsService.list().catch(() => []),
         packagesService.list().catch(() => [])
       ]);
-      
       setStats({
         users: users?.length || 0,
         vendors: vendors?.length || 0,
@@ -57,8 +52,9 @@ export default function AdminDashboard() {
     }
   };
 
-  // Dashboard Overview Component
   const DashboardOverview = () => {
+    const isSuperAdmin = user?.role_rank === 100;
+
     if (loading) {
       return (
         <div className="text-center py-5">
@@ -76,8 +72,7 @@ export default function AdminDashboard() {
           <i className="bi bi-exclamation-triangle-fill me-2"></i>
           {error}
           <button className="btn btn-sm btn-outline-danger ms-3" onClick={fetchStats}>
-            <i className="bi bi-arrow-counterclockwise me-1"></i>
-            Retry
+            <i className="bi bi-arrow-counterclockwise me-1"></i> Retry
           </button>
         </div>
       );
@@ -87,9 +82,12 @@ export default function AdminDashboard() {
       <div>
         <div className="d-flex justify-content-between align-items-center mb-4">
           <h4>Dashboard Overview</h4>
-          <span className="badge bg-primary">Welcome, {user?.name || 'Admin'}!</span>
+          <span className="badge bg-primary">
+            {isSuperAdmin ? 'Super Admin' : 'Admin (PO Manager)'} - {user?.name}
+          </span>
         </div>
 
+        {/* Stats Cards */}
         <div className="row g-4">
           <div className="col-md-3">
             <div className="card bg-primary text-white shadow-sm">
@@ -125,36 +123,40 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        <div className="mt-4">
-          <div className="card shadow-sm">
-            <div className="card-body">
-              <h5>Quick Actions</h5>
-              <div className="d-flex flex-wrap gap-2 mt-3">
-                <button className="btn btn-primary" onClick={() => navigate('/admin/users')}>
-                  <i className="bi bi-person-plus me-1"></i> Manage Users
-                </button>
-                <button className="btn btn-success" onClick={() => navigate('/admin/vendors')}>
-                  <i className="bi bi-building-add me-1"></i> Manage Vendors
-                </button>
-                <button className="btn btn-info" onClick={() => navigate('/admin/projects')}>
-                  <i className="bi bi-folder-plus me-1"></i> Manage Projects
-                </button>
-                <button className="btn btn-warning" onClick={() => navigate('/admin/roles')}>
-                  <i className="bi bi-shield-plus me-1"></i> Manage Roles
-                </button>
-    
+        {/* Quick Actions – only for Super Admin */}
+        {isSuperAdmin && (
+          <div className="mt-4">
+            <div className="card shadow-sm">
+              <div className="card-body">
+                <h5>Quick Actions</h5>
+                <div className="d-flex flex-wrap gap-2 mt-3">
+                  <button className="btn btn-primary" onClick={() => navigate('/admin/users')}>
+                    <i className="bi bi-person-plus me-1"></i> Manage Users
+                  </button>
+                  <button className="btn btn-success" onClick={() => navigate('/admin/vendors')}>
+                    <i className="bi bi-building-add me-1"></i> Manage Vendors
+                  </button>
+                  <button className="btn btn-info" onClick={() => navigate('/admin/projects')}>
+                    <i className="bi bi-folder-plus me-1"></i> Manage Projects
+                  </button>
+                  <button className="btn btn-warning" onClick={() => navigate('/admin/roles')}>
+                    <i className="bi bi-shield-plus me-1"></i> Manage Roles
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => navigate('/admin/workflows')}>
+                    <i className="bi bi-diagram-3 me-1"></i> Manage Workflows
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     );
   };
 
-  // If no user, show loading
   if (!user) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '100vh' }}>
+      <div className="d-flex justify-content-center align-items-center vh-100">
         <div className="spinner-border text-primary" role="status">
           <span className="visually-hidden">Loading...</span>
         </div>
@@ -162,7 +164,6 @@ export default function AdminDashboard() {
     );
   }
 
-  // This renders only the content area (no sidebar)
   return (
     <div className="container-fluid px-4">
       <Routes>
