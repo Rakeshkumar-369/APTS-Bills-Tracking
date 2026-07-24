@@ -143,6 +143,10 @@ class UserService {
     if (!rows[0]) throw new ApiError(404, 'Role not found');
     return rows[0];
   }
+
+  async getOfficers() {
+    return userRepository.findOfficers();
+  }
 }
 
 module.exports = new UserService();

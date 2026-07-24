@@ -72,4 +72,13 @@ const getAllRoles = async (req, res, next) => {
   }
 };
 
-module.exports = { getAllUsers, getUserById, createUser, updateUser, deleteUser, getAllRoles };
+const getOfficers = async (req, res, next) => {
+  try {
+    const officers = await userService.getOfficers();
+    res.json(ApiResponse.success('Officers fetched successfully', officers));
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = { getAllUsers, getUserById, createUser, updateUser, deleteUser, getAllRoles, getOfficers };

@@ -12,6 +12,7 @@ router.use(authMiddleware);
 
 router.get('/', requirePermission('user_management', 'read'), validatePagination, userController.getAllUsers);
 router.get('/roles', userController.getAllRoles);
+router.get('/officers', userController.getOfficers);
 router.get('/:id', requirePermission('user_management', 'read'), validateId(), userController.getUserById);
 router.post('/', requirePermission('user_management', 'create'), createUserValidation, userController.createUser);
 router.put('/:id', requirePermission('user_management', 'update'), validateId(), updateUserValidation, userController.updateUser);

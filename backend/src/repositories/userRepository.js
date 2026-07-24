@@ -213,6 +213,23 @@ class UserRepository {
     return { rows, total: countResult[0].total };
   }
 
+  /**
+   * Find all officers available for manual claim assignment.
+   * Excludes: Super Admin, Admin, and Vendor users.
+   */
+  async findOfficers() {
+    const [rows] = await pool.query(`
+      SELECT u.id, u.name, r.role_name
+      FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.is_active = true
+        AND r.is_active = true
+        AND r.role_name NOT IN ('Super Admin', 'Admin', 'Vendor')
+      ORDER BY r.role_rank ASC, u.name ASC
+    `);
+    return rows;
+  }
+
   async updateUser(id, { name, role_id, designation, phone, is_active, vendor_id, has_digital_signature }) {
     const updates = [];
     const params = [];

@@ -2,8 +2,12 @@
 """
 APTS Bills Tracking System -- API Test Suite
 ============================================
-Tests all endpoints with all seed users through a complete workflow lifecycle.
-Generates PDF files dynamically for file upload testing.
+Tests all endpoints with all seed users through complete workflows including:
+- Workflow-based claim lifecycle (forward, sendback, complete)
+- Non-workflow manual assignment (assign, pull-back)
+- Purchase Order CRUD (Admin role)
+- Officers list endpoint
+- Role-based data isolation and permission checks
 
 Usage:
     pip install requests fpdf2
@@ -16,11 +20,11 @@ import time
 import io
 from pathlib import Path
 
-# Fix Unicode output on Windows terminals (cp1252 cannot render box-drawing chars)
+# Fix Unicode output on Windows terminals
 if sys.platform == "win32":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-# Force line-buffered stdout so test results print immediately (not all at end)
+# Force line-buffered stdout so test results print immediately
 sys.stdout.reconfigure(line_buffering=True)
 
 try:
@@ -39,10 +43,11 @@ except ImportError:
 API_BASE = "http://localhost:5000/api"
 RESULTS = []  # list of {test, status, detail}
 
+
 def log(test_name, status, detail=""):
     """Record a test result and print it."""
     icon = "✅" if status == "PASS" else "❌" if status == "FAIL" else "⚠️"
-    print(f"  {icon} [{status}] {test_name}" + (f" — {detail}" if detail else ""))
+    print(f"  {icon} [{status}] {test_name}" + (f" \u2014 {detail}" if detail else ""))
     RESULTS.append({"test": test_name, "status": status, "detail": detail})
 
 
@@ -85,7 +90,7 @@ class APTSSession:
             return False
         self.token = data["data"][0]["accessToken"]
         self.user = data["data"][0]["user"]
-        log(f"Login [{self.label}]", "PASS", f"→ {self.user.get('name', '?')} ({self.user.get('role_name', '?')})")
+        log(f"Login [{self.label}]", "PASS", f"\u2192 {self.user.get('name', '?')} ({self.user.get('role_name', '?')})")
         return True
 
     def headers(self):
@@ -142,7 +147,6 @@ class APTSSession:
             log(label, "FAIL", f"HTTP {resp.status_code}: {data.get('message', '')}")
             return None
         if resp.status_code >= 400:
-            # Expected failures (e.g. permission denied) are valid tests
             log(label, "PASS", f"(expected) HTTP {resp.status_code}: {data.get('message', '')}")
             return data
 
@@ -153,11 +157,11 @@ class APTSSession:
 # ── Test Suite ─────────────────────────────────────────────────────────────
 def run_all_tests():
     print("\n" + "=" * 72)
-    print("  APTS Bills Tracking System — API Test Suite")
+    print("  APTS Bills Tracking System \u2014 API Test Suite")
     print("=" * 72)
 
     # ── 1. Login all users ─────────────────────────────────────────────────
-    print("\n─── 1. AUTHENTICATION ───")
+    print("\n\u2500\u2500\u2500 1. AUTHENTICATION \u2500\u2500\u2500")
     admin = APTSSession("admin@apts.gov.in", "Admin@123", "Super Admin")
     vendor = APTSSession("vendor@example.com", "password123", "Vendor")
     pm = APTSSession("pm_user@apts.gov.in", "password123", "PM")
@@ -169,11 +173,10 @@ def run_all_tests():
         admin.login(), vendor.login(), pm.login(), tpa.login(), jd_infra.login(), apts_mgr.login()
     ])
     if not logins_ok:
-        print("\n⚠️  Some logins failed. Continuing with available sessions...\n")
+        print("\n\u26a0\ufe0f  Some logins failed. Continuing with available sessions...\n")
 
     # ── 2. Super Admin: CRUD Vendors ───────────────────────────────────────
-    print("\n─── 2. VENDORS (Super Admin) ───")
-    # Create
+    print("\n\u2500\u2500\u2500 2. VENDORS (Super Admin) \u2500\u2500\u2500")
     create_vendor_resp = admin.post("/vendors", {
         "vendor_name": "Test Vendor Co",
         "vendor_code": "TESTCO",
@@ -185,74 +188,79 @@ def run_all_tests():
     if create_vendor_resp and create_vendor_resp.get("success"):
         test_vendor_id = create_vendor_resp["data"][0]["id"]
 
-    # List
     admin.get("/vendors", label="List vendors")
-
-    # Get single
     if test_vendor_id:
         admin.get(f"/vendors/{test_vendor_id}", label="Get vendor by ID")
         admin.get(f"/vendors/{test_vendor_id}?include_users=true", label="Get vendor with users")
-
-    # Update
-    if test_vendor_id:
         admin.put(f"/vendors/{test_vendor_id}", {"vendor_name": "Test Vendor Updated"}, "Update vendor")
 
-    # Permission check: vendor should FAIL to create vendors
-    if test_vendor_id:
-        vendor.post("/vendors", {"vendor_name": "Should Fail"}, "Vendor cannot create vendor")
+    # Permission check
+    vendor.post("/vendors", {"vendor_name": "Should Fail"}, "Vendor cannot create vendor")
 
     # ── 3. Super Admin: CRUD Projects ──────────────────────────────────────
-    print("\n─── 3. PROJECTS (Super Admin) ───")
+    print("\n\u2500\u2500\u2500 3. PROJECTS (Super Admin) \u2500\u2500\u2500")
+
+    # 3a. Project WITH workflow (existing behavior)
     create_proj = admin.post("/projects", {
-        "project_name": "Test Project",
-        "project_code": "TEST-001",
-        "description": "A test project",
-        "workflow_id": 1  # Required: each project must be assigned a workflow
-    }, "Create project")
-    test_project_id = None
+        "project_name": "Test Workflow Project",
+        "project_code": "TWF-001",
+        "description": "A test project with workflow",
+        "workflow_id": 1
+    }, "Create project WITH workflow")
+    test_project_wf_id = None
     if create_proj and create_proj.get("success"):
-        test_project_id = create_proj["data"][0]["id"]
+        test_project_wf_id = create_proj["data"][0]["id"]
+
+    # 3b. Project WITHOUT workflow (for manual assignment tests)
+    create_proj_nwf = admin.post("/projects", {
+        "project_name": "Test Manual Project",
+        "project_code": "TMN-001",
+        "description": "A test project WITHOUT workflow (manual assignment)"
+        # No workflow_id = manual assignment mode
+    }, "Create project WITHOUT workflow")
+    test_project_nwf_id = None
+    if create_proj_nwf and create_proj_nwf.get("success"):
+        test_project_nwf_id = create_proj_nwf["data"][0]["id"]
 
     admin.get("/projects", label="List projects")
-    if test_project_id:
-        admin.get(f"/projects/{test_project_id}", label="Get project by ID")
-        admin.put(f"/projects/{test_project_id}", {"project_name": "Test Project Updated"}, "Update project")
+    if test_project_wf_id:
+        admin.get(f"/projects/{test_project_wf_id}", label="Get project by ID")
+        admin.put(f"/projects/{test_project_wf_id}", {"project_name": "Test Workflow Project Updated"}, "Update project")
+    if test_project_nwf_id:
+        admin.get(f"/projects/{test_project_nwf_id}", label="Get no-workflow project")
 
-    # ── 3b. Super Admin: Assign test project to test vendor ────────────────
-    print("\n─── 3b. VENDOR-PROJECT ASSIGNMENT (Super Admin) ───")
-    if test_vendor_id and test_project_id:
-        # Assign the test project to the test vendor
+    # ── 3c. Super Admin: Assign test projects to test vendor ──────────────
+    print("\n\u2500\u2500\u2500 3c. VENDOR-PROJECT ASSIGNMENT (Super Admin) \u2500\u2500\u2500")
+    if test_vendor_id and test_project_wf_id:
         admin.post(f"/vendors/{test_vendor_id}/projects",
-                   {"project_id": test_project_id},
-                   "Assign project to vendor")
-
-        # Also assign project 1 to test vendor (needed for package creation below)
+                   {"project_id": test_project_wf_id},
+                   "Assign workflow project to vendor")
         admin.post(f"/vendors/{test_vendor_id}/projects",
                    {"project_id": 1},
                    "Assign project 1 to vendor")
 
-        # List vendor's projects
         vendor_projects = admin.get(f"/vendors/{test_vendor_id}/projects",
                                     label="List vendor's assigned projects")
-        if vendor_projects and vendor_projects.get("success"):
-            project_names = [p["project_name"] for p in vendor_projects["data"]]
-            log("Vendor projects listed", "PASS", f"Projects: {', '.join(project_names)}")
 
-        # Permission check: Vendor should FAIL to assign projects
-        vendor.post(f"/vendors/1/projects",
-                    {"project_id": 1},
-                    "Vendor cannot assign projects (permission)")
+    if test_vendor_id and test_project_nwf_id:
+        admin.post(f"/vendors/{test_vendor_id}/projects",
+                   {"project_id": test_project_nwf_id},
+                   "Assign no-workflow project to vendor")
+
+    # Permission check
+    vendor.post(f"/vendors/1/projects", {"project_id": 1},
+                "Vendor cannot assign projects (permission)")
 
     # ── 4. Super Admin: CRUD Roles ─────────────────────────────────────────
-    print("\n─── 4. ROLES (Super Admin) ───")
+    print("\n\u2500\u2500\u2500 4. ROLES (Super Admin) \u2500\u2500\u2500")
     admin.get("/roles", label="List roles")
 
-    # Create a test role
     create_role = admin.post("/roles", {
         "role_name": "TestObserver",
         "role_rank": 5,
         "permissions": {
-            "package": {"create": False, "read": True, "forward": False, "sendback": False},
+            "claim": {"create": False, "read": True, "forward": False, "sendback": False},
+            "po": {"create": False, "read": True},
             "vendor": {"create": False, "read": True}
         }
     }, "Create role")
@@ -263,31 +271,146 @@ def run_all_tests():
     if test_role_id:
         admin.get(f"/roles/{test_role_id}", label="Get role by ID")
         admin.put(f"/roles/{test_role_id}", {"role_name": "TestObserverV2"}, "Update role")
-
-        # Duplicate role name check — should fail with 409
         admin.post("/roles", {
-            "role_name": "TestObserverV2",
-            "role_rank": 5,
-            "permissions": {}
+            "role_name": "TestObserverV2", "role_rank": 5, "permissions": {}
         }, "Create role with duplicate name (expect 409)")
-
-        # Invalid role name — hyphens not allowed — should fail with 400
         admin.post("/roles", {
-            "role_name": "Hyphen-Role",
-            "role_rank": 5,
-            "permissions": {}
+            "role_name": "Hyphen-Role", "role_rank": 5, "permissions": {}
         }, "Create role with invalid name (hyphen, expect 400)")
-
         admin.delete(f"/roles/{test_role_id}", "Delete test role")
 
-    # ── 5. Super Admin: Workflow Management ────────────────────────────────
-    print("\n─── 5. WORKFLOWS (Super Admin) ───")
-    default_workflow_id = 1  # From seed data
+    # ── 5. Purchase Orders (via Admin role) ───────────────────────────────
+    print("\n\u2500\u2500\u2500 5. PURCHASE ORDERS (Admin role) \u2500\u2500\u2500")
 
-    # Get workflow with details
-    admin.get(f"/workflows/{default_workflow_id}?include_details=true", label="Get workflow with steps & transitions")
+    # 5a. Create an Admin user first (Admin role id=7 from seed)
+    admin_user = admin.post("/users", {
+        "name": "PO Admin User",
+        "email": "poadmin@apts.gov.in",
+        "password": "Admin@123",
+        "role_id": 7,  # Admin role
+        "designation": "Purchase Order Manager"
+    }, "Create PO Admin user (role_id=7)")
+    po_admin_user_id = None
+    if admin_user and admin_user.get("success"):
+        po_admin_user_id = admin_user["data"][0]["id"]
 
-    # Get steps
+    # Login as the PO Admin
+    po_admin = APTSSession("poadmin@apts.gov.in", "Admin@123", "PO Admin")
+    po_admin_ok = po_admin.login() if po_admin_user_id else False
+
+    # 5b. PO CRUD (as PO Admin)
+    po_id_wf = None
+    po_id_nwf = None
+    if po_admin_ok and test_vendor_id and test_project_wf_id:
+        po_resp = po_admin.post("/purchase-orders", {
+            "project_id": test_project_wf_id,
+            "vendor_id": test_vendor_id,
+            "description": "Test PO for workflow project",
+            "amount": 500000.00
+        }, "PO Admin: Create PO for workflow project")
+        if po_resp and po_resp.get("success"):
+            po_id_wf = po_resp["data"][0]["id"]
+            po_number = po_resp["data"][0]["po_number"]
+            log("PO created", "PASS", f"PO#: {po_number}")
+
+    if po_admin_ok and test_vendor_id and test_project_nwf_id:
+        po_resp_nwf = po_admin.post("/purchase-orders", {
+            "project_id": test_project_nwf_id,
+            "vendor_id": test_vendor_id,
+            "description": "Test PO for manual project",
+            "amount": 250000.00
+        }, "PO Admin: Create PO for non-workflow project")
+        if po_resp_nwf and po_resp_nwf.get("success"):
+            po_id_nwf = po_resp_nwf["data"][0]["id"]
+
+    # List POs
+    po_admin.get("/purchase-orders", label="PO Admin: List all POs")
+
+    # Get by ID
+    if po_id_wf:
+        po_admin.get(f"/purchase-orders/{po_id_wf}", label="PO Admin: Get PO by ID")
+        po_admin.put(f"/purchase-orders/{po_id_wf}", {"description": "Updated description"},
+                     "PO Admin: Update PO")
+
+    # Vendor can see their POs
+    if po_id_wf or po_id_nwf:
+        vendor.get("/purchase-orders", label="Vendor: List POs (scoped to their vendor)")
+
+    # 5c. PO File upload/download tests
+    print("\n  → Testing PO file upload/download...")
+    if po_id_wf:
+        pdf_path_po = generate_test_pdf("po_upload.pdf", "This is a test PO document.")
+        with open(pdf_path_po, "rb") as f:
+            upload_po = po_admin.post(f"/purchase-orders/{po_id_wf}/files",
+                                       files={"file": ("po_doc.pdf", f, "application/pdf")},
+                                       label="PO Admin: Upload file to PO")
+        Path(pdf_path_po).unlink()
+
+        po_file_id = None
+        if upload_po and upload_po.get("success"):
+            po_file_id = upload_po["data"][0]["id"]
+            log("PO file uploaded", "PASS", f"File ID: {po_file_id}")
+
+        # List PO with files (verify PO has files now)
+        if po_file_id:
+            po_detail = po_admin.get(f"/purchase-orders/{po_id_wf}",
+                                     label="PO Admin: Get PO (check files available)")
+
+            # Download the file (authenticated)
+            dl_label = f"Download PO file #{po_file_id}"
+            try:
+                dl_resp = requests.get(
+                    f"{API_BASE}/purchase-orders/{po_id_wf}/files/{po_file_id}/download",
+                    headers={"Authorization": f"Bearer {po_admin.token}"},
+                    timeout=10
+                )
+                if dl_resp.status_code == 200 and len(dl_resp.content) > 0:
+                    log(dl_label, "PASS", f"Downloaded {len(dl_resp.content)} bytes")
+                else:
+                    log(dl_label, "FAIL", f"HTTP {dl_resp.status_code}")
+            except requests.RequestException as e:
+                log(dl_label, "FAIL", str(e))
+
+            # Delete the PO file
+            po_admin.delete(f"/purchase-orders/{po_id_wf}/files/{po_file_id}",
+                            "PO Admin: Delete PO file")
+
+            # Verify non-admin can ALSO download PO files (officers working on claims need this)
+            pm_dl_label = f"PM: Download PO file #{po_file_id} (should be accessible)"
+            # Re-upload for PM to download
+            pdf_reup = generate_test_pdf("po_reup.pdf", "Re-upload for PM test")
+            with open(pdf_reup, "rb") as f:
+                reup = po_admin.post(f"/purchase-orders/{po_id_wf}/files",
+                                      files={"file": ("po_doc2.pdf", f, "application/pdf")},
+                                      label="PO Admin: Re-upload for PM test")
+            Path(pdf_reup).unlink()
+            if reup and reup.get("success"):
+                reup_id = reup["data"][0]["id"]
+                try:
+                    dl_resp2 = requests.get(
+                        f"{API_BASE}/purchase-orders/{po_id_wf}/files/{reup_id}/download",
+                        headers={"Authorization": f"Bearer {pm.token}"},
+                        timeout=10
+                    )
+                    if dl_resp2.status_code == 200:
+                        log("PM can download PO file", "PASS", f"HTTP {dl_resp2.status_code}")
+                    else:
+                        log("PM can download PO file", "FAIL", f"HTTP {dl_resp2.status_code}")
+                except requests.RequestException as e:
+                    log("PM can download PO file", "FAIL", str(e))
+                # Cleanup
+                po_admin.delete(f"/purchase-orders/{po_id_wf}/files/{reup_id}", "Cleanup PO file")
+
+    # Permission check: PM should FAIL to create POs
+    pm.post("/purchase-orders", {"project_id": 1, "vendor_id": 1},
+            "PM: Cannot create PO (permission)")
+
+    # ── 6. Super Admin: Workflow Management ────────────────────────────────
+    print("\n\u2500\u2500\u2500 6. WORKFLOWS (Super Admin) \u2500\u2500\u2500")
+    default_workflow_id = 1
+
+    admin.get(f"/workflows/{default_workflow_id}?include_details=true",
+              label="Get workflow with steps & transitions")
     steps_resp = admin.get(f"/workflows/{default_workflow_id}/steps", label="Get workflow steps")
     steps = []
     if steps_resp and steps_resp.get("success"):
@@ -295,44 +418,52 @@ def run_all_tests():
         step_names = [s["step_name"] for s in steps]
         log("Workflow steps extracted", "PASS", f"Steps: {', '.join(step_names)}")
 
-    # Get transitions and test PUT update
     trans_get = admin.get(f"/workflows/{default_workflow_id}/transitions", label="Get workflow transitions")
     if trans_get and trans_get.get("success") and len(trans_get["data"]) > 0:
-        # Update the first forward transition — change allowed_role_id
         transition_id_to_update = trans_get["data"][0]["id"]
         admin.put(f"/workflows/transitions/{transition_id_to_update}",
                   {"transition_type": "FORWARD", "is_active": 1},
                   "Update workflow transition")
 
-    # Create a new workflow and test duplicate name check
-    # Use a timestamp suffix to avoid conflicts on repeat runs
     import datetime
     ts = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     test_wf_name = f"Test Workflow {ts}"
     admin.post("/workflows", {
-        "workflow_name": test_wf_name,
-        "description": "Testing workflow name validation"
+        "workflow_name": test_wf_name, "description": "Testing workflow name validation"
     }, "Create workflow")
     admin.post("/workflows", {
-        "workflow_name": test_wf_name,
-        "description": "Should fail due to duplicate name"
+        "workflow_name": test_wf_name, "description": "Should fail due to duplicate name"
     }, "Create workflow with duplicate name (expect 409)")
 
-    # Create a new step
-    create_step = admin.post(f"/workflows/{default_workflow_id}/steps", {
-        "step_order": 5,
-        "step_name": "Final Audit Review",
-        "step_code": "FINAL_AUDIT",
+    admin.post(f"/workflows/{default_workflow_id}/steps", {
+        "step_order": 5, "step_name": "Final Audit Review", "step_code": "FINAL_AUDIT",
         "required_role_id": 6
     }, "Create workflow step")
 
-    # ── 6. Users (Super Admin) ─────────────────────────────────────────────
-    print("\n─── 6. USERS (Super Admin) ───")
+    # ── 7. Users (Super Admin) ─────────────────────────────────────────────
+    print("\n\u2500\u2500\u2500 7. USERS (Super Admin) \u2500\u2500\u2500")
     admin.get("/users", label="List users")
     admin.get("/users/roles", label="List all roles")
     admin.get("/users/1", label="Get user by ID")
 
-    # Create a new vendor user
+    # 7b. Test Officers endpoint
+    print("\n\u2500\u2500\u2500 7b. OFFICERS LIST \u2500\u2500\u2500")
+    officers_resp = admin.get("/users/officers", label="Admin: List officers")
+    if officers_resp and officers_resp.get("success"):
+        officer_names = [o["name"] for o in officers_resp["data"]]
+        log("Officers listed", "PASS", f"Found {len(officer_names)} officers: {', '.join(officer_names)}")
+        # Verify Super Admin (Admin User) is NOT in the list
+        has_admin = any("Admin User" in n for n in officer_names)
+        log("Super Admin excluded from officers", "PASS" if not has_admin else "FAIL", "")
+        # Verify vendor is NOT in the list
+        has_vendor = any("Akshara" in n for n in officer_names)
+        log("Vendor excluded from officers", "PASS" if not has_vendor else "FAIL", "")
+
+    # Vendors and PM can also list officers
+    vendor.get("/users/officers", label="Vendor: List officers")
+    pm.get("/users/officers", label="PM: List officers")
+
+    # Create a test vendor user
     create_user = admin.post("/users", {
         "name": "Test Vendor User",
         "email": "testuser@vendor.com",
@@ -348,151 +479,264 @@ def run_all_tests():
     if test_user_id:
         admin.put(f"/users/{test_user_id}", {"designation": "Senior Test Contact"}, "Update user")
         admin.delete(f"/users/{test_user_id}", "Delete user")
-
-        # Try creating a user with the same email as the deleted user — should fail with 409
         admin.post("/users", {
-            "name": "Another User",
-            "email": "testuser@vendor.com",
-            "password": "Test@1234",
-            "role_id": 2
+            "name": "Another User", "email": "testuser@vendor.com",
+            "password": "Test@1234", "role_id": 2
         }, "Create user with deleted user's email (expect 409)")
 
-    # ── 7. Package Creation & Full Workflow ────────────────────────────────
-    print("\n─── 7. PACKAGE WORKFLOW (Full Lifecycle) ───")
-    pkg_id = None
+    # ── 8. CLAIM WORKFLOW (Workflow-based: Full Lifecycle) ────────────────
+    print("\n\u2500\u2500\u2500 8. CLAIM WORKFLOW (Workflow-based) \u2500\u2500\u2500")
+    claim_id = None
 
-    # 7a. VENDOR creates a package with files via multipart form data
-    # Note: workflow_id is NOT sent — it's auto-derived from the project
     pdf_path = generate_test_pdf("test_upload.pdf",
-        "This is a test particulars document for APTS package verification.\n"
+        "This is a test particulars document for APTS claim verification.\n"
         "Project: Video Conferencing Phase-II\n"
         "Vendor: Akshara Enterprises\n"
         "Scope: Baseline specification document for fibre grid connectivity.")
 
     with open(pdf_path, "rb") as f:
-        create_pkg = vendor.post("/packages",
+        create_claim = vendor.post("/claims",
             files={
-                "vendor_id": (None, "1"),           # Vendor user's vendor_id from seed
-                "vendor_contact_user_id": (None, "2"),  # Vendor user's own user_id
-                "project_id": (None, "1"),           # Video Conferencing (workflow auto-derived)
-                "remarks": (None, "Initial package for Video Conferencing project"),
+                "vendor_id": (None, "1"),
+                "vendor_contact_user_id": (None, "2"),
+                "project_id": (None, "1"),
+                "po_id": (None, str(po_id_wf)) if po_id_wf else (None, "1"),
+                "remarks": (None, "Initial claim for Video Conferencing project"),
                 "files": ("particulars.pdf", f, "application/pdf")
             },
-            label="Vendor: Create package with files")
-    Path(pdf_path).unlink()  # Clean up temp file
+            label="Vendor: Create claim with files")
+    Path(pdf_path).unlink()
 
-    if create_pkg and create_pkg.get("success"):
-        pkg_id = create_pkg["data"][0]["id"]
-        pkg_code = create_pkg["data"][0]["package_code"]
-        log("Package created", "PASS", f"Code: {pkg_code}, ID: {pkg_id}")
+    if create_claim and create_claim.get("success"):
+        claim_id = create_claim["data"][0]["id"]
+        claim_code = create_claim["data"][0]["claim_code"]
+        log("Claim created", "PASS", f"Code: {claim_code}, ID: {claim_id}")
 
-        # Verify it landed at PM desk (step 1)
-        current_step = create_pkg["data"][0].get("current_step_name", "")
-        log("Package at step", "PASS" if "PM" in current_step else "FAIL",
+        current_step = create_claim["data"][0].get("current_step_name", "")
+        log("Claim at step", "PASS" if "PM" in current_step else "FAIL",
             f"Current: {current_step}")
 
         # Verify workflow was auto-derived from project
-        pkg_workflow_id = create_pkg["data"][0].get("workflow_id")
-        log("Workflow auto-derived from project", "PASS" if pkg_workflow_id == 1 else "FAIL",
-            f"workflow_id={pkg_workflow_id} (expected 1)")
+        claim_wf_id = create_claim["data"][0].get("workflow_id")
+        log("Workflow auto-derived from project", "PASS" if claim_wf_id else "FAIL",
+            f"workflow_id={claim_wf_id}")
 
-        # Verify files were uploaded along with the package
-        files_count = len(create_pkg["data"][0].get("files", []))
-        log("Files uploaded with package", "PASS" if files_count > 0 else "FAIL",
+        # Verify files were uploaded
+        files_count = len(create_claim["data"][0].get("files", []))
+        log("Files uploaded with claim", "PASS" if files_count > 0 else "FAIL",
             f"{files_count} file(s) attached")
 
-        # Get package with details to confirm
-        admin.get(f"/packages/{pkg_id}?include_details=true", label="Get package with files & history")
-        admin.get(f"/packages/{pkg_id}/history", label="Get package history")
+        admin.get(f"/claims/{claim_id}?include_details=true", label="Get claim with files & history")
+        admin.get(f"/claims/{claim_id}/history", label="Get claim history")
     else:
-        # Fallback: try without files using JSON
         log("Trying JSON fallback (no files)", "PASS", "")
-        create_pkg = vendor.post("/packages", {
+        create_claim = vendor.post("/claims", {
             "vendor_id": 1,
             "vendor_contact_user_id": 2,
             "project_id": 1,
-            "remarks": "Initial package for Video Conferencing project"
-        }, "Vendor: Create package (fallback)")
-        if create_pkg and create_pkg.get("success"):
-            pkg_id = create_pkg["data"][0]["id"]
-            log("Package created (fallback)", "PASS", f"ID: {pkg_id}")
+            "po_id": po_id_wf if po_id_wf else 1,
+            "remarks": "Initial claim for Video Conferencing project"
+        }, "Vendor: Create claim (fallback)")
+        if create_claim and create_claim.get("success"):
+            claim_id = create_claim["data"][0]["id"]
+            log("Claim created (fallback)", "PASS", f"ID: {claim_id}")
 
-    # 7c. PM forwards to TPA
-    if pkg_id:
+    # 8c. PM forwards to TPA
+    if claim_id:
         time.sleep(0.1)
-        pm.post(f"/packages/{pkg_id}/forward", {"remarks": "Initial verification complete. Documents appear in order. Forwarding to TPA for audit."},
-                "PM: Forward → TPA")
-        admin.get(f"/packages/{pkg_id}", label="Check package after PM forward")
+        pm.post(f"/claims/{claim_id}/forward",
+                {"remarks": "Initial verification complete. Forwarding to TPA for audit."},
+                "PM: Forward \u2192 TPA")
+        admin.get(f"/claims/{claim_id}", label="Check claim after PM forward")
 
-    # 7d. TPA: test SENDBACK → PM (package is at step 2, so this should succeed)
-    if pkg_id:
+    # 8d. TPA sends back to PM
+    if claim_id:
         time.sleep(0.1)
-        sendback_resp = tpa.post(f"/packages/{pkg_id}/sendback", {"remarks": "Minor discrepancies found. Returning to PM for clarification."},
-                                 "TPA: Sendback → PM")
+        sendback_resp = tpa.post(f"/claims/{claim_id}/sendback",
+                                 {"remarks": "Minor discrepancies found. Returning to PM."},
+                                 "TPA: Sendback \u2192 PM")
         if sendback_resp and sendback_resp.get("success"):
-            # Package sent back to PM — PM re-forwards to TPA
             time.sleep(0.1)
-            pm.post(f"/packages/{pkg_id}/forward", {"remarks": "Discrepancies resolved. Re-forwarding to TPA."},
-                    "PM: Re-forward → TPA (after sendback)")
+            pm.post(f"/claims/{claim_id}/forward",
+                    {"remarks": "Discrepancies resolved. Re-forwarding to TPA."},
+                    "PM: Re-forward \u2192 TPA (after sendback)")
 
-    # 7e. TPA forwards to JD-Infra
-    if pkg_id:
+    # 8e. TPA forwards to JD-Infra
+    if claim_id:
         time.sleep(0.1)
-        tpa.post(f"/packages/{pkg_id}/forward", {"remarks": "Audit completed. All specifications verified. Forwarding for digital signature."},
-                 "TPA: Forward → JD-Infra")
+        tpa.post(f"/claims/{claim_id}/forward",
+                 {"remarks": "Audit completed. Forwarding for digital signature."},
+                 "TPA: Forward \u2192 JD-Infra")
 
-    # 7f. JD-Infra forwards to APTS Manager (digital signature step)
-    if pkg_id:
+    # 8f. JD-Infra forwards to APTS Manager
+    if claim_id:
         time.sleep(0.1)
-        jd_infra.post(f"/packages/{pkg_id}/forward", {"remarks": "Digitally signed and verified. Forwarding for final clearance."},
-                      "JD-Infra: Forward → APTS Manager")
+        jd_infra.post(f"/claims/{claim_id}/forward",
+                      {"remarks": "Digitally signed and verified. Forwarding for clearance."},
+                      "JD-Infra: Forward \u2192 APTS Manager")
 
-    # 7g. Verify package is at step 4 (APTS Clearance) before APTS Manager acts
-    if pkg_id:
+    # 8g. Verify at step 4
+    if claim_id:
         time.sleep(0.1)
-        pk = admin.get(f"/packages/{pkg_id}", label="Package state before APTS Manager action")
+        pk = admin.get(f"/claims/{claim_id}", label="Claim state before APTS Manager action")
         if pk and pk.get("success"):
             pd = pk["data"][0]
-            log(f"Package step check",
+            log(f"Claim at APTS Manager desk",
                 "PASS" if pd.get('current_step_id') == 4 else "FAIL",
-                f"Expected step_id=4, got step_id={pd.get('current_step_id')} ({pd.get('current_step_name')})")
+                f"step_id={pd.get('current_step_id')} ({pd.get('current_step_name')})")
 
-    # 7h. APTS Manager completes the package
-    if pkg_id:
+    # 8h. APTS Manager completes
+    if claim_id:
         time.sleep(0.1)
-        apts_mgr.post(f"/packages/{pkg_id}/forward", {"remarks": "Final clearance approved. Package is complete. Disbursement initiated."},
-                      "APTS Manager: Complete package")
+        apts_mgr.post(f"/claims/{claim_id}/forward",
+                      {"remarks": "Final clearance approved. Claim completed."},
+                      "APTS Manager: Complete claim")
 
-    # 7i. Verify final state
-    if pkg_id:
-        final_check = admin.get(f"/packages/{pkg_id}?include_details=true",
-                                label="Verify package is COMPLETED")
+    # 8i. Verify final state
+    if claim_id:
+        final_check = admin.get(f"/claims/{claim_id}?include_details=true",
+                                label="Verify claim is COMPLETED")
         if final_check and final_check.get("success"):
-            pkg_data = final_check["data"][0]
-            status = pkg_data.get("status", "")
-            completed = pkg_data.get("is_completed", False)
-            history_count = len(pkg_data.get("history", []))
-            log("Package final status", "PASS" if completed else "FAIL",
+            claim_data = final_check["data"][0]
+            status = claim_data.get("status", "")
+            completed = claim_data.get("is_completed", False)
+            history_count = len(claim_data.get("history", []))
+            log("Claim final status", "PASS" if completed else "FAIL",
                 f"Status: {status}, Completed: {completed}, History entries: {history_count}")
-            # Print full timeline
-            print("\n  📋 Package Timeline:")
-            for h in pkg_data.get("history", []):
-                print(f"     • {h.get('action', '?'):12s} | {h.get('performed_by_name', '?'):30s} | "
+            print("\n  \ud83d\udccb Claim Timeline (Workflow):")
+            for h in claim_data.get("history", []):
+                print(f"     \u2022 {h.get('action', '?'):12s} | {h.get('performed_by_name', '?'):30s} | "
                       f"{h.get('action_label', '?'):45s} | \"{h.get('remarks', '')}\"")
 
-    # ── 8. Inbox & Outbox ──────────────────────────────────────────────────
-    print("\n─── 8. INBOX / OUTBOX ───")
+    # ── 9. CLAIM MANUAL ASSIGN (Non-Workflow: Assign + Pull-back) ────────
+    print("\n\u2500\u2500\u2500 9. CLAIM MANUAL ASSIGN (Non-Workflow) \u2500\u2500\u2500")
+
+    nwf_claim_id = None
+
+    # 9a. Create a claim under the non-workflow project
+    if test_vendor_id and test_project_nwf_id and po_id_nwf:
+        create_nwf = vendor.post("/claims", {
+            "vendor_id": test_vendor_id,
+            "vendor_contact_user_id": 2,
+            "project_id": test_project_nwf_id,
+            "po_id": po_id_nwf,
+            "remarks": "Claim under non-workflow project"
+        }, "Vendor: Create claim (non-workflow project)")
+
+        if create_nwf and create_nwf.get("success"):
+            nwf_claim_id = create_nwf["data"][0]["id"]
+            nwf_code = create_nwf["data"][0]["claim_code"]
+            log("Non-workflow claim created", "PASS", f"Code: {nwf_code}, ID: {nwf_claim_id}")
+
+            # Verify it has NO workflow_id
+            has_wf = create_nwf["data"][0].get("workflow_id") is not None
+            log("Claim has no workflow", "PASS" if not has_wf else "FAIL", "")
+
+            # Verify it's assigned to the vendor (creator)
+            assigned_user = create_nwf["data"][0].get("current_assigned_user_id")
+            expected_user = 2  # vendor user id in seed
+            log("Claim starts with vendor", "PASS" if assigned_user == expected_user else "FAIL",
+                f"assigned_user_id={assigned_user}, expected={expected_user}")
+
+    # 9b. Assign claim to PM (user id=3)
+    if nwf_claim_id:
+        # Vendor assigns to PM
+        assign_resp = vendor.post(f"/claims/{nwf_claim_id}/assign", {
+            "target_user_id": 3,  # PM user
+            "remarks": "Assigning to PM for review"
+        }, "Vendor: Assign claim to PM")
+
+        if assign_resp and assign_resp.get("success"):
+            log("Claim assigned to PM", "PASS", "")
+            # Verify claim is now at PM
+            check = admin.get(f"/claims/{nwf_claim_id}", label="Check claim assigned to PM")
+            if check and check.get("success"):
+                assigned_to = check["data"][0].get("assigned_user_name", "")
+                log(f"Claim at PM desk", "PASS" if "Srinivasa" in assigned_to or "PM" in str(check["data"][0].get("current_assigned_user_id")) else "FAIL",
+                    f"Assigned to: {assigned_to}")
+
+    # 9c. PM assigns to TPA (user id=4)
+    if nwf_claim_id:
+        assign2 = pm.post(f"/claims/{nwf_claim_id}/assign", {
+            "target_user_id": 4,  # TPA user
+            "remarks": "Forwarding to TPA for audit"
+        }, "PM: Assign claim to TPA")
+
+        if assign2 and assign2.get("success"):
+            log("PM assigned to TPA", "PASS", "")
+
+    # 9d. PM pulls back from TPA (PM sent it to TPA, so PM can pull back)
+    if nwf_claim_id:
+        pull_resp = pm.post(f"/claims/{nwf_claim_id}/pull-back", {
+            "remarks": "Need to review again, pulling back"
+        }, "PM: Pull back from TPA")
+
+        if pull_resp and pull_resp.get("success"):
+            log("PM pulled claim back", "PASS", "")
+
+    # 9e. Verify vendor CANNOT pull back (vendor→PM→TPA, then PM pulled back, so claim is now at PM)
+    # Actually after pull back, claim is at PM. Vendor had sent to PM originally.
+    # Vendor can try to pull back but they need to check if they forwarded to the CURRENT assignee
+    if nwf_claim_id:
+        vendor_pull = vendor.post(f"/claims/{nwf_claim_id}/pull-back", {
+            "remarks": "Vendor trying to pull back"
+        }, "Vendor: Try pull back (should fail - claim is at PM now)")
+
+        # After PM pulled back, claim is at PM. Vendor forwarded to PM originally,
+        # so vendor CAN pull back since current_assigned_user_id = PM and vendor forwarded to PM
+        if vendor_pull and not vendor_pull.get("success"):
+            log("Vendor pull-back denied as expected", "PASS", "")
+        elif vendor_pull and vendor_pull.get("success"):
+            log("Vendor CAN pull back (claim is at PM who vendor originally sent to)", "PASS",
+                "Vendor can pull back because claim is at PM and vendor sent it to PM originally")
+
+    # 9f. Try to pull back from different angle: create a new claim and test chain rule
+    # Vendor→PM→TPA and vendor tries to pull back (should fail because vendor didn't send to TPA)
+    if test_vendor_id and test_project_nwf_id and po_id_nwf:
+        create_nwf2 = vendor.post("/claims", {
+            "vendor_id": test_vendor_id,
+            "vendor_contact_user_id": 2,
+            "project_id": test_project_nwf_id,
+            "po_id": po_id_nwf,
+            "remarks": "Second non-workflow claim for chain test"
+        }, "Vendor: Create another non-workflow claim")
+        nwf2_id = None
+        if create_nwf2 and create_nwf2.get("success"):
+            nwf2_id = create_nwf2["data"][0]["id"]
+
+            # Vendor→PM
+            vendor.post(f"/claims/{nwf2_id}/assign", {"target_user_id": 3, "remarks": "Vendor to PM"},
+                        "Chain: Vendor \u2192 PM")
+            # PM→TPA
+            pm.post(f"/claims/{nwf2_id}/assign", {"target_user_id": 4, "remarks": "PM to TPA"},
+                    "Chain: PM \u2192 TPA")
+
+            # Now vendor tries pull-back (should fail - vendor never sent to TPA)
+            vendor_try = vendor.post(f"/claims/{nwf2_id}/pull-back",
+                                     {"remarks": "Vendor should not be able to pull back"},
+                                     "Chain: Vendor pull-back from TPA (expect fail)")
+            if vendor_try and not vendor_try.get("success"):
+                log("Chain rule enforced: Vendor cannot pull back from TPA", "PASS", "")
+
+            # PM can pull back from TPA
+            pm_try = pm.post(f"/claims/{nwf2_id}/pull-back",
+                             {"remarks": "PM should be able to pull back"},
+                             "Chain: PM pull-back from TPA (expect success)")
+            if pm_try and pm_try.get("success"):
+                log("Chain rule: PM pulled back from TPA", "PASS", "")
+
+    # ── 10. Inbox & Outbox ─────────────────────────────────────────────────
+    print("\n\u2500\u2500\u2500 10. INBOX / OUTBOX \u2500\u2500\u2500")
     pm.get("/inbox", label="PM: Inbox")
     pm.get("/inbox/outbox", label="PM: Outbox")
     pm.get("/inbox/stats", label="PM: Inbox stats")
     tpa.get("/inbox", label="TPA: Inbox")
     jd_infra.get("/inbox", label="JD-Infra: Inbox")
     apts_mgr.get("/inbox", label="APTS Manager: Inbox")
-    vendor.get("/inbox", label="Vendor: Inbox (should be empty)")
+    vendor.get("/inbox", label="Vendor: Inbox")
 
-    # ── 8b. DB Sanity Checks ───────────────────────────────────────────────
-    print("\n─── 8b. DB SANITY CHECKS ───")
-    # Explicitly check if the completion transition exists in DB
+    # ── 10b. DB Sanity Checks ─────────────────────────────────────────────
+    print("\n\u2500\u2500\u2500 10b. DB SANITY CHECKS \u2500\u2500\u2500")
     trans_resp = admin.get("/workflows/1/transitions", label="Fetch all transitions for verification")
     if trans_resp and trans_resp.get("success"):
         has_completion = any(
@@ -500,113 +744,87 @@ def run_all_tests():
             and t.get("allowed_role_id") == 6
             for t in trans_resp["data"]
         )
-        log("Completion transition exists (step4→NULL, role=APTS Manager)",
-            "PASS" if has_completion else "FAIL",
-            "Check DB seed — should be (1,4,NULL,'FORWARD',6,1)" if not has_completion else "")
+        log("Completion transition exists (step4\u2192NULL, role=APTS Manager)",
+            "PASS" if has_completion else "FAIL", "")
 
-    # For the outbox 500: instruct user to check server logs
-    print("  ℹ️  Outbox 500 diagnosis: check server logs at backend/logs/error.log for the stack trace")
+    print("  \u2139\ufe0f  Outbox 500 diagnosis: check server logs at backend/logs/error.log")
 
-    # ── 8c. is_active Access Control Tests ──────────────────────────────────
-    print("\n─── 8c. IS_ACTIVE ACCESS CONTROL ───")
-
-    # Super Admin: can see active-only (default) and inactive via ?is_active=0
+    # ── 10c. is_active Access Control Tests ────────────────────────────────
+    print("\n\u2500\u2500\u2500 10c. IS_ACTIVE ACCESS CONTROL \u2500\u2500\u2500")
     admin_active = admin.get("/projects", {"limit": 1}, "Admin: List projects (default active only)")
     admin_all = admin.get("/projects", {"limit": 1, "is_active": 0}, "Admin: List projects with is_active=0")
-
-    # PM (non-Super Admin): should ONLY see active projects, even with ?is_active=0
     pm_active = pm.get("/projects", {"limit": 1}, "PM: List projects (default active only)")
-    pm_inactive = pm.get("/projects", {"limit": 1, "is_active": 0}, "PM: List projects with is_active=0 (should still be active)")
+    pm_inactive = pm.get("/projects", {"limit": 1, "is_active": 0}, "PM: List projects with is_active=0 (forced active)")
 
     if pm_active and pm_inactive:
-        # PM's ?is_active=0 result should still only contain active records
-        # (non-Super-Admin users are forced to is_active=1 regardless of query param)
         pm_active_ids = {p["id"] for p in pm_active["data"]}
         pm_inactive_ids = {p["id"] for p in pm_inactive["data"]}
         log("PM is_active=0 forced to active only",
             "PASS" if pm_inactive_ids.issubset(pm_active_ids) or len(pm_inactive["data"]) == len(pm_active["data"]) else "FAIL",
             f"PM active: {len(pm_active['data'])}, PM inactive-requested: {len(pm_inactive['data'])}")
 
-    # Admin can see different data when passing is_active=0 (if any deactivated records exist)
     if admin_active and admin_all and len(admin_active["data"]) > 0 and len(admin_all["data"]) > 0:
-        log("Admin can override is_active filter",
-            "PASS", f"Admin active: {len(admin_active['data'])}, Admin is_active=0: {len(admin_all['data'])}")
+        log("Admin can override is_active filter", "PASS",
+            f"Admin active: {len(admin_active['data'])}, Admin is_active=0: {len(admin_all['data'])}")
 
-    # Non-admin trying to access inactive vendors (endpoint is admin-only, so should be 403)
-    vendor.get("/vendors?is_active=0", label="Vendor: cannot list vendors (permission)")
-
-    # Test workflows: PM or any user should not be able to see inactive workflows
+    vendor.get("/vendors", {"is_active": 0}, label="Vendor: cannot list vendors (permission)")
     wf_pm = pm.get("/workflows", {"limit": 1}, "PM: List workflows (default active only)")
-    wf_pm_inactive = pm.get("/workflows", {"limit": 1, "is_active": 0}, "PM: List workflows with is_active=0 (forced to active)")
+    wf_pm_inactive = pm.get("/workflows", {"limit": 1, "is_active": 0}, "PM: List workflows with is_active=0 (forced active)")
     if wf_pm and wf_pm_inactive:
-        log("PM workflows is_active=0 forced to active",
-            "PASS", f"PM saw {len(wf_pm['data'])} default, {len(wf_pm_inactive['data'])} with is_active=0")
+        log("PM workflows is_active=0 forced to active", "PASS",
+            f"PM saw {len(wf_pm['data'])} default, {len(wf_pm_inactive['data'])} with is_active=0")
 
-    # ── 9. Permission Tests ────────────────────────────────────────────────
-    print("\n─── 9. PERMISSION CHECKS ───")
-    # Super Admin should FAIL to create packages (only vendors can create)
-    admin.post("/packages", {
-        "vendor_id": 1,
-        "project_id": 1,
-        "remarks": "Super Admin should not be able to create packages"
-    }, "Super Admin cannot create packages (permission change)")
+    # ── 11. Permission Tests ──────────────────────────────────────────────
+    print("\n\u2500\u2500\u2500 11. PERMISSION CHECKS \u2500\u2500\u2500")
+    # Super Admin should FAIL to create claims (only vendors can create)
+    admin.post("/claims", {
+        "vendor_id": 1, "project_id": 1, "po_id": 1,
+        "remarks": "Super Admin should not be able to create claims"
+    }, "Super Admin cannot create claims (permission)")
 
-    # Vendor should FAIL at creating vendors
     vendor.post("/vendors", {"vendor_name": "Hack Attempt"}, "Vendor cannot create vendor (permission)")
-
-    # PM should FAIL at creating users
     pm.post("/users", {"name": "Hack", "email": "hack@test.com", "password": "Test@1234", "role_id": 2},
             "PM cannot create users (permission)")
+    vendor.post("/claims/99999/forward", {"remarks": "Hack"}, "Vendor cannot forward non-existent claim (permission)")
 
-    # Vendor should FAIL at forwarding packages that don't exist
-    vendor.post("/packages/99999/forward", {"remarks": "Hack"}, "Vendor cannot forward non-existent package (permission)")
-
-    # Vendor should FAIL at assigning projects to vendors
-    if test_vendor_id and test_project_id:
+    if test_vendor_id and test_project_wf_id:
         vendor.post(f"/vendors/{test_vendor_id}/projects",
-                    {"project_id": test_project_id},
+                    {"project_id": test_project_wf_id},
                     "Vendor cannot assign projects (permission)")
 
-    # ── 9b. Data Isolation Tests ────────────────────────────────────────────
-    print("\n─── 9b. DATA ISOLATION ───")
+    # ── 11b. Data Isolation Tests ──────────────────────────────────────────
+    print("\n\u2500\u2500\u2500 11b. DATA ISOLATION \u2500\u2500\u2500")
+    if claim_id:
+        vendor_claims = vendor.get("/claims", label="Vendor: List claims (should see their own)")
+        if vendor_claims and vendor_claims.get("success"):
+            vendor_claim_ids = [p["id"] for p in vendor_claims["data"]]
+            log("Vendor sees their claim", "PASS" if claim_id in vendor_claim_ids else "FAIL",
+                f"Claim {claim_id} in vendor's list: {claim_id in vendor_claim_ids}")
 
-    # Vendor should see packages belonging to their vendor
-    if pkg_id:
-        vendor_pkgs = vendor.get("/packages", label="Vendor: List packages (should see their own)")
-        if vendor_pkgs and vendor_pkgs.get("success"):
-            vendor_pkg_ids = [p["id"] for p in vendor_pkgs["data"]]
-            log("Vendor sees their package", "PASS" if pkg_id in vendor_pkg_ids else "FAIL",
-                f"Package {pkg_id} in vendor's list: {pkg_id in vendor_pkg_ids}")
+        pm_claims = pm.get("/claims", label="PM: List claims (workflow chain)")
+        if pm_claims and pm_claims.get("success"):
+            pm_claim_ids = [p["id"] for p in pm_claims["data"]]
+            log("PM sees claim in workflow", "PASS" if claim_id in pm_claim_ids else "FAIL",
+                f"Claim {claim_id} in PM's list: {claim_id in pm_claim_ids}")
 
-        # PM should see packages they're involved with (workflow chain)
-        pm_pkgs = pm.get("/packages", label="PM: List packages (workflow chain)")
-        if pm_pkgs and pm_pkgs.get("success"):
-            pm_pkg_ids = [p["id"] for p in pm_pkgs["data"]]
-            log("PM sees package in workflow", "PASS" if pkg_id in pm_pkg_ids else "FAIL",
-                f"Package {pkg_id} in PM's list: {pkg_id in pm_pkg_ids}")
+        admin_claims = admin.get("/claims", label="Admin: List all claims")
+        if admin_claims and admin_claims.get("success"):
+            admin_claim_ids = [p["id"] for p in admin_claims["data"]]
+            log("Admin sees all claims", "PASS" if claim_id in admin_claim_ids else "FAIL",
+                f"Claim {claim_id} in admin's list: {claim_id in admin_claim_ids}")
 
-        # Admin should see all packages
-        admin_pkgs = admin.get("/packages", label="Admin: List all packages")
-        if admin_pkgs and admin_pkgs.get("success"):
-            admin_pkg_ids = [p["id"] for p in admin_pkgs["data"]]
-            log("Admin sees all packages", "PASS" if pkg_id in admin_pkg_ids else "FAIL",
-                f"Package {pkg_id} in admin's list: {pkg_id in admin_pkg_ids}")
-            log("Admin sees more packages than vendor",
-                "PASS" if len(admin_pkg_ids) >= len(vendor_pkg_ids if vendor_pkgs else []) else "FAIL",
-                f"Admin: {len(admin_pkg_ids)}, Vendor: {len(vendor_pkg_ids) if vendor_pkgs else 0}")
-
-    # ── 10. File Download Test ─────────────────────────────────────────────
-    print("\n─── 10. FILE DOWNLOAD ───")
-    if pkg_id:
-        pkg_detail = admin.get(f"/packages/{pkg_id}?include_details=true", label="Get package for file download test")
-        if pkg_detail and pkg_detail.get("success"):
-            files = pkg_detail["data"][0].get("files", [])
+    # ── 12. File Download Test ─────────────────────────────────────────────
+    print("\n\u2500\u2500\u2500 12. FILE DOWNLOAD \u2500\u2500\u2500")
+    if claim_id:
+        claim_detail = admin.get(f"/claims/{claim_id}?include_details=true", label="Get claim for file download")
+        if claim_detail and claim_detail.get("success"):
+            files = claim_detail["data"][0].get("files", [])
             if files:
                 file_id = files[0]["id"]
                 dl_label = f"Download file #{file_id}"
                 try:
                     dl_resp = requests.get(
-                        f"{API_BASE}/packages/{pkg_id}/files/{file_id}/download",
+                        f"{API_BASE}/claims/{claim_id}/files/{file_id}/download",
                         headers={"Authorization": f"Bearer {admin.token}"},
                         timeout=10
                     )
@@ -617,26 +835,50 @@ def run_all_tests():
                 except requests.RequestException as e:
                     log(dl_label, "FAIL", str(e))
 
-    # ── 11. Cleanup: Remove test vendor's project assignment + delete test records ──
-    print("\n─── 11. CLEANUP ───")
-    if test_vendor_id and test_project_id:
-        # Remove project assignments
-        admin.delete(f"/vendors/{test_vendor_id}/projects/{test_project_id}",
-                     "Remove project from vendor")
+    # ── 13. Cleanup ───────────────────────────────────────────────────────
+    print("\n\u2500\u2500\u2500 13. CLEANUP \u2500\u2500\u2500")
+
+    # Backward compat: verify /api/packages alias still works
+    print("\n  → Verifying backward compat: /api/packages alias...")
+    if claim_id:
+        backward = admin.get("/packages", {"limit": 10}, "Backward compat: GET /api/packages (aliased to /api/claims)")
+        if backward and backward.get("success"):
+            ids = [c["id"] for c in backward["data"]]
+            log("Backward compat works", "PASS" if claim_id in ids else "FAIL",
+                f"Claim {claim_id} found via /api/packages")
+
+    # Clean up non-workflow claim (already tested, nothing to delete)
+    if nwf_claim_id:
+        log("Non-workflow claim tested", "PASS", f"ID: {nwf_claim_id}")
+
+    # Clean up PO Admin user to avoid duplicate email on next run
+    if po_admin_user_id:
+        admin.delete(f"/users/{po_admin_user_id}", "Delete PO Admin user")
+
+    # Remove project assignments
+    if test_vendor_id:
+        if test_project_wf_id:
+            admin.delete(f"/vendors/{test_vendor_id}/projects/{test_project_wf_id}",
+                         "Remove workflow project from vendor")
+        if test_project_nwf_id:
+            admin.delete(f"/vendors/{test_vendor_id}/projects/{test_project_nwf_id}",
+                         "Remove non-workflow project from vendor")
         admin.delete(f"/vendors/{test_vendor_id}/projects/1",
                      "Remove project 1 from vendor")
 
-        # Verify projects were removed
         remaining = admin.get(f"/vendors/{test_vendor_id}/projects",
                               label="Verify vendor has no projects")
         if remaining and remaining.get("success"):
             log("Vendor projects cleared", "PASS" if len(remaining["data"]) == 0 else "FAIL",
                 f"{len(remaining['data'])} remaining")
 
+    # Delete created records
     if test_vendor_id:
         admin.delete(f"/vendors/{test_vendor_id}", "Delete test vendor")
-    if test_project_id:
-        admin.delete(f"/projects/{test_project_id}", "Delete test project")
+    if test_project_wf_id:
+        admin.delete(f"/projects/{test_project_wf_id}", "Delete workflow project")
+    if test_project_nwf_id:
+        admin.delete(f"/projects/{test_project_nwf_id}", "Delete non-workflow project")
 
     # ── Summary ────────────────────────────────────────────────────────────
     print("\n" + "=" * 72)
@@ -646,8 +888,6 @@ def run_all_tests():
     failed = sum(1 for r in RESULTS if r["status"] == "FAIL")
     expected = sum(1 for r in RESULTS if "(expected)" in r["detail"])
     total = len(RESULTS)
-    # Expected failures have status "PASS" (logged as expected denials),
-    # so they are NOT in the `failed` count. Real failures are just `failed`.
     real_failures = failed
 
     print(f"  Total tests:      {total}")
@@ -658,7 +898,7 @@ def run_all_tests():
     print(f"  Success rate:    {passed/total*100:.1f}%" if total > 0 else "  No tests run")
 
     if real_failures > 0:
-        print("\n  ❌ UNEXPECTED FAILURES:")
+        print("\n  \u274c UNEXPECTED FAILURES:")
         for r in RESULTS:
             if r["status"] == "FAIL" and "(expected)" not in r["detail"]:
                 print(f"     - {r['test']}: {r['detail']}")

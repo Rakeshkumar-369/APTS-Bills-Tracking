@@ -1,7 +1,6 @@
 -- =============================================================================
 -- APTS Bills Tracking System — Database Schema
 -- =============================================================================
--- DROP tables that are no longer needed (from the original scaffold)
 DROP DATABASE IF EXISTS `apts_bills_tracking`;
 
 CREATE DATABASE IF NOT EXISTS `apts_bills_tracking`;
@@ -17,12 +16,13 @@ DROP TABLE IF EXISTS role_scopes;
 
 -- Drop all tables (in reverse dependency order — children before parents)
 DROP TABLE IF EXISTS invoice_submissions;
-DROP TABLE IF EXISTS package_history;
-DROP TABLE IF EXISTS package_files;
-DROP TABLE IF EXISTS packages;
+DROP TABLE IF EXISTS claim_history;
+DROP TABLE IF EXISTS claim_files;
+DROP TABLE IF EXISTS claims;
 DROP TABLE IF EXISTS workflow_step_transitions;
 DROP TABLE IF EXISTS workflow_steps;
 DROP TABLE IF EXISTS vendor_projects;
+DROP TABLE IF EXISTS purchase_orders;
 DROP TABLE IF EXISTS projects;
 DROP TABLE IF EXISTS workflow_master;
 DROP TABLE IF EXISTS vendors;
@@ -106,7 +106,7 @@ CREATE TABLE projects (
   project_name  VARCHAR(255) NOT NULL,
   project_code  VARCHAR(50)  NULL UNIQUE,
   description   TEXT NULL,
-  workflow_id   INT NOT NULL COMMENT 'Each project is assigned a workflow',
+  workflow_id   INT NULL COMMENT 'NULL = no workflow (manual officer assignment)',
   is_active     BOOLEAN DEFAULT TRUE,
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -139,7 +139,7 @@ CREATE TABLE workflow_steps (
 CREATE TABLE workflow_step_transitions (
   id              INT AUTO_INCREMENT PRIMARY KEY,
   workflow_id     INT NOT NULL,
-  from_step_id    INT NULL COMMENT 'NULL = transition from "start" (package creation)',
+  from_step_id    INT NULL COMMENT 'NULL = transition from "start" (claim creation)',
   to_step_id      INT NULL COMMENT 'NULL = send back to vendor (no specific destination step)',
   transition_type ENUM('FORWARD', 'SENDBACK') NOT NULL DEFAULT 'FORWARD',
   allowed_role_id INT NOT NULL COMMENT 'Which role is allowed to perform this transition',
@@ -154,38 +154,32 @@ CREATE TABLE workflow_step_transitions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- 8. PACKAGES — The core entity: a submission flowing through a workflow
+-- 8. PURCHASE ORDERS — Admin-managed POs assigned to vendors
 -- =============================================================================
-CREATE TABLE packages (
-  id                    INT AUTO_INCREMENT PRIMARY KEY,
-  package_code          VARCHAR(50) NOT NULL UNIQUE COMMENT 'Human-readable tracking code, e.g. APTS-2024-0001',
-  vendor_id             INT NOT NULL,
-  vendor_contact_user_id INT NULL COMMENT 'Specific contact person at the vendor for this package',
-  project_id            INT NOT NULL,
-  workflow_id           INT NOT NULL,
-  current_step_id       INT NULL COMMENT 'NULL = not started or completed',
-  current_step_order    INT DEFAULT 0 COMMENT 'Denormalised for fast queries',
-  status                ENUM('PENDING','IN_PROGRESS','SENT_BACK','COMPLETED','REJECTED') DEFAULT 'PENDING',
-  remarks               TEXT NULL,
-  is_completed          BOOLEAN DEFAULT FALSE,created_by          INT NOT NULL COMMENT 'Vendor user who created this package',
-  created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  completed_at          DATETIME NULL,
+CREATE TABLE purchase_orders (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  po_number      VARCHAR(50) NOT NULL UNIQUE COMMENT 'Auto-generated: PO-YYYY-NNNN',
+  project_id     INT NOT NULL,
+  vendor_id      INT NOT NULL,
+  description    TEXT NULL,
+  amount         DECIMAL(15,2) NULL,
+  status         ENUM('ACTIVE', 'CLOSED', 'CANCELLED') DEFAULT 'ACTIVE',
+  is_active      BOOLEAN DEFAULT TRUE,
+  created_by     INT NOT NULL,
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
-  FOREIGN KEY (vendor_id)               REFERENCES vendors(id),
-  FOREIGN KEY (vendor_contact_user_id)  REFERENCES users(id) ON DELETE SET NULL,
-  FOREIGN KEY (project_id)              REFERENCES projects(id),
-  FOREIGN KEY (workflow_id)             REFERENCES workflow_master(id),
-  FOREIGN KEY (current_step_id)        REFERENCES workflow_steps(id) ON DELETE SET NULL,
-  FOREIGN KEY (created_by)              REFERENCES users(id)
+  FOREIGN KEY (project_id) REFERENCES projects(id),
+  FOREIGN KEY (vendor_id)  REFERENCES vendors(id),
+  FOREIGN KEY (created_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- 9. PACKAGE FILES — Documents attached to a package
+-- 8b. PO FILES — Documents attached to a Purchase Order
 -- =============================================================================
-CREATE TABLE package_files (
+CREATE TABLE po_files (
   id             INT AUTO_INCREMENT PRIMARY KEY,
-  package_id     INT NOT NULL,
+  po_id          INT NOT NULL,
   original_name  VARCHAR(500) NOT NULL,
   stored_name    VARCHAR(255) NOT NULL COMMENT 'UUID-based name on disk',
   file_path      VARCHAR(1000) NOT NULL COMMENT 'Relative path from uploads root',
@@ -194,34 +188,87 @@ CREATE TABLE package_files (
   uploaded_by    INT NOT NULL,
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
 
-  FOREIGN KEY (package_id)  REFERENCES packages(id) ON DELETE CASCADE,
+  FOREIGN KEY (po_id)        REFERENCES purchase_orders(id) ON DELETE CASCADE,
+  FOREIGN KEY (uploaded_by)  REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- 9. CLAIMS — The core entity: a submission flowing through a workflow
+--         or manually assigned between officers
+-- =============================================================================
+CREATE TABLE claims (
+  id                    INT AUTO_INCREMENT PRIMARY KEY,
+  claim_code            VARCHAR(50) NOT NULL UNIQUE COMMENT 'Human-readable tracking code, e.g. APTS-2024-0001',
+  vendor_id             INT NOT NULL,
+  vendor_contact_user_id INT NULL COMMENT 'Specific contact person at the vendor for this claim',
+  project_id            INT NOT NULL,
+  po_id                 INT NULL COMMENT 'Purchase Order this claim belongs to',
+  workflow_id           INT NULL COMMENT 'NULL = non-workflow project (manual officer assignment)',
+  current_step_id       INT NULL COMMENT 'NULL = not started or completed (workflow mode)',
+  current_step_order    INT DEFAULT 0 COMMENT 'Denormalised for fast queries',
+  current_assigned_user_id INT NULL COMMENT 'Current officer holding this claim (non-workflow mode)',
+  status                ENUM('PENDING','IN_PROGRESS','SENT_BACK','COMPLETED','REJECTED') DEFAULT 'PENDING',
+  remarks               TEXT NULL,
+  is_completed          BOOLEAN DEFAULT FALSE,
+  created_by            INT NOT NULL COMMENT 'Vendor user who created this claim',
+  created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  completed_at          DATETIME NULL,
+
+  FOREIGN KEY (vendor_id)               REFERENCES vendors(id),
+  FOREIGN KEY (vendor_contact_user_id)  REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (project_id)              REFERENCES projects(id),
+  FOREIGN KEY (po_id)                   REFERENCES purchase_orders(id),
+  FOREIGN KEY (workflow_id)             REFERENCES workflow_master(id),
+  FOREIGN KEY (current_step_id)         REFERENCES workflow_steps(id) ON DELETE SET NULL,
+  FOREIGN KEY (current_assigned_user_id) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (created_by)              REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- 10. CLAIM FILES — Documents attached to a claim
+-- =============================================================================
+CREATE TABLE claim_files (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  claim_id       INT NOT NULL,
+  original_name  VARCHAR(500) NOT NULL,
+  stored_name    VARCHAR(255) NOT NULL COMMENT 'UUID-based name on disk',
+  file_path      VARCHAR(1000) NOT NULL COMMENT 'Relative path from uploads root',
+  file_size      BIGINT NOT NULL COMMENT 'Size in bytes',
+  mime_type      VARCHAR(100) NOT NULL DEFAULT 'application/pdf',
+  uploaded_by    INT NOT NULL,
+  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (claim_id)   REFERENCES claims(id) ON DELETE CASCADE,
   FOREIGN KEY (uploaded_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- 10. PACKAGE HISTORY — Immutable timeline of every package movement
+-- 11. CLAIM HISTORY — Immutable timeline of every claim movement
 -- =============================================================================
-CREATE TABLE package_history (
-  id                  INT AUTO_INCREMENT PRIMARY KEY,
-  package_id          INT NOT NULL,
-  from_step_id        INT NULL COMMENT 'NULL for CREATE action',
-  to_step_id          INT NULL COMMENT 'NULL for COMPLETE/REJECT action',
-  action              ENUM('CREATE','FORWARD','SENDBACK','COMPLETE','REJECT','RESUBMIT') NOT NULL,
-  action_label        VARCHAR(255) NULL COMMENT 'User-facing label, e.g. "Approved & Forwarded to TPA"',
-  performed_by        INT NOT NULL,
-  performed_by_role_id INT NOT NULL,
-  remarks             TEXT NOT NULL COMMENT 'Mandatory remarks at every transition',
-  created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+CREATE TABLE claim_history (
+  id                    INT AUTO_INCREMENT PRIMARY KEY,
+  claim_id              INT NOT NULL,
+  from_step_id          INT NULL COMMENT 'NULL for CREATE action',
+  to_step_id            INT NULL COMMENT 'NULL for COMPLETE/REJECT action',
+  forwarded_to_user_id  INT NULL COMMENT 'Target user for manual assignment (non-workflow)',
+  action                ENUM('CREATE','FORWARD','SENDBACK','COMPLETE','REJECT','RESUBMIT','PULL_BACK') NOT NULL,
+  action_label          VARCHAR(255) NULL COMMENT 'User-facing label, e.g. "Approved & Forwarded to TPA"',
+  performed_by          INT NOT NULL,
+  performed_by_role_id  INT NOT NULL,
+  remarks               TEXT NOT NULL COMMENT 'Mandatory remarks at every transition',
+  created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
 
-  FOREIGN KEY (package_id)           REFERENCES packages(id) ON DELETE CASCADE,
-  FOREIGN KEY (from_step_id)         REFERENCES workflow_steps(id) ON DELETE SET NULL,
-  FOREIGN KEY (to_step_id)           REFERENCES workflow_steps(id) ON DELETE SET NULL,
-  FOREIGN KEY (performed_by)         REFERENCES users(id),
-  FOREIGN KEY (performed_by_role_id) REFERENCES roles(id)
+  FOREIGN KEY (claim_id)              REFERENCES claims(id) ON DELETE CASCADE,
+  FOREIGN KEY (from_step_id)          REFERENCES workflow_steps(id) ON DELETE SET NULL,
+  FOREIGN KEY (to_step_id)            REFERENCES workflow_steps(id) ON DELETE SET NULL,
+  FOREIGN KEY (forwarded_to_user_id)  REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (performed_by)          REFERENCES users(id),
+  FOREIGN KEY (performed_by_role_id)  REFERENCES roles(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- 11. REFRESH TOKENS — JWT refresh token storage (hashed)
+-- 12. REFRESH TOKENS — JWT refresh token storage (hashed)
 -- =============================================================================
 CREATE TABLE refresh_tokens (
   id         INT AUTO_INCREMENT PRIMARY KEY,
@@ -236,7 +283,7 @@ CREATE TABLE refresh_tokens (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- 12. BLOCKED USERS — Brute-force protection tracking
+-- 13. BLOCKED USERS — Brute-force protection tracking
 -- =============================================================================
 CREATE TABLE blocked_users (
   id            INT AUTO_INCREMENT PRIMARY KEY,
@@ -250,9 +297,8 @@ CREATE TABLE blocked_users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- 13. AUDIT LOGS — Immutable record of all data mutations
+-- 14. AUDIT LOGS — Immutable record of all data mutations
 -- =============================================================================
--- Note: GET requests are NOT logged. Only CREATE / UPDATE / DELETE / LOGIN / LOGOUT / etc.
 CREATE TABLE audit_logs (
   id             BIGINT AUTO_INCREMENT PRIMARY KEY,
   table_name     VARCHAR(100) NOT NULL,
@@ -272,7 +318,7 @@ CREATE TABLE audit_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- 14. VENDOR PROJECTS — Many-to-many: which projects each vendor can access
+-- 15. VENDOR PROJECTS — Many-to-many: which projects each vendor can access
 -- =============================================================================
 CREATE TABLE vendor_projects (
   vendor_id   INT NOT NULL,
@@ -285,11 +331,11 @@ CREATE TABLE vendor_projects (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- 15. INVOICE SUBMISSIONS — (Future) Vendor submits invoice after completion
+-- 16. INVOICE SUBMISSIONS — Vendor submits invoice after completion
 -- =============================================================================
 CREATE TABLE invoice_submissions (
   id                INT AUTO_INCREMENT PRIMARY KEY,
-  package_id        INT NOT NULL,
+  claim_id          INT NOT NULL,
   vendor_id         INT NOT NULL,
   invoice_number    VARCHAR(100) NOT NULL,
   invoice_amount    DECIMAL(15,2) NOT NULL,
@@ -300,7 +346,7 @@ CREATE TABLE invoice_submissions (
   processed_at      DATETIME NULL,
   processed_by      INT NULL,
 
-  FOREIGN KEY (package_id)  REFERENCES packages(id),
+  FOREIGN KEY (claim_id)    REFERENCES claims(id),
   FOREIGN KEY (vendor_id)   REFERENCES vendors(id),
   FOREIGN KEY (processed_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

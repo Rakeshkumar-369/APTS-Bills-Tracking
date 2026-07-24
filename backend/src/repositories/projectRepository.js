@@ -25,7 +25,7 @@ class ProjectRepository {
     const [rows] = await pool.query(
       `SELECT p.*, wm.workflow_name
        FROM projects p
-       JOIN workflow_master wm ON p.workflow_id = wm.id
+       LEFT JOIN workflow_master wm ON p.workflow_id = wm.id
        ${joinClause}
        ${whereClause}
        ORDER BY p.project_name ASC LIMIT ? OFFSET ?`,
@@ -46,7 +46,7 @@ class ProjectRepository {
     const [rows] = await pool.query(
       `SELECT p.*, wm.workflow_name
        FROM projects p
-       JOIN workflow_master wm ON p.workflow_id = wm.id
+       LEFT JOIN workflow_master wm ON p.workflow_id = wm.id
        WHERE p.id = ?`,
       [id]
     );
@@ -56,7 +56,7 @@ class ProjectRepository {
   async create({ project_name, project_code, description, workflow_id }) {
     const [result] = await pool.query(
       'INSERT INTO projects (project_name, project_code, description, workflow_id) VALUES (?, ?, ?, ?)',
-      [project_name, project_code || null, description || null, workflow_id]
+      [project_name, project_code || null, description || null, workflow_id || null]
     );
     return result.insertId;
   }
@@ -90,7 +90,7 @@ class ProjectRepository {
     const [rows] = await pool.query(
       `SELECT p.*, wm.workflow_name
        FROM projects p
-       JOIN workflow_master wm ON p.workflow_id = wm.id
+       LEFT JOIN workflow_master wm ON p.workflow_id = wm.id
        JOIN vendor_projects vp ON p.id = vp.project_id
        WHERE vp.vendor_id = ? AND p.is_active = 1
        ORDER BY p.project_name ASC`,

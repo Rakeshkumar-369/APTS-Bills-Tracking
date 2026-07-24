@@ -2,7 +2,7 @@
 
 Information Technology, Electronics & Communications Department — Govt of Andhra Pradesh
 
-A workflow-based package tracking system for vendor bill verification. Packages flow through configurable approval chains (PM → TPA → JD-Infra → APTS Manager), with mandatory remarks at every step.
+A bill verification and claim tracking system for vendor invoices. Supports both **workflow-based** (configurable approval chains: PM → TPA → JD-Infra → APTS Manager) and **manual assignment** (officer-to-officer forwarding with pull-back) modes. Claims are linked to **Purchase Orders** managed by an Admin role. Mandatory remarks at every step.
 
 ---
 
@@ -40,8 +40,9 @@ Example invalid names: `JD-Infra` (hyphen), `PM_Verify` (underscore), `  Lead ` 
 
 | Role | Rank | Description |
 |---|---|---|
-| Super Admin | 100 | System configuration (vendors, users, roles, workflows, projects) — does NOT create packages |
-| Vendor | 10 | Creates and submits packages; responds to sendbacks — only for assigned projects |
+| Super Admin | 100 | System configuration (vendors, users, roles, workflows, projects, POs) — does NOT create claims |
+| Admin | 80 | Purchase Order management (CRUD) + read/update access to other modules |
+| Vendor | 10 | Creates and submits claims under assigned POs; responds to sendbacks |
 | PM | 30 | First verification desk |
 | TPA | 40 | Audit & verification desk |
 | JD-Infra | 50 | Digital signature authority |
@@ -51,7 +52,7 @@ Roles are stored in the `roles` table with a JSON `permissions` column. Super Ad
 
 ### 2. Workflow Definition
 
-A **workflow** is a named sequence of ordered **steps**. Each step is handled by a specific **role**. Transitions define who can move a package from one step to the next:
+A **workflow** is a named sequence of ordered **steps**. Each step is handled by a specific **role**. Transitions define who can move a claim from one step to the next:
 
 ```
 [PM: Step 1] ──FORWARD──→ [TPA: Step 2] ──FORWARD──→ [JD-Infra: Step 3]
@@ -64,30 +65,58 @@ A **workflow** is a named sequence of ordered **steps**. Each step is handled by
 **Key rules:**
 - Steps cannot be skipped — only valid transitions from the current step are allowed
 - Every FORWARD/SENDBACK action requires **mandatory remarks**
-- SENDBACK with `to_step_id = NULL` sends the package back to the vendor
-- Vendor re-submits → package goes back to the step that sent it back
+- SENDBACK with `to_step_id = NULL` sends the claim back to the vendor
+- Vendor re-submits → claim goes back to the step that sent it back
 
-### 3. Package Lifecycle
+### Non-Workflow (Manual Assignment)
+
+If a project has **no workflow assigned** (`workflow_id = NULL`), claims under that project use **manual officer assignment**:
+
+1. **Vendor creates the claim** under a Purchase Order — it stays with the vendor
+2. **Vendor assigns** the claim to any officer via `POST /api/claims/:id/assign`
+3. **Officer can forward** to any other officer (except Super Admin, Admin, or the creating vendor)
+4. **Pull-back**: The sender can pull back from the current officer via `POST /api/claims/:id/pull-back` — chain rule: only the immediate sender can pull back
+   - Vendor→A → Vendor can pull back
+   - Vendor→A→B → A can pull back (from B), Vendor cannot
+
+## Purchase Orders
+
+Purchase Orders (POs) are managed by the **Admin** role (rank 80). Each PO is linked to a project and assigned to a vendor.
+
+| Concept | Detail |
+|---|---|
+| **Code format** | Auto-generated: `PO-2026-0001` |
+| **Statuses** | `ACTIVE`, `CLOSED`, `CANCELLED` |
+| **Vendor assignment** | Admin selects the vendor when creating/updating the PO |
+| **Claim link** | Every claim must reference a PO the vendor has access to |
+| **Vendor visibility** | Vendors only see POs assigned to them |
+
+A vendor creates a claim under a PO → the claim is linked to both the PO and the project. The PO must belong to the same project and vendor.
+
+---
+
+### 3. Claim Lifecycle (Workflow Mode)
 
 ```
-[Vendor creates package for an assigned project] ──→ Step 1 (PM Desk)
-       ↓                                             ↓
-  Vendor uploads files         PM reviews → FORWARD → Step 2 (TPA Desk)
-                                        → SENDBACK → Vendor (for revision)
-       ↓                                             ↓
-  Vendor re-submits             TPA reviews → FORWARD → Step 3 (JD-Infra Desk)
-                                          → SENDBACK → Step 1 (PM)
-       ↓                                             ↓
+[Vendor creates claim under a PO for assigned project] ──→ Step 1 (PM Desk)
+       ↓                                                   ↓
+  Vendor uploads files           PM reviews → FORWARD → Step 2 (TPA Desk)
+                                          → SENDBACK → Vendor (for revision)
+       ↓                                                   ↓
+  Vendor re-submits               TPA reviews → FORWARD → Step 3 (JD-Infra Desk)
+                                            → SENDBACK → Step 1 (PM)
+       ↓                                                   ↓
                            JD-Infra reviews → FORWARD → Step 4 (APTS Manager)
                                            → SENDBACK → Step 2 (TPA)
-       ↓                                             ↓
-                           APTS Manager reviews → COMPLETE → Package Approved
+       ↓                                                   ↓
+                           APTS Manager reviews → COMPLETE → Claim Approved
                                                 → SENDBACK → Step 3 (JD-Infra)
 ```
 
 **Key creation rules:**
-- **Only Vendor users** can create packages (Super Admin and officers cannot)
-- **Workflow is auto-derived** from the project — no manual workflow selection
+- **Only Vendor users** can create claims (Super Admin and officers cannot)
+- **Workflow is auto-derived** from the project — if the project has no workflow, manual assignment mode is used instead
+- **Every claim requires a PO** — vendor selects a PO assigned to their vendor for the chosen project
 - **Vendors can only select projects** they have been assigned to by Super Admin
 
 ---
@@ -117,13 +146,16 @@ A **workflow** is a named sequence of ordered **steps**. Each step is handled by
 |---|---|---|
 | `vendor_projects` | Many-to-many: which projects each vendor can access | `vendor_id, project_id` (composite PK) |
 
-### Package System
+### Claim System
 
 | Table | Purpose | Key Columns |
 |---|---|---|
-| `packages` | The core submission entity | `id, package_code, vendor_id, project_id, workflow_id, current_step_id, status, is_completed` |
-| `package_files` | Documents attached to a package | `id, package_id, original_name, stored_name, file_path, file_size` |
-| `package_history` | Immutable timeline of every movement | `id, package_id, from_step_id, to_step_id, action, remarks, performed_by` |
+| `purchase_orders` | Admin-managed POs linked to projects + vendors | `id, po_number, project_id, vendor_id, status, amount` |
+| `claims` | The core submission entity | `id, claim_code, vendor_id, project_id, po_id, workflow_id?, current_step_id?, current_assigned_user_id?, status, is_completed` |
+| `claim_files` | Documents attached to a claim | `id, claim_id, original_name, stored_name, file_path, file_size` |
+| `claim_history` | Immutable timeline of every movement | `id, claim_id, from_step_id?, to_step_id?, forwarded_to_user_id?, action, remarks, performed_by` |
+
+**New action types in claim_history:** `CREATE`, `FORWARD`, `SENDBACK`, `COMPLETE`, `REJECT`, `RESUBMIT`, `PULL_BACK`
 
 ### Security & Audit
 
@@ -227,28 +259,51 @@ A **workflow** is a named sequence of ordered **steps**. Each step is handled by
 | PUT | `/api/workflows/transitions/:id` | `workflow.configure_steps` | Update transition (all fields optional). Body: `{from_step_id?, to_step_id?, transition_type?, allowed_role_id?, is_active?}` |
 | DELETE | `/api/workflows/transitions/:id` | `workflow.configure_steps` | Soft-delete transition |
 
-### Packages (Core Workflow)
+### Claims (Core Workflow + Manual Assignment)
 
 | Method | Path | Permission | Description |
 |---|---|---|---|
-| GET | `/api/packages` | `package.read` | List packages (scoped by role — vendors see only their own, officers see workflow-involved, admin sees all). Query: `?status=&project_id=&search=&limit=&offset=` |
-| GET | `/api/packages/:id` | `package.read` | Get package with files + history. Query: `?include_details=true/false` |
-| POST | `/api/packages` | `package.create` | **Create package** (multipart/form-data). Fields: `vendor_id`, `vendor_contact_user_id?`, `project_id`, `remarks?` + file field: `files[]` (optional, multiple). **workflow_id is auto-derived from the project** |
-| POST | `/api/packages/:id/forward` | `package.forward` | **Forward to next step.** Body: `{remarks}` (mandatory, min 3 chars) |
-| POST | `/api/packages/:id/sendback` | `package.sendback` | **Send back to previous step.** Body: `{remarks}` (mandatory) |
-| POST | `/api/packages/:id/resubmit` | — | **Vendor re-submits** after revision. Body: `{remarks}` (mandatory) |
-| GET | `/api/packages/:id/history` | `package.read` | Get full timeline of the package |
-| POST | `/api/packages/:id/files` | `package.update` | Upload file to existing package (multipart form-data, field: `file`, accepts PDF/images). Files can also be uploaded during package creation via the `files[]` field. |
-| DELETE | `/api/packages/:id/files/:fileId` | `package.update` | Delete a file |
-| GET | `/api/packages/:id/files/:fileId/download` | `package.read` | Download/serve a file |
+| GET | `/api/claims` | `claim.read` | List claims (scoped by role — vendors see their own, officers see involved, admin sees all). Query: `?status=&project_id=&po_id=&search=&limit=&offset=` |
+| GET | `/api/claims/:id` | `claim.read` | Get claim with files + history. Query: `?include_details=true/false` |
+| POST | `/api/claims` | `claim.create` | **Create claim** (multipart/form-data). Fields: `vendor_id`, `vendor_contact_user_id?`, `project_id`, `po_id`, `remarks?` + file field: `files[]` (optional, multiple). **workflow_id is auto-derived from the project** |
+| POST | `/api/claims/:id/forward` | `claim.forward` | **Forward to next step** (workflow mode only). Body: `{remarks}` |
+| POST | `/api/claims/:id/assign` | `claim.forward` | **Assign to officer** (non-workflow mode). Body: `{target_user_id, remarks}` |
+| POST | `/api/claims/:id/pull-back` | `claim.forward` | **Pull back from current officer** (non-workflow mode). Body: `{remarks}` |
+| POST | `/api/claims/:id/sendback` | `claim.sendback` | **Send back to vendor** (both modes). Body: `{remarks}` |
+| POST | `/api/claims/:id/resubmit` | — | **Vendor re-submits** after revision. Body: `{remarks}` |
+| GET | `/api/claims/:id/history` | `claim.read` | Get full timeline of the claim |
+| POST | `/api/claims/:id/files` | `claim.update` | Upload file to existing claim (multipart, field: `file`). |
+| DELETE | `/api/claims/:id/files/:fileId` | `claim.update` | Delete a file |
+| GET | `/api/claims/:id/files/:fileId/download` | `claim.read` | Download/serve a file |
 
-### Inbox (Role-based)
+**Backward compatibility:** The old `/api/packages/*` routes still work via an internal alias pointing to the same claim handlers.
+
+### Purchase Orders (Admin)
+
+| Method | Path | Permission | Description |
+|---|---|---|---|
+| GET | `/api/purchase-orders` | `po.read` | List POs (filtered by vendor for Vendor users). Query: `?project_id=&vendor_id=&status=&search=&limit=&offset=` |
+| GET | `/api/purchase-orders/:id` | `po.read` | Get PO by ID (includes `files` array when `?include_files=true`) |
+| POST | `/api/purchase-orders` | `po.create` | Create PO. Body: `{project_id, vendor_id, description?, amount?}` |
+| PUT | `/api/purchase-orders/:id` | `po.update` | Update PO. Body: `{project_id?, vendor_id?, description?, amount?, status?, is_active?}` |
+| DELETE | `/api/purchase-orders/:id` | `po.delete` | Soft-delete PO (sets `is_active=0`, status `CANCELLED`) |
+| POST | `/api/purchase-orders/:id/files` | `po.update` | Upload file to PO (multipart, field: `file`, accepts PDF/images). Files are visible to anyone with `po.read` permission |
+| DELETE | `/api/purchase-orders/:id/files/:fileId` | `po.update` | Delete a file |
+| GET | `/api/purchase-orders/:id/files/:fileId/download` | `po.read` | Download/serve a PO file (authenticated) |
+
+### Users
+
+| Method | Path | Permission | Description |
+|---|---|---|---|
+| GET | `/api/users/officers` | — | List active officers for claim assignment (excludes Super Admin, Admin, Vendor) |
+
+### Inbox (Role-based + User-based)
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/inbox` | Packages at your desk (matched by `current_step.required_role_id === your role_id`). Ordered by oldest first. |
-| GET | `/api/inbox/outbox` | Packages you have already actioned |
-| GET | `/api/inbox/stats` | Counts: `{total, pending, returned}` |
+| GET | `/api/inbox` | Claims at your desk. **Workflow mode:** matched by `current_step.required_role_id === your role_id`. **Non-workflow mode:** matched by `current_assigned_user_id === your user_id`. Ordered by oldest first. |
+| GET | `/api/inbox/outbox` | Claims you have already actioned |
+| GET | `/api/inbox/stats` | Counts: `{total, pending, returned}` (combined across both modes) |
 
 ---
 
@@ -299,6 +354,7 @@ python backend/tests/test_api.py
 | Name | Email | Password | Role |
 |---|---|---|---|
 | Admin User | admin@apts.gov.in | Admin@123 | Super Admin |
+| (Admin PO Manager) | *no seed user yet — create via Super Admin* | — | Admin |
 | Akshara Enterprises | vendor@example.com | password123 | Vendor |
 | Sri K. Srinivasa Rao | pm_user@apts.gov.in | password123 | PM |
 | Vedic Systems Audit | tpa_user@apts.gov.in | password123 | TPA |

@@ -16,7 +16,8 @@ const workflowRoutes = require('./routes/workflowRoutes');
 const userRoutes = require('./routes/userRoutes');
 const vendorRoutes = require('./routes/vendorRoutes');
 const projectRoutes = require('./routes/projectRoutes');
-const packageRoutes = require('./routes/packageRoutes');
+const claimRoutes = require('./routes/claimRoutes');
+const poRoutes = require('./routes/poRoutes');
 const roleRoutes = require('./routes/roleRoutes');
 const inboxRoutes = require('./routes/inboxRoutes');
 
@@ -45,9 +46,11 @@ if (config.env === 'production') {
 // Initialize Background Tasks
 initCleanupJobs();
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '..', 'uploads', 'packages');
-fs.mkdirSync(uploadsDir, { recursive: true });
+// Ensure uploads directories exist
+const uploadsClaimDir = path.join(__dirname, '..', 'uploads', 'claims');
+fs.mkdirSync(uploadsClaimDir, { recursive: true });
+const uploadsPODir = path.join(__dirname, '..', 'uploads', 'purchase-orders');
+fs.mkdirSync(uploadsPODir, { recursive: true });
 
 // app.set('trust proxy', 'loopback'); // Uncomment if behind a proxy like Nginx
 
@@ -69,7 +72,13 @@ app.use('/api/workflows', workflowRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/vendors', vendorRoutes);
 app.use('/api/projects', projectRoutes);
-app.use('/api/packages', packageRoutes);
+app.use('/api/claims', claimRoutes);
+
+// Backward compatibility: serve the same claim routes under /api/packages
+// so the frontend continues working until it's updated
+app.use('/api/packages', claimRoutes);
+
+app.use('/api/purchase-orders', poRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/inbox', inboxRoutes);
 
