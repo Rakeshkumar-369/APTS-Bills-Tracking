@@ -23,7 +23,7 @@ export default function UnifiedDashboard() {
   const [processing, setProcessing] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [downloading, setDownloading] = useState(false);
-  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [loadingItemId, setLoadingItemId] = useState(null);
   const [inboxStats, setInboxStats] = useState({
     total: 0,
     pending: 0,
@@ -260,7 +260,7 @@ export default function UnifiedDashboard() {
       return;
     }
 
-    setLoadingDetails(true);
+    setLoadingItemId(pkgId);
     try {
       console.log('🔍 Fetching package details for ID:', pkgId);
       const details = await packagesService.get(pkgId, { includeDetails: true });
@@ -351,7 +351,7 @@ export default function UnifiedDashboard() {
       setShowViewModal(false);
       setActionRemarks('');
     } finally {
-      setLoadingDetails(false);
+      setLoadingItemId(null);
     }
   };
 
@@ -391,7 +391,7 @@ export default function UnifiedDashboard() {
       const token = localStorage.getItem('accessToken');
       if (!token) throw new Error('No access token found');
 
-      const pkgId = selectedSubmission?.id;
+      const pkgId = selectedSubmission?.packageId;
       if (!pkgId) throw new Error('Package ID not found');
 
       const response = await fetch(`${API_BASE}/packages/${pkgId}/sendback`, {
@@ -407,7 +407,7 @@ export default function UnifiedDashboard() {
         throw new Error('Failed to send back package');
       }
 
-      setSuccessMessage(`Package ${pkgId} has been sent back successfully!`);
+      setSuccessMessage(`Package ${selectedSubmission?.id || pkgId} has been sent back successfully!`);
       setShowAuditView(false);
       setSelectedSubmission(null);
       setActionRemarks('');
@@ -434,7 +434,7 @@ export default function UnifiedDashboard() {
       const token = localStorage.getItem('accessToken');
       if (!token) throw new Error('No access token found');
 
-      const pkgId = selectedSubmission?.id;
+      const pkgId = selectedSubmission?.packageId;
       if (!pkgId) throw new Error('Package ID not found');
 
       const response = await fetch(`${API_BASE}/packages/${pkgId}/forward`, {
@@ -450,7 +450,7 @@ export default function UnifiedDashboard() {
         throw new Error('Failed to forward package');
       }
 
-      setSuccessMessage(`Package ${pkgId} has been forwarded successfully!`);
+      setSuccessMessage(`Package ${selectedSubmission?.id || pkgId} has been forwarded successfully!`);
       setShowAuditView(false);
       setSelectedSubmission(null);
       setActionRemarks('');
@@ -1031,9 +1031,9 @@ export default function UnifiedDashboard() {
                               className="btn btn-sm btn-outline-primary"
                               style={{ borderRadius: '6px' }}
                               onClick={() => handleViewPackage(item)}
-                              disabled={loadingDetails || !pkgId}
+                              disabled={loadingItemId === pkgId || !pkgId}
                             >
-                              {loadingDetails ? (
+                              {loadingItemId === pkgId ? (
                                 <span className="spinner-border spinner-border-sm me-1" role="status"></span>
                               ) : (
                                 <i className="bi bi-eye me-1"></i>
@@ -1047,26 +1047,6 @@ export default function UnifiedDashboard() {
                                 onClick={() => navigate(`/vendor/packages/${pkgId}/resubmit`)}
                               >
                                 <i className="bi bi-arrow-counterclockwise me-1"></i> Resubmit
-                              </button>
-                            )}
-                            {fileCount > 0 && item.files && item.files.length > 0 && (
-                              <button 
-                                className="btn btn-sm btn-outline-secondary" 
-                                style={{ borderRadius: '6px' }}
-                                onClick={() => {
-                                  const file = item.files[0];
-                                  if (file && pkgId) {
-                                    handleDownloadFile(pkgId, file.id, file.original_name || file.filename);
-                                  }
-                                }}
-                                disabled={downloading || !pkgId}
-                              >
-                                {downloading ? (
-                                  <span className="spinner-border spinner-border-sm me-1" role="status"></span>
-                                ) : (
-                                  <i className="bi bi-download me-1"></i>
-                                )}
-                                Download
                               </button>
                             )}
                             {['pm', 'tpa', 'jdinfra', 'apts'].includes(userRole) && (
