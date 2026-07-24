@@ -3,10 +3,15 @@ const roleRepository = require('../repositories/roleRepository');
 const ApiError = require('../utils/ApiError');
 const ApiResponse = require('../utils/ApiResponse');
 const auditService = require('../services/auditService');
+const { resolveIsActiveFilter } = require('../utils/isActiveFilter');
 
 const getAllRoles = async (req, res, next) => {
   try {
-    const rows = await roleRepository.getAll();
+    const { is_active: rawIsActive } = req.query;
+
+    const rows = await roleRepository.getAll({
+      is_active: resolveIsActiveFilter(req.user, rawIsActive)
+    });
     res.json(ApiResponse.success('Roles fetched successfully', rows));
   } catch (error) {
     next(error);

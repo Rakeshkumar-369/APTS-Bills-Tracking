@@ -2,10 +2,18 @@
 const pool = require('../config/db');
 
 class RoleRepository {
-  async getAll() {
-    const [rows] = await pool.query(
-      'SELECT id, role_name, description, role_rank, permissions, is_active FROM roles ORDER BY role_rank DESC'
-    );
+  async getAll({ is_active } = {}) {
+    let query = 'SELECT id, role_name, description, role_rank, permissions, is_active FROM roles';
+    const params = [];
+
+    if (is_active !== undefined) {
+      query += ' WHERE is_active = ?';
+      params.push(is_active);
+    }
+
+    query += ' ORDER BY role_rank DESC';
+
+    const [rows] = await pool.query(query, params);
     return rows;
   }
 

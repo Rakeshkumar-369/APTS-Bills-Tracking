@@ -1,15 +1,16 @@
 const projectService = require('../services/projectService');
 const ApiResponse = require('../utils/ApiResponse');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
+const { resolveIsActiveFilter } = require('../utils/isActiveFilter');
 
 const getAllProjects = async (req, res, next) => {
   try {
     const { limit, offset } = parsePagination(req.query.limit, req.query.offset);
-    const { search, is_active } = req.query;
+    const { search, is_active: rawIsActive } = req.query;
 
     const result = await projectService.getAll({
       limit, offset, search,
-      is_active: is_active !== undefined ? (is_active === 'true' || is_active === '1' ? 1 : 0) : undefined,
+      is_active: resolveIsActiveFilter(req.user, rawIsActive),
       vendor_id: req.user.vendor_id
     });
 

@@ -3,16 +3,17 @@ const userService = require('../services/userService');
 const ApiResponse = require('../utils/ApiResponse');
 const ApiError = require('../utils/ApiError');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
+const { resolveIsActiveFilter } = require('../utils/isActiveFilter');
 
 const getAllUsers = async (req, res, next) => {
   try {
     const { limit, offset } = parsePagination(req.query.limit, req.query.offset);
-    const { search, role_id, is_active, department_id } = req.query;
+    const { search, role_id, is_active: rawIsActive, department_id } = req.query;
 
     const result = await userService.getAll({
       limit, offset, search,
       role_id: role_id ? Number(role_id) : undefined,
-      is_active: is_active !== undefined ? (is_active === 'true' || is_active === '1' ? 1 : 0) : undefined,
+      is_active: resolveIsActiveFilter(req.user, rawIsActive),
       department_id: department_id ? Number(department_id) : undefined
     }, req.user);
 

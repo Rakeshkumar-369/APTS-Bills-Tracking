@@ -319,6 +319,7 @@ python backend/tests/test_api.py
 - **Hierarchy enforcement** — users can only CRUD users with roles of lower rank
 - **Permissions as JSON** — fully configurable per role
 - **Data isolation** — vendors see only their own packages; officers see packages where their role is in the workflow chain; admins see all packages
+- **is_active access control** — all list endpoints (`GET /api/:entity`) default to returning **only active records** (`is_active = 1`). Only **Super Admin** can pass `?is_active=0` to see soft-deleted/inactive records. This prevents non-admin users from accessing deactivated projects, workflows, vendors, roles, or users. The logic is implemented in a shared helper: `src/utils/isActiveFilter.js` — `resolveIsActiveFilter(user, rawIsActive)`.
 
 ---
 

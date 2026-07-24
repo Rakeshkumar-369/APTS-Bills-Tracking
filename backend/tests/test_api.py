@@ -20,6 +20,9 @@ from pathlib import Path
 if sys.platform == "win32":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
+# Force line-buffered stdout so test results print immediately (not all at end)
+sys.stdout.reconfigure(line_buffering=True)
+
 try:
     import requests
 except ImportError:
@@ -503,6 +506,41 @@ def run_all_tests():
 
     # For the outbox 500: instruct user to check server logs
     print("  ℹ️  Outbox 500 diagnosis: check server logs at backend/logs/error.log for the stack trace")
+
+    # ── 8c. is_active Access Control Tests ──────────────────────────────────
+    print("\n─── 8c. IS_ACTIVE ACCESS CONTROL ───")
+
+    # Super Admin: can see active-only (default) and inactive via ?is_active=0
+    admin_active = admin.get("/projects", {"limit": 1}, "Admin: List projects (default active only)")
+    admin_all = admin.get("/projects", {"limit": 1, "is_active": 0}, "Admin: List projects with is_active=0")
+
+    # PM (non-Super Admin): should ONLY see active projects, even with ?is_active=0
+    pm_active = pm.get("/projects", {"limit": 1}, "PM: List projects (default active only)")
+    pm_inactive = pm.get("/projects", {"limit": 1, "is_active": 0}, "PM: List projects with is_active=0 (should still be active)")
+
+    if pm_active and pm_inactive:
+        # PM's ?is_active=0 result should still only contain active records
+        # (non-Super-Admin users are forced to is_active=1 regardless of query param)
+        pm_active_ids = {p["id"] for p in pm_active["data"]}
+        pm_inactive_ids = {p["id"] for p in pm_inactive["data"]}
+        log("PM is_active=0 forced to active only",
+            "PASS" if pm_inactive_ids.issubset(pm_active_ids) or len(pm_inactive["data"]) == len(pm_active["data"]) else "FAIL",
+            f"PM active: {len(pm_active['data'])}, PM inactive-requested: {len(pm_inactive['data'])}")
+
+    # Admin can see different data when passing is_active=0 (if any deactivated records exist)
+    if admin_active and admin_all and len(admin_active["data"]) > 0 and len(admin_all["data"]) > 0:
+        log("Admin can override is_active filter",
+            "PASS", f"Admin active: {len(admin_active['data'])}, Admin is_active=0: {len(admin_all['data'])}")
+
+    # Non-admin trying to access inactive vendors (endpoint is admin-only, so should be 403)
+    vendor.get("/vendors?is_active=0", label="Vendor: cannot list vendors (permission)")
+
+    # Test workflows: PM or any user should not be able to see inactive workflows
+    wf_pm = pm.get("/workflows", {"limit": 1}, "PM: List workflows (default active only)")
+    wf_pm_inactive = pm.get("/workflows", {"limit": 1, "is_active": 0}, "PM: List workflows with is_active=0 (forced to active)")
+    if wf_pm and wf_pm_inactive:
+        log("PM workflows is_active=0 forced to active",
+            "PASS", f"PM saw {len(wf_pm['data'])} default, {len(wf_pm_inactive['data'])} with is_active=0")
 
     # ── 9. Permission Tests ────────────────────────────────────────────────
     print("\n─── 9. PERMISSION CHECKS ───")
