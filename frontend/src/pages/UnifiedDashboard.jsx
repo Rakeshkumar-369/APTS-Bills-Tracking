@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { packagesService } from '../services';
 import { useAuth } from '../context/AuthContext';
 import SubmissionAudit from './SubmissionAudit';
+import PdfViewerPage from './PdfViewerPage';
 
 export default function UnifiedDashboard() {
   const { user } = useAuth();
@@ -37,6 +38,8 @@ export default function UnifiedDashboard() {
   });
   const [selectedSubmission, setSelectedSubmission] = useState(null);
   const [actionRemarks, setActionRemarks] = useState('');
+  const [showPdfView, setShowPdfView] = useState(false);
+  const [pdfPackageId, setPdfPackageId] = useState(null);
 
   // Get API base URL from environment or use default
   const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
@@ -278,14 +281,16 @@ export default function UnifiedDashboard() {
         fileName = file.original_name || file.filename || 'document.pdf';
         fileSize = file.file_size ? `${(file.file_size / 1024).toFixed(1)} KB` : 'N/A';
         
-        // Check for URL in multiple possible fields, always normalized to an
-        // absolute URL so the browser doesn't resolve it against this app's origin
-        const rawUrl = file.url || file.file_path || file.download_url || file.public_url || null;
-        fileUrl = toAbsoluteUrl(rawUrl);
-        
-        // If no URL found but we have a file ID, construct the absolute download URL
-        if (!fileUrl && file.id) {
+        // Prefer the existing authenticated download endpoint (same one the
+        // "Download" button already uses successfully) over a raw file_path.
+        // file_path points at a static file location the backend doesn't
+        // actually serve over HTTP, so it always 404s — the /api endpoint
+        // is a real, working, authenticated route.
+        if (file.id) {
           fileUrl = `${API_BASE}/packages/${pkgId}/files/${file.id}/download`;
+        } else {
+          const rawUrl = file.url || file.file_path || file.download_url || file.public_url || null;
+          fileUrl = toAbsoluteUrl(rawUrl);
         }
       }
       
@@ -305,8 +310,7 @@ export default function UnifiedDashboard() {
       console.log('📄 File name:', fileName);
       
       const submissionData = {
-        id: details?.id || details?.packageCode || pkgId,
-        code: details?.package_code,
+        id: details?.package_code || details?.packageCode || pkgId,
         packageId: pkgId, // real numeric ID, used for navigation/refetching (unlike the display code above)
         vendor: details?.vendor_name || details?.vendor || 'N/A',
         projectType: details?.project_name || details?.project?.project_name || 'N/A',
@@ -351,11 +355,9 @@ export default function UnifiedDashboard() {
     }
   };
 
-  // Handle PDF View - Navigate to standalone PDF viewer.
-  // We navigate by package ID in the URL (not via router state) so the viewer
-  // page can independently (re)fetch its own data. Router state doesn't survive
-  // a hard reload, a dev-server HMR full-reload, or opening the link in a new
-  // tab — all of which would otherwise leave PdfViewerPage with nothing to show.
+  // Handle PDF View - shown as an inline view within this same page (not a
+  // separate route). This means "Back" just switches state back to the audit
+  // view instead of navigating away and losing it.
   const handleOpenPdf = (submission) => {
     if (!submission.fileUrl) {
       alert('No document available for this package');
@@ -366,7 +368,8 @@ export default function UnifiedDashboard() {
       return;
     }
 
-    navigate(`/pdf-viewer/${submission.packageId}`);
+    setPdfPackageId(submission.packageId);
+    setShowPdfView(true);
   };
 
   // Handle Back from Audit
@@ -443,10 +446,8 @@ export default function UnifiedDashboard() {
         body: JSON.stringify({ remarks: actionRemarks })
       });
 
-      let result = await response.json();
-      
       if (!response.ok) {
-        throw new Error(result.message || `Request failed with status ${response.status}`);
+        throw new Error('Failed to forward package');
       }
 
       setSuccessMessage(`Package ${pkgId} has been forwarded successfully!`);
@@ -643,6 +644,18 @@ export default function UnifiedDashboard() {
           </button>
         </div>
       </div>
+    );
+  }
+
+  // If the inline PDF view is active, render it full-screen within this page.
+  // Its own "Back" button just flips showPdfView off, returning to the audit
+  // view instantly with all state intact (no route navigation involved).
+  if (showPdfView && pdfPackageId) {
+    return (
+      <PdfViewerPage
+        packageId={pdfPackageId}
+        onBack={() => setShowPdfView(false)}
+      />
     );
   }
 

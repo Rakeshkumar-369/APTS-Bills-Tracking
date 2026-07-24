@@ -41,7 +41,7 @@ export default function SubmissionAudit({
             <i className="bi bi-arrow-left"></i>
           </button>
           <div>
-            <h5 className="mb-0 fw-extrabold text-dark tracking-tight">{submission.code}</h5>
+            <h5 className="mb-0 fw-extrabold text-dark tracking-tight">Auditing Node: {submission.id}</h5>
             <span className="text-muted fs-8 font-monospace">{submission.vendor} &bull; {submission.projectType} Scope</span>
           </div>
         </div>
@@ -91,18 +91,30 @@ export default function SubmissionAudit({
             </span>
             <div className="bg-light bg-opacity-50 border border-light-subtle rounded-3 p-3 overflow-auto" style={{ maxHeight: '320px' }}>
               {submission.history && submission.history.length > 0 ? (
-                submission.history.map((log, index) => (
-                  <div key={index} className="fs-8 border-bottom border-light-subtle pb-2 mb-2 last-border-0">
-                    <div className="d-flex align-items-center justify-content-between mb-0.5">
-                      <span className="fw-bold text-dark">{log.actor}</span>
-                      <span className="text-muted font-monospace">{log.date}</span>
+                submission.history.map((log, index) => {
+                  const actionText = log.action_label || log.action || 'Action';
+                  const actorName = log.performed_by_name || log.actor || 'Unknown';
+                  const actorRole = log.performed_by_role_name || log.role || '';
+                  const dateText = log.created_at
+                    ? new Date(log.created_at).toLocaleString()
+                    : (log.date || '');
+                  const remarksText = log.remarks;
+
+                  return (
+                    <div key={log.id || index} className="fs-8 border-bottom border-light-subtle pb-2 mb-2 last-border-0">
+                      <div className="d-flex align-items-center justify-content-between mb-0.5">
+                        <span className="fw-bold text-dark">{actionText}</span>
+                        <span className="text-muted font-monospace">{dateText}</span>
+                      </div>
+                      <span className="d-block text-primary fw-semibold fs-8.5">
+                        {actorName}{actorRole ? ` • ${actorRole}` : ''}
+                      </span>
+                      {remarksText && (
+                        <p className="text-secondary italic mb-0 mt-0.5 bg-white p-1.5 rounded border shadow-3xs">"{remarksText}"</p>
+                      )}
                     </div>
-                    <span className="d-block text-primary fw-semibold fs-8.5">{log.action}</span>
-                    {log.remarks && (
-                      <p className="text-secondary italic mb-0 mt-0.5 bg-white p-1.5 rounded border shadow-3xs">"{log.remarks}"</p>
-                    )}
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="text-center text-muted py-3">No activity history available</div>
               )}

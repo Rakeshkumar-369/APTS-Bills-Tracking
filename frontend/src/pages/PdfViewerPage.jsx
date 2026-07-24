@@ -23,9 +23,16 @@ function toAbsoluteUrl(path) {
   return `${SERVER_ORIGIN}${normalized}`;
 }
 
-export default function PdfViewerPage() {
+export default function PdfViewerPage({ packageId: packageIdProp, onBack: onBackProp } = {}) {
   const navigate = useNavigate();
-  const { packageId } = useParams();
+  const { packageId: packageIdFromRoute } = useParams();
+
+  // Works both as a standalone route (/pdf-viewer/:packageId) and as an
+  // inline view embedded directly inside another page (e.g. UnifiedDashboard),
+  // which is what lets "Back" return to that page's own previous view/state
+  // instead of unmounting everything via router navigation.
+  const packageId = packageIdProp ?? packageIdFromRoute;
+  const handleBack = onBackProp ?? (() => navigate(-1));
 
   // Package/file metadata, fetched independently by this page (not passed via
   // router state, which is unreliable across reloads/new tabs/HMR).
@@ -262,13 +269,6 @@ export default function PdfViewerPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  };
-
-  // FIXED: Back button now navigates to the previous page (which should be the audit view)
-  const handleBack = () => {
-    // Navigate back to the previous page in browser history
-    // Since the user came from the audit view, this goes back to it
-    navigate(-1);
   };
 
   // ==============================
