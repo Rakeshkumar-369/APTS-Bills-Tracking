@@ -40,7 +40,7 @@ const getPOById = async (req, res, next) => {
 
 const createPO = async (req, res, next) => {
   try {
-    const po = await poService.create(req.body, req.user.user_id, req.ip);
+    const po = await poService.create(req.body, req.files, req.user.user_id, req.ip);
     res.status(201).json(ApiResponse.success('Purchase Order created successfully', [po]));
   } catch (error) {
     next(error);

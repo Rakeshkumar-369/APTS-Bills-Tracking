@@ -12,7 +12,7 @@ router.use(authMiddleware);
 
 router.get('/', requirePermission('po', 'read'), validatePagination, poController.getAllPOs);
 router.get('/:id', requirePermission('po', 'read'), validateId(), poController.getPOById);
-router.post('/', requirePermission('po', 'create'), createPOValidation, poController.createPO);
+router.post('/', requirePermission('po', 'create'), uploadMultipleFiles, handleMulterError, createPOValidation, poController.createPO);
 router.put('/:id', requirePermission('po', 'update'), validateId(), updatePOValidation, poController.updatePO);
 router.delete('/:id', requirePermission('po', 'delete'), validateId(), poController.deletePO);
 

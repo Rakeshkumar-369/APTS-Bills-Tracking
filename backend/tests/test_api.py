@@ -313,6 +313,34 @@ def run_all_tests():
             po_number = po_resp["data"][0]["po_number"]
             log("PO created", "PASS", f"PO#: {po_number}")
 
+    # --- NEW: Test PO creation with file attachment ---
+    print("\n  → Testing PO creation with file attachment...")
+    pdf_po_create = generate_test_pdf("po_create_upload.pdf", "Test PO with file at creation")
+    with open(pdf_po_create, "rb") as f:
+        create_po_with_file = po_admin.post(
+            "/purchase-orders",
+            files={
+                "project_id": (None, str(test_project_wf_id)),
+                "vendor_id": (None, str(test_vendor_id)),
+                "description": (None, "PO with file attachment"),
+                "amount": (None, "100000.00"),
+                "files": ("po_doc_create.pdf", f, "application/pdf")
+            },
+            label="PO Admin: Create PO with file"
+        )
+    Path(pdf_po_create).unlink()
+
+    if create_po_with_file and create_po_with_file.get("success"):
+        po_with_file_id = create_po_with_file["data"][0]["id"]
+        files_attached = len(create_po_with_file["data"][0].get("files", []))
+        log("PO created with file", "PASS" if files_attached > 0 else "FAIL",
+            f"PO ID: {po_with_file_id}, files: {files_attached}")
+        # Clean up
+        po_admin.delete(f"/purchase-orders/{po_with_file_id}", "Cleanup PO with file")
+    else:
+        log("PO creation with file failed", "FAIL", str(create_po_with_file) if create_po_with_file else "No response")
+    # --- END NEW ---
+
     if po_admin_ok and test_vendor_id and test_project_nwf_id:
         po_resp_nwf = po_admin.post("/purchase-orders", {
             "project_id": test_project_nwf_id,

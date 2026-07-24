@@ -31,7 +31,7 @@ class POService {
     return poRepository.getVendorPOs(vendorId);
   }
 
-  async create(data, performedBy, ipAddress) {
+  async create(data, files, performedBy, ipAddress) {
     const { project_id, vendor_id, description, amount } = data;
 
     // Validate project exists
@@ -63,7 +63,32 @@ class POService {
       ip_address: ipAddress
     });
 
-    return this.getById(poId);
+    if (files && files.length > 0) {
+      const uploadDir = path.join(UPLOADS_DIR, String(poId));
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+
+      for (const file of files) {
+        const ext = path.extname(file.originalname);
+        const storedName = `${crypto.randomUUID()}${ext}`;
+        const filePath = path.join(uploadDir, storedName);
+
+        fs.writeFileSync(filePath, file.buffer);
+
+        await poRepository.createFile({
+          po_id: poId,
+          original_name: file.originalname,
+          stored_name: storedName,
+          file_path: path.join('uploads/purchase-orders', String(poId), storedName),
+          file_size: file.size,
+          mime_type: file.mimetype || 'application/octet-stream',
+          uploaded_by: performedBy
+        });
+      }
+    }
+    
+    return this.getWithFiles(poId);
   }
 
   async update(id, data, performedBy, ipAddress) {

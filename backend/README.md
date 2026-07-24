@@ -284,7 +284,7 @@ A vendor creates a claim under a PO → the claim is linked to both the PO and t
 |---|---|---|---|
 | GET | `/api/purchase-orders` | `po.read` | List POs (filtered by vendor for Vendor users). Query: `?project_id=&vendor_id=&status=&search=&limit=&offset=` |
 | GET | `/api/purchase-orders/:id` | `po.read` | Get PO by ID (includes `files` array when `?include_files=true`) |
-| POST | `/api/purchase-orders` | `po.create` | Create PO. Body: `{project_id, vendor_id, description?, amount?}` |
+| POST | `/api/purchase-orders` | `po.create` | Create PO (multipart/form-data). Fields: project_id, vendor_id, description?, amount? + optional file field files[] (multiple). Returns PO with attached files.|
 | PUT | `/api/purchase-orders/:id` | `po.update` | Update PO. Body: `{project_id?, vendor_id?, description?, amount?, status?, is_active?}` |
 | DELETE | `/api/purchase-orders/:id` | `po.delete` | Soft-delete PO (sets `is_active=0`, status `CANCELLED`) |
 | POST | `/api/purchase-orders/:id/files` | `po.update` | Upload file to PO (multipart, field: `file`, accepts PDF/images). Files are visible to anyone with `po.read` permission |
