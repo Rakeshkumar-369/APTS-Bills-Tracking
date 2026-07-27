@@ -1,16 +1,16 @@
 // src/pages/MatchInvoice.jsx
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { packagesService, vendorsService, projectsService } from '../services';
+import { claimsService, vendorsService, projectsService } from '../services';
 
 export default function MatchInvoice() {
   const { user } = useAuth();
-  const [packages, setPackages] = useState([]);
+  const [claims, setClaims] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedPackage, setSelectedPackage] = useState(null);
+  const [selectedClaim, setSelectedClaim] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
 
@@ -23,13 +23,13 @@ export default function MatchInvoice() {
       setLoading(true);
       setError(null);
       
-      const [packagesData, vendorsData, projectsData] = await Promise.all([
-        packagesService.list(),
+      const [claimsData, vendorsData, projectsData] = await Promise.all([
+        claimsService.list(),
         vendorsService.list(),
         projectsService.list()
       ]);
       
-      setPackages(packagesData || []);
+      setClaims(claimsData || []);
       setVendors(vendorsData || []);
       setProjects(projectsData || []);
     } catch (err) {
@@ -50,8 +50,8 @@ export default function MatchInvoice() {
     return project ? project.project_name : 'N/A';
   };
 
-  const filteredPackages = packages.filter(pkg => {
-    const matchesSearch = pkg.package_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  const filteredClaims = claims.filter(pkg => {
+    const matchesSearch = pkg.claim_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           getVendorName(pkg.vendor_id).toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = filterStatus ? pkg.status === filterStatus : true;
     return matchesSearch && matchesStatus;
@@ -89,12 +89,12 @@ export default function MatchInvoice() {
           </h4>
           <p className="text-muted small">
             <i className="bi bi-info-circle me-1"></i>
-            Review and match vendor invoices with submitted packages
+            Review and match vendor invoices with submitted claims
           </p>
         </div>
         <span className="badge bg-primary">
           <i className="bi bi-boxes me-1"></i>
-          Total Packages: {packages.length}
+          Total claims: {claims.length}
         </span>
       </div>
 
@@ -110,7 +110,7 @@ export default function MatchInvoice() {
                 <input
                   type="text"
                   className="form-control"
-                  placeholder="Search by package code or vendor..."
+                  placeholder="Search by claim code or vendor..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -147,20 +147,20 @@ export default function MatchInvoice() {
         </div>
       </div>
 
-      {/* Packages Table */}
+      {/* claims Table */}
       <div className="card">
         <div className="card-body">
-          {filteredPackages.length === 0 ? (
+          {filteredClaims.length === 0 ? (
             <div className="text-center py-5">
               <i className="bi bi-inbox fs-1 text-muted"></i>
-              <p className="text-muted mt-2">No packages found matching your criteria</p>
+              <p className="text-muted mt-2">No claims found matching your criteria</p>
             </div>
           ) : (
             <div className="table-responsive">
               <table className="table table-hover align-middle">
                 <thead>
                   <tr>
-                    <th>Package Code</th>
+                    <th>claim Code</th>
                     <th>Vendor</th>
                     <th>Project</th>
                     <th>Status</th>
@@ -170,10 +170,10 @@ export default function MatchInvoice() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredPackages.map((pkg) => (
+                  {filteredClaims.map((pkg) => (
                     <tr key={pkg.id}>
                       <td>
-                        <strong className="text-primary">{pkg.package_code}</strong>
+                        <strong className="text-primary">{pkg.claim_code}</strong>
                       </td>
                       <td>{getVendorName(pkg.vendor_id)}</td>
                       <td>{getProjectName(pkg.project_id)}</td>
@@ -204,7 +204,7 @@ export default function MatchInvoice() {
                       <td>
                         <button
                           className="btn btn-sm btn-primary"
-                          onClick={() => setSelectedPackage(pkg)}
+                          onClick={() => setSelectedClaim(pkg)}
                           data-bs-toggle="modal"
                           data-bs-target="#invoiceModal"
                         >
@@ -222,38 +222,38 @@ export default function MatchInvoice() {
       </div>
 
       {/* Invoice Matching Modal */}
-      {selectedPackage && (
+      {selectedClaim && (
         <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} id="invoiceModal">
           <div className="modal-dialog modal-lg">
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title">
                   <i className="bi bi-file-earmark-check me-2"></i>
-                  Match Invoice - {selectedPackage.package_code}
+                  Match Invoice - {selectedClaim.claim_code}
                 </h5>
                 <button
                   type="button"
                   className="btn-close"
-                  onClick={() => setSelectedPackage(null)}
+                  onClick={() => setSelectedClaim(null)}
                 ></button>
               </div>
               <div className="modal-body">
                 <div className="row">
                   <div className="col-md-6">
-                    <h6 className="text-muted">Package Details</h6>
+                    <h6 className="text-muted">claim Details</h6>
                     <dl className="row small">
-                      <dt className="col-5">Package Code</dt>
-                      <dd className="col-7">{selectedPackage.package_code}</dd>
+                      <dt className="col-5">claim Code</dt>
+                      <dd className="col-7">{selectedClaim.claim_code}</dd>
                       <dt className="col-5">Vendor</dt>
-                      <dd className="col-7">{getVendorName(selectedPackage.vendor_id)}</dd>
+                      <dd className="col-7">{getVendorName(selectedClaim.vendor_id)}</dd>
                       <dt className="col-5">Project</dt>
-                      <dd className="col-7">{getProjectName(selectedPackage.project_id)}</dd>
+                      <dd className="col-7">{getProjectName(selectedClaim.project_id)}</dd>
                       <dt className="col-5">Status</dt>
                       <dd className="col-7">
                         <span className={`badge ${
-                          selectedPackage.status === 'COMPLETED' ? 'bg-success' : 'bg-warning'
+                          selectedClaim.status === 'COMPLETED' ? 'bg-success' : 'bg-warning'
                         }`}>
-                          {selectedPackage.status}
+                          {selectedClaim.status}
                         </span>
                       </dd>
                     </dl>
@@ -277,9 +277,9 @@ export default function MatchInvoice() {
 
                 <div className="mt-3">
                   <h6 className="text-muted">Files Attached</h6>
-                  {selectedPackage.files && selectedPackage.files.length > 0 ? (
+                  {selectedClaim.files && selectedClaim.files.length > 0 ? (
                     <ul className="list-group">
-                      {selectedPackage.files.map((file) => (
+                      {selectedClaim.files.map((file) => (
                         <li key={file.id} className="list-group-item d-flex justify-content-between align-items-center">
                           <span>
                             <i className="bi bi-file-earmark me-2"></i>
@@ -305,7 +305,7 @@ export default function MatchInvoice() {
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => setSelectedPackage(null)}
+                  onClick={() => setSelectedClaim(null)}
                 >
                   Cancel
                 </button>
@@ -314,7 +314,7 @@ export default function MatchInvoice() {
                   className="btn btn-success"
                   onClick={() => {
                     alert('Invoice matched successfully!');
-                    setSelectedPackage(null);
+                    setSelectedClaim(null);
                   }}
                 >
                   <i className="bi bi-check-circle me-1"></i>

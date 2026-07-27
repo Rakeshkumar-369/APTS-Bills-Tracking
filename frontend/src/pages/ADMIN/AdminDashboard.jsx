@@ -8,13 +8,13 @@ import RolesAdmin from './RolesAdmin';
 import WorkflowsAdmin from './WorkflowsAdmin';
 import WorkflowDetail from './WorkflowDetail';
 import { useAuth } from '../../context/AuthContext';
-import { packagesService, usersService, vendorsService, projectsService } from '../../services';
+import { claimsService, usersService, vendorsService, projectsService } from '../../services';
 
 export default function AdminDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [stats, setStats] = useState({ users: 0, vendors: 0, projects: 0, packages: 0 });
+  const [stats, setStats] = useState({ users: 0, vendors: 0, projects: 0, claims: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -31,17 +31,17 @@ export default function AdminDashboard() {
       setLoading(true);
       setError(null);
       console.log('📊 Fetching stats...');
-      const [users, vendors, projects, packages] = await Promise.all([
+      const [users, vendors, projects, claims] = await Promise.all([
         usersService.list().catch(() => []),
         vendorsService.list().catch(() => []),
         projectsService.list().catch(() => []),
-        packagesService.list().catch(() => [])
+        claimsService.list().catch(() => [])
       ]);
       setStats({
         users: users?.length || 0,
         vendors: vendors?.length || 0,
         projects: projects?.length || 0,
-        packages: packages?.length || 0
+        claims: claims?.length || 0
       });
       console.log('📊 Stats loaded:', stats);
     } catch (error) {
@@ -116,8 +116,8 @@ export default function AdminDashboard() {
           <div className="col-md-3">
             <div className="card bg-warning text-white shadow-sm">
               <div className="card-body">
-                <h6 className="card-title">Total Packages</h6>
-                <h2 className="mb-0">{stats.packages}</h2>
+                <h6 className="card-title">Total claims</h6>
+                <h2 className="mb-0">{stats.claims}</h2>
               </div>
             </div>
           </div>

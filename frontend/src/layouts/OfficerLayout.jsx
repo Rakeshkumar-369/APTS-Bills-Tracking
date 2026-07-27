@@ -27,7 +27,7 @@ export default function OfficerLayout() {
     { path: '/officer', label: 'Dashboard', icon: 'bi-grid' },
     { path: '/officer/inbox', label: 'Inbox', icon: 'bi-inbox' },
     { path: '/officer/outbox', label: 'Outbox', icon: 'bi-send' },
-    { path: '/officer/packages', label: 'All Packages', icon: 'bi-boxes' },
+    { path: '/officer/claims', label: 'All claims', icon: 'bi-boxes' },
   ];
 
   const isActive = (path) => {

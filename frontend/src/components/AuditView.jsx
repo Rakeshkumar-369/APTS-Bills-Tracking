@@ -132,7 +132,7 @@ export default function AuditView({
 
         {/* Body */}
         <div style={{ padding: '24px' }}>
-          {/* DOCUMENT PACKAGE - Matches image exactly */}
+          {/* DOCUMENT claim - Matches image exactly */}
           <div style={{ marginBottom: '24px' }}>
             <label style={{
               display: 'block',
@@ -143,7 +143,7 @@ export default function AuditView({
               letterSpacing: '0.5px',
               marginBottom: '6px'
             }}>
-              DOCUMENT PACKAGE
+              DOCUMENT claim
             </label>
             <div style={{
               backgroundColor: '#f8fafc',

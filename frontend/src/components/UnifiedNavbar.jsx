@@ -84,8 +84,8 @@ export default function UnifiedNavbar() {
 
                 {/* Common links */}
                 <li className="nav-item">
-                  <Link to="/packages" className="nav-link text-white">
-                    <i className="bi bi-box-seam me-1"></i> Packages
+                  <Link to="/claims" className="nav-link text-white">
+                    <i className="bi bi-box-seam me-1"></i> claims
                   </Link>
                 </li>
 

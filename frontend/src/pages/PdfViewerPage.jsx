@@ -3,14 +3,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { packagesService } from '../services';
+import { claimsService } from '../services';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 const SERVER_ORIGIN = API_BASE.replace(/\/api\/?$/, '');
 
-// Converts any relative path returned by the backend (e.g. "uploads\\packages\\10\\file.pdf")
+// Converts any relative path returned by the backend (e.g. "uploads\\claims\\10\\file.pdf")
 // into a full absolute URL against the API server's origin, normalizing Windows-style
 // backslashes to forward slashes along the way.
 function toAbsoluteUrl(path) {
@@ -23,18 +23,18 @@ function toAbsoluteUrl(path) {
   return `${SERVER_ORIGIN}${normalized}`;
 }
 
-export default function PdfViewerPage({ packageId: packageIdProp, onBack: onBackProp } = {}) {
+export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp } = {}) {
   const navigate = useNavigate();
-  const { packageId: packageIdFromRoute } = useParams();
+  const { claimId: claimIdFromRoute } = useParams();
 
-  // Works both as a standalone route (/pdf-viewer/:packageId) and as an
+  // Works both as a standalone route (/pdf-viewer/:claimId) and as an
   // inline view embedded directly inside another page (e.g. UnifiedDashboard),
   // which is what lets "Back" return to that page's own previous view/state
   // instead of unmounting everything via router navigation.
-  const packageId = packageIdProp ?? packageIdFromRoute;
+  const claimId = claimIdProp ?? claimIdFromRoute;
   const handleBack = onBackProp ?? (() => navigate(-1));
 
-  // Package/file metadata, fetched independently by this page (not passed via
+  // claim/file metadata, fetched independently by this page (not passed via
   // router state, which is unreliable across reloads/new tabs/HMR).
   const [submission, setSubmission] = useState(null);
   const [metaLoading, setMetaLoading] = useState(true);
@@ -53,10 +53,10 @@ export default function PdfViewerPage({ packageId: packageIdProp, onBack: onBack
   const containerRef = useRef(null);
   const renderAbortRef = useRef(false);
 
-  // Step 1: fetch package + file metadata for this packageId
+  // Step 1: fetch claim + file metadata for this claimId
   useEffect(() => {
-    if (!packageId) {
-      setMetaError('No package ID was provided.');
+    if (!claimId) {
+      setMetaError('No claim ID was provided.');
       setMetaLoading(false);
       return;
     }
@@ -68,7 +68,7 @@ export default function PdfViewerPage({ packageId: packageIdProp, onBack: onBack
         setMetaLoading(true);
         setMetaError(null);
 
-        const details = await packagesService.get(packageId, { includeDetails: true });
+        const details = await claimsService.get(claimId, { includeDetails: true });
         if (cancelled) return;
 
         let fileUrl = null;
@@ -86,7 +86,7 @@ export default function PdfViewerPage({ packageId: packageIdProp, onBack: onBack
           // actually serve over HTTP, so it always 404s — the /api endpoint
           // is a real, working, authenticated route.
           if (file.id) {
-            fileUrl = `${API_BASE}/packages/${packageId}/files/${file.id}/download`;
+            fileUrl = `${API_BASE}/claims/${claimId}/files/${file.id}/download`;
           } else {
             const rawUrl = file.url || file.file_path || file.download_url || file.public_url || null;
             fileUrl = toAbsoluteUrl(rawUrl);
@@ -98,16 +98,16 @@ export default function PdfViewerPage({ packageId: packageIdProp, onBack: onBack
         if (!fileUrl && details?.document_url) fileUrl = toAbsoluteUrl(details.document_url);
 
         setSubmission({
-          id: details?.package_code || details?.packageCode || packageId,
-          packageId,
+          id: details?.claim_code || details?.claimCode || claimId,
+          claimId,
           vendor: details?.vendor_name || details?.vendor || 'N/A',
           fileName,
           fileSize,
           fileUrl,
         });
       } catch (err) {
-        console.error('❌ Error fetching package details:', err);
-        if (!cancelled) setMetaError(err.message || 'Failed to load package details');
+        console.error('❌ Error fetching claim details:', err);
+        if (!cancelled) setMetaError(err.message || 'Failed to load claim details');
       } finally {
         if (!cancelled) setMetaLoading(false);
       }
@@ -118,7 +118,7 @@ export default function PdfViewerPage({ packageId: packageIdProp, onBack: onBack
     return () => {
       cancelled = true;
     };
-  }, [packageId]);
+  }, [claimId]);
 
   // Step 2: once we know the fileUrl, fetch the PDF (with auth header) and hand it to pdf.js
   useEffect(() => {
@@ -272,7 +272,7 @@ export default function PdfViewerPage({ packageId: packageIdProp, onBack: onBack
   };
 
   // ==============================
-  // Loading package metadata
+  // Loading claim metadata
   // ==============================
   if (metaLoading) {
     return (
@@ -292,7 +292,7 @@ export default function PdfViewerPage({ packageId: packageIdProp, onBack: onBack
       <div className="d-flex align-items-center justify-content-center vh-100 bg-light">
         <div className="text-center bg-white p-5 rounded-3 shadow-sm border" style={{ maxWidth: '400px' }}>
           <i className="bi bi-exclamation-triangle fs-1 text-danger mb-3 d-block"></i>
-          <h5 className="text-danger">Couldn't load this package</h5>
+          <h5 className="text-danger">Couldn't load this claim</h5>
           <p className="text-muted small mb-4">{metaError}</p>
           <button className="btn btn-secondary" onClick={handleBack}>
             <i className="bi bi-arrow-left me-1"></i> Go Back
@@ -308,7 +308,7 @@ export default function PdfViewerPage({ packageId: packageIdProp, onBack: onBack
         <div className="text-center">
           <i className="bi bi-file-earmark-pdf fs-1 text-muted mb-3 d-block"></i>
           <h5 className="text-muted">No PDF available</h5>
-          <p className="text-muted small">The document file could not be found for this package</p>
+          <p className="text-muted small">The document file could not be found for this claim</p>
           <button className="btn btn-secondary mt-3" onClick={handleBack}>
             <i className="bi bi-arrow-left me-1"></i> Go Back
           </button>

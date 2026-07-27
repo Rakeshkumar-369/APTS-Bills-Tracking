@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 export default function Inbox() {
   const { user } = useAuth();
   const [tab, setTab] = useState('inbox'); // 'inbox' | 'outbox'
-  const [packages, setPackages] = useState([]);
+  const [claims, setClaims] = useState([]);
   const [stats, setStats] = useState({ total: 0, pending: 0, returned: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -22,7 +22,7 @@ export default function Inbox() {
       ]);
       
       // Handle different response formats
-      setPackages(listRes?.data || listRes || []);
+      setClaims(listRes?.data || listRes || []);
       setStats(statsRes?.data || statsRes || { total: 0, pending: 0, returned: 0 });
     } catch (err) {
       console.error('Inbox load error:', err);
@@ -80,7 +80,7 @@ export default function Inbox() {
             <span className="visually-hidden">Loading…</span>
           </div>
         </div>
-      ) : packages.length === 0 ? (
+      ) : claims.length === 0 ? (
         <div className="text-center py-5">
           <i className="bi bi-inbox fs-1 text-muted"></i>
           <p className="text-muted mt-2">Nothing here right now.</p>
@@ -90,7 +90,7 @@ export default function Inbox() {
           <table className="table table-hover align-middle">
             <thead>
               <tr>
-                <th>Package</th>
+                <th>claim</th>
                 <th>Vendor</th>
                 <th>Project</th>
                 <th>Status</th>
@@ -99,15 +99,15 @@ export default function Inbox() {
               </tr>
             </thead>
             <tbody>
-              {packages.map((pkg) => (
+              {claims.map((pkg) => (
                 <tr key={pkg.id}>
-                  <td className="fw-medium">{pkg.package_code}</td>
+                  <td className="fw-medium">{pkg.claim_code}</td>
                   <td>{pkg.vendor_name || pkg.vendor?.vendor_name}</td>
                   <td>{pkg.project_name || pkg.project?.project_name}</td>
                   <td><StatusBadge status={pkg.status} /></td>
                   <td>{pkg.current_step_name || pkg.current_step?.step_name}</td>
                   <td className="text-end">
-                    <Link to={`/packages/${pkg.id}`} className="btn btn-sm btn-outline-primary">
+                    <Link to={`/claims/${pkg.id}`} className="btn btn-sm btn-outline-primary">
                       <i className="bi bi-eye me-1"></i> Open
                     </Link>
                   </td>

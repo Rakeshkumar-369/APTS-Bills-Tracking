@@ -1,7 +1,7 @@
-// src/pages/PackageDetail.jsx
+// src/pages/ClaimDetail.jsx
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { packagesService } from '../services';
+import { claimsService } from '../services';
 import { useAuth } from '../context/AuthContext';
 import { StatusBadge } from './Inbox';
 
@@ -11,10 +11,15 @@ const ACTIONS = {
   resubmit: { label: 'Re-submit', verb: 'resubmit', tone: 'success', icon: 'bi-arrow-counterclockwise' },
 };
 
-export default function PackageDetail() {
+export default function ClaimDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user, hasPermission } = useAuth();
+
+  // Debug logging
+  console.log('🏷️ ClaimDetail component mounted');
+  console.log('📌 ID from params:', id);
+  console.log('👤 User:', user?.email);
 
   const [pkg, setPkg] = useState(null);
   const [history, setHistory] = useState([]);
@@ -31,27 +36,85 @@ export default function PackageDetail() {
   const [successMessage, setSuccessMessage] = useState('');
 
   const load = useCallback(async () => {
+    if (!id) {
+      setError('No claim ID provided');
+      setLoading(false);
+      return;
+    }
+    
     setLoading(true);
     setError('');
     try {
-      const [pkgRes, historyRes] = await Promise.all([
-        packagesService.get(id, { includeDetails: true }),
-        packagesService.history(id),
-      ]);
+      console.log('🔍 Fetching claim with ID:', id);
+      
+      // Get claim details
+      const claimData = await claimsService.get(id, { includeDetails: true });
+      console.log('📦 Raw claimData from service:', claimData);
+      
       // Handle different response formats
-      setPkg(pkgRes?.data?.[0] || pkgRes?.data || pkgRes);
-      setHistory(historyRes?.data || historyRes || []);
+      let claim = null;
+      
+      if (claimData) {
+        if (Array.isArray(claimData) && claimData.length > 0) {
+          claim = claimData[0];
+        } else if (typeof claimData === 'object' && claimData.claim_code) {
+          claim = claimData;
+        } else if (claimData.data) {
+          claim = claimData.data;
+        } else {
+          claim = claimData;
+        }
+      }
+      
+      console.log('✅ Processed claim:', claim);
+      
+      if (!claim) {
+        setError('Claim data not found');
+        setLoading(false);
+        return;
+      }
+      
+      setPkg(claim);
+      
+      // Get history
+      try {
+        const historyData = await claimsService.getHistory(id);
+        console.log('📦 Raw historyData:', historyData);
+        
+        let historyArray = [];
+        if (Array.isArray(historyData)) {
+          historyArray = historyData;
+        } else if (historyData?.data && Array.isArray(historyData.data)) {
+          historyArray = historyData.data;
+        } else if (historyData && typeof historyData === 'object') {
+          if (historyData.id) {
+            historyArray = [historyData];
+          }
+        }
+        console.log('✅ History array:', historyArray);
+        setHistory(historyArray);
+      } catch (historyErr) {
+        console.warn('Could not fetch history:', historyErr);
+        setHistory([]);
+      }
+      
     } catch (err) {
-      console.error('PackageDetail load error:', err);
-      setError(err.message || 'Failed to load package.');
+      console.error('❌ ClaimDetail load error:', err);
+      setError(err.message || 'Failed to load claim.');
     } finally {
       setLoading(false);
     }
   }, [id]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    console.log('🔄 ClaimDetail useEffect running, id:', id);
+    if (id) {
+      load();
+    } else {
+      setError('No claim ID provided');
+      setLoading(false);
+    }
+  }, [id, load]);
 
   async function submitAction(e) {
     e.preventDefault();
@@ -63,14 +126,14 @@ export default function PackageDetail() {
     setActionError('');
     try {
       if (activeAction === 'forward') {
-        await packagesService.forward(id, remarks.trim());
-        setSuccessMessage('Package forwarded successfully!');
+        await claimsService.forward(id, remarks.trim());
+        setSuccessMessage('Claim forwarded successfully!');
       } else if (activeAction === 'sendback') {
-        await packagesService.sendback(id, remarks.trim());
-        setSuccessMessage('Package sent back successfully!');
+        await claimsService.sendback(id, remarks.trim());
+        setSuccessMessage('Claim sent back successfully!');
       } else if (activeAction === 'resubmit') {
-        await packagesService.resubmit(id, remarks.trim());
-        setSuccessMessage('Package resubmitted successfully!');
+        await claimsService.resubmit(id, remarks.trim());
+        setSuccessMessage('Claim resubmitted successfully!');
       }
       setRemarks('');
       setActiveAction(null);
@@ -90,7 +153,7 @@ export default function PackageDetail() {
     setUploading(true);
     setActionError('');
     try {
-      await packagesService.uploadFile(id, file);
+      await claimsService.uploadFile(id, file);
       setFile(null);
       setSuccessMessage('File uploaded successfully!');
       await load();
@@ -106,7 +169,7 @@ export default function PackageDetail() {
   async function handleDeleteFile(fileId) {
     if (!confirm('Remove this file?')) return;
     try {
-      await packagesService.deleteFile(id, fileId);
+      await claimsService.deleteFile(id, fileId);
       setSuccessMessage('File deleted successfully!');
       await load();
       setTimeout(() => setSuccessMessage(''), 5000);
@@ -116,59 +179,65 @@ export default function PackageDetail() {
     }
   }
 
+  // Show loading state
   if (loading) {
     return (
       <div className="text-center py-5">
-        <div className="spinner-border" role="status">
+        <div className="spinner-border text-primary" role="status">
           <span className="visually-hidden">Loading…</span>
         </div>
+        <p className="mt-3 text-muted">Loading claim details...</p>
       </div>
     );
   }
 
+  // Show error state
   if (error) {
     return (
       <div className="container py-4">
-        <div className="alert alert-danger">{error}</div>
-        <button className="btn btn-outline-secondary" onClick={() => navigate(-1)}>
-          <i className="bi bi-arrow-left me-1"></i> Go Back
+        <div className="alert alert-danger">
+          <i className="bi bi-exclamation-triangle-fill me-2"></i>
+          {error}
+        </div>
+        <button className="btn btn-outline-secondary" onClick={() => navigate('/vendor/claims')}>
+          <i className="bi bi-arrow-left me-1"></i> Back to Claims
         </button>
       </div>
     );
   }
 
+  // Show not found state
   if (!pkg) {
     return (
       <div className="container py-4">
-        <div className="alert alert-warning">Package not found</div>
-        <button className="btn btn-outline-secondary" onClick={() => navigate(-1)}>
-          <i className="bi bi-arrow-left me-1"></i> Go Back
+        <div className="alert alert-warning">
+          <i className="bi bi-exclamation-triangle-fill me-2"></i>
+          Claim not found
+        </div>
+        <button className="btn btn-outline-secondary" onClick={() => navigate('/vendor/claims')}>
+          <i className="bi bi-arrow-left me-1"></i> Back to Claims
         </button>
       </div>
     );
   }
 
+  console.log('📦 Rendering claim details for:', pkg.claim_code);
+
   const isVendor = user?.role_name === 'Vendor' || user?.role_rank === 10;
   const isAdmin = user?.role_rank === 100;
-  const isManager = user?.role_rank === 60;
-  const isOfficer = [30, 40, 50].includes(user?.role_rank);
-
-  // Determine if user can upload files (Vendors and Admins)
   const canUpload = isVendor || isAdmin;
-
-  // Determine available actions
-  const canForward = hasPermission('package.forward') || isAdmin;
-  const canSendback = hasPermission('package.sendback') || isAdmin;
-  const canResubmit = isVendor && pkg.status?.toUpperCase() === 'RETURNED';
+  const canForward = hasPermission('claim.forward') || isAdmin;
+  const canSendback = hasPermission('claim.sendback') || isAdmin;
+  const canResubmit = isVendor && pkg.status?.toUpperCase() === 'SENT_BACK';
 
   return (
     <div className="container py-4">
       <div className="d-flex justify-content-between align-items-start mb-3">
         <div>
-          <button className="btn btn-sm btn-outline-secondary me-2" onClick={() => navigate(-1)}>
+          <button className="btn btn-sm btn-outline-secondary me-2" onClick={() => navigate('/vendor/claims')}>
             <i className="bi bi-arrow-left"></i> Back
           </button>
-          <h4 className="d-inline-block mb-1">{pkg.package_code}</h4>
+          <h4 className="d-inline-block mb-1">{pkg.claim_code || 'N/A'}</h4>
           <div className="mt-1">
             <StatusBadge status={pkg.status} />
             <span className="ms-2 text-muted small">
@@ -207,16 +276,26 @@ export default function PackageDetail() {
                 Details
               </h6>
               <dl className="row mb-0 small">
+                <dt className="col-4">Claim Code</dt>
+                <dd className="col-8">{pkg.claim_code || 'N/A'}</dd>
                 <dt className="col-4">Vendor</dt>
                 <dd className="col-8">{pkg.vendor_name || pkg.vendor?.vendor_name || 'N/A'}</dd>
                 <dt className="col-4">Project</dt>
                 <dd className="col-8">{pkg.project_name || pkg.project?.project_name || 'N/A'}</dd>
+                <dt className="col-4">PO Number</dt>
+                <dd className="col-8">{pkg.po_number || 'N/A'}</dd>
                 <dt className="col-4">Workflow</dt>
                 <dd className="col-8">{pkg.workflow_name || pkg.workflow?.workflow_name || 'N/A'}</dd>
                 <dt className="col-4">Current Step</dt>
                 <dd className="col-8">{pkg.current_step_name || pkg.current_step?.step_name || 'Not Started'}</dd>
                 <dt className="col-4">Created</dt>
                 <dd className="col-8">{pkg.created_at ? new Date(pkg.created_at).toLocaleString() : 'N/A'}</dd>
+                {pkg.remarks && (
+                  <>
+                    <dt className="col-4">Remarks</dt>
+                    <dd className="col-8">{pkg.remarks}</dd>
+                  </>
+                )}
               </dl>
             </div>
           </div>
@@ -233,7 +312,7 @@ export default function PackageDetail() {
                   <li key={f.id} className="list-group-item d-flex justify-content-between align-items-center px-0">
                     <button
                       className="btn btn-link btn-sm p-0 text-start"
-                      onClick={() => packagesService.downloadFile(id, f.id, f.original_name)}
+                      onClick={() => claimsService.downloadFile(id, f.id, f.original_name)}
                     >
                       <i className="bi bi-file-earmark me-1"></i>
                       {f.original_name}
@@ -361,7 +440,7 @@ export default function PackageDetail() {
                       onClick={() => setActiveAction('resubmit')}
                     >
                       <i className="bi bi-arrow-counterclockwise me-1"></i>
-                      Re-submit Package
+                      Re-submit Claim
                     </button>
                   )}
                   {!canForward && !canSendback && !canResubmit && (
@@ -373,7 +452,7 @@ export default function PackageDetail() {
                   {pkg.status?.toUpperCase() === 'COMPLETED' && (
                     <div className="alert alert-success mb-0">
                       <i className="bi bi-check-circle-fill me-1"></i>
-                      This package has been completed.
+                      This claim has been completed.
                     </div>
                   )}
                 </div>
@@ -428,12 +507,12 @@ export default function PackageDetail() {
             </div>
           </div>
 
-          {/* Package Info Card */}
+          {/* Claim Info Card */}
           <div className="card mt-3">
             <div className="card-body">
               <h6 className="card-subtitle text-muted mb-2">
                 <i className="bi bi-tag me-1"></i>
-                Package Info
+                Claim Info
               </h6>
               <div className="small">
                 <div className="d-flex justify-content-between">

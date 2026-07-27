@@ -1,10 +1,10 @@
-// src/pages/ResubmitPackage.jsx
+// src/pages/ResubmitClaim.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { packagesService } from '../services';
+import { claimsService } from '../services';
 import { useAuth } from '../context/AuthContext';
 
-export default function ResubmitPackage() {
+export default function ResubmitClaim() {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -12,23 +12,23 @@ export default function ResubmitPackage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
-  const [packageData, setPackageData] = useState(null);
+  const [claimData, setClaimData] = useState(null);
   const [remarks, setRemarks] = useState('');
   const [files, setFiles] = useState([]);
 
   useEffect(() => {
-    const fetchPackage = async () => {
+    const fetchClaim = async () => {
       try {
-        const data = await packagesService.get(id);
-        setPackageData(data);
+        const data = await claimsService.get(id);
+        setClaimData(data);
       } catch (err) {
-        console.error('Error fetching package:', err);
-        setError('Failed to load package details');
+        console.error('Error fetching claim:', err);
+        setError('Failed to load claim details');
       } finally {
         setLoading(false);
       }
     };
-    fetchPackage();
+    fetchClaim();
   }, [id]);
 
   const handleSubmit = async (e) => {
@@ -44,24 +44,24 @@ export default function ResubmitPackage() {
     setSuccess(null);
 
     try {
-      await packagesService.resubmit(id, { remarks });
+      await claimsService.resubmit(id, { remarks });
       
       if (files.length > 0) {
         for (const file of files) {
           const formData = new FormData();
           formData.append('file', file);
-          await packagesService.uploadFile(id, formData);
+          await claimsService.uploadFile(id, formData);
         }
       }
 
-      setSuccess('Package resubmitted successfully!');
+      setSuccess('claim resubmitted successfully!');
       setTimeout(() => {
-        navigate('/vendor/packages');
+        navigate('/vendor/claims');
       }, 2000);
 
     } catch (err) {
-      console.error('Error resubmitting package:', err);
-      setError(err.message || 'Failed to resubmit package. Please try again.');
+      console.error('Error resubmitting claim:', err);
+      setError(err.message || 'Failed to resubmit claim. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -84,16 +84,16 @@ export default function ResubmitPackage() {
         <div className="spinner-border text-primary" role="status">
           <span className="visually-hidden">Loading...</span>
         </div>
-        <p className="mt-3 text-muted">Loading package details...</p>
+        <p className="mt-3 text-muted">Loading claim details...</p>
       </div>
     );
   }
 
-  if (!packageData) {
+  if (!claimData) {
     return (
       <div className="container py-4">
         <div className="alert alert-danger">
-          Package not found or you don't have access to it.
+          claim not found or you don't have access to it.
         </div>
       </div>
     );
@@ -107,9 +107,9 @@ export default function ResubmitPackage() {
             <div className="card-header bg-white border-bottom p-4">
               <h4 className="mb-0 fw-bold">
                 <i className="bi bi-arrow-counterclockwise text-warning me-2"></i>
-                Resubmit Package: {packageData.package_code}
+                Resubmit claim: {claimData.claim_code}
               </h4>
-              <p className="text-muted small mb-0">This package was returned for revision. Please make necessary changes and resubmit.</p>
+              <p className="text-muted small mb-0">This claim was returned for revision. Please make necessary changes and resubmit.</p>
             </div>
 
             <div className="card-body p-4">
@@ -130,19 +130,19 @@ export default function ResubmitPackage() {
               )}
 
               <div className="bg-light p-3 rounded-3 mb-4">
-                <h6 className="fw-semibold mb-2">Package Details</h6>
+                <h6 className="fw-semibold mb-2">claim Details</h6>
                 <div className="row g-2">
                   <div className="col-md-6">
                     <small className="text-muted">Project</small>
-                    <p className="mb-0 fw-semibold">{packageData.project_name || 'N/A'}</p>
+                    <p className="mb-0 fw-semibold">{claimData.project_name || 'N/A'}</p>
                   </div>
                   <div className="col-md-6">
                     <small className="text-muted">Status</small>
-                    <p className="mb-0 fw-semibold text-danger">{packageData.status}</p>
+                    <p className="mb-0 fw-semibold text-danger">{claimData.status}</p>
                   </div>
                   <div className="col-12">
                     <small className="text-muted">Return Remarks</small>
-                    <p className="mb-0">{packageData.remarks || 'No remarks provided'}</p>
+                    <p className="mb-0">{claimData.remarks || 'No remarks provided'}</p>
                   </div>
                 </div>
               </div>
@@ -210,11 +210,11 @@ export default function ResubmitPackage() {
                   )}
                 </div>
 
-                {packageData.files && packageData.files.length > 0 && (
+                {claimData.files && claimData.files.length > 0 && (
                   <div className="mb-4">
                     <label className="fw-semibold small">Existing Files:</label>
                     <div className="list-group mt-1">
-                      {packageData.files.map((file, index) => (
+                      {claimData.files.map((file, index) => (
                         <div key={index} className="list-group-item">
                           <i className="bi bi-file-earmark-pdf text-danger me-2"></i>
                           {file.original_name || file.filename}
@@ -241,14 +241,14 @@ export default function ResubmitPackage() {
                     ) : (
                       <>
                         <i className="bi bi-arrow-counterclockwise me-1"></i>
-                        Resubmit Package
+                        Resubmit claim
                       </>
                     )}
                   </button>
                   <button
                     type="button"
                     className="btn btn-outline-secondary"
-                    onClick={() => navigate('/vendor/packages')}
+                    onClick={() => navigate('/vendor/claims')}
                   >
                     Cancel
                   </button>

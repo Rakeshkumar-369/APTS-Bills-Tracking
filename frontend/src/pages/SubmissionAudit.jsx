@@ -4,13 +4,13 @@ import React from 'react';
 /**
  * SubmissionAudit
  * -----------------
- * Renders the full activity/audit trail for a single submission ("package").
+ * Renders the full activity/audit trail for a single submission ("claim").
  * The source PDF is shown as a link only — clicking it hands control back to
  * the parent (via onOpenPdf) which switches to the in-page PDF viewer.
  *
  * Props:
  *  - submission: the active submission object being audited
- *  - daysElapsed: number of days the package has been sitting at this desk
+ *  - daysElapsed: number of days the claim has been sitting at this desk
  *  - actionRemarks / onRemarksChange: controlled textarea state
  *  - onBack: return to the inbox list
  *  - onOpenPdf: switch to the in-page PDF viewer for this submission
@@ -59,7 +59,7 @@ export default function SubmissionAudit({
         {/* Document reference — shown only as a link. Clicking it opens the in-page PDF viewer */}
         <div className="mb-4">
           <label className="form-label fw-bold text-secondary fs-8 font-monospace text-uppercase tracking-wider mb-1">
-            Document Package
+            Document claim
           </label>
           <div className="bg-light bg-opacity-50 border border-light-subtle rounded-3 p-3 d-flex align-items-center justify-content-between">
             <div className="d-flex align-items-center gap-2 text-truncate pe-2">
@@ -145,7 +145,7 @@ export default function SubmissionAudit({
                     onClick={onSendBack}
                     className="btn btn-outline-danger w-100 py-2.5 rounded-3 fw-bold fs-7 d-flex align-items-center justify-content-center gap-1.5 shadow-sm"
                     disabled={!actionRemarks.trim()}
-                    title="Add remarks to send package back"
+                    title="Add remarks to send claim back"
                   >
                     <i className="bi bi-reply-all-fill"></i> Send Back
                   </button>

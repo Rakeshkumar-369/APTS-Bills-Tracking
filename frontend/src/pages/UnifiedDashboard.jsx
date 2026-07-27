@@ -1,7 +1,7 @@
 // src/pages/UnifiedDashboard.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { packagesService, poService } from '../services';
+import { claimsService, poService } from '../services';
 import { useAuth } from '../context/AuthContext';
 import SubmissionAudit from './SubmissionAudit';
 import PdfViewerPage from './PdfViewerPage';
@@ -9,7 +9,7 @@ import PdfViewerPage from './PdfViewerPage';
 export default function UnifiedDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [packages, setPackages] = useState([]);
+  const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -39,7 +39,7 @@ export default function UnifiedDashboard() {
   const [selectedSubmission, setSelectedSubmission] = useState(null);
   const [actionRemarks, setActionRemarks] = useState('');
   const [showPdfView, setShowPdfView] = useState(false);
-  const [pdfPackageId, setPdfPackageId] = useState(null);
+  const [pdfclaimId, setPdfclaimId] = useState(null);
 
   // Purchase Order states
   const [purchaseOrders, setPurchaseOrders] = useState([]);
@@ -88,9 +88,9 @@ export default function UnifiedDashboard() {
 
   const getRoleDescription = () => {
     if (user?.role_rank === 100) return 'System administration and oversight';
-    if (user?.role_rank === 10) return 'Create and submit packages; respond to sendbacks';
-    if (user?.role_rank === 30) return 'First verification desk - review and forward packages';
-    if (user?.role_rank === 40) return 'Audit & verification desk - review and forward packages';
+    if (user?.role_rank === 10) return 'Create and submit claims; respond to sendbacks';
+    if (user?.role_rank === 30) return 'First verification desk - review and forward claims';
+    if (user?.role_rank === 40) return 'Audit & verification desk - review and forward claims';
     if (user?.role_rank === 50) return 'Digital signature authority - validate and forward';
     if (user?.role_rank === 60) return 'Final clearance authority - approve or send back';
     return 'Manage your dashboard';
@@ -175,32 +175,32 @@ const fetchPurchaseOrders = async () => {
       const token = localStorage.getItem('accessToken');
       if (!token) throw new Error('No access token found');
 
-      let packagesData = [];
+      let claimsData = [];
       switch(userRole) {
         case 'vendor':
           const vendorId = user?.vendor_id || user?.vendorId || user?.id;
-          packagesData = await packagesService.list({ vendor_id: vendorId });
+          claimsData = await claimsService.list({ vendor_id: vendorId });
           break;
         case 'pm':
         case 'tpa':
         case 'jdinfra':
         case 'apts':
-          packagesData = await packagesService.list({ current_stage: userRole.toUpperCase() });
+          claimsData = await claimsService.list({ current_stage: userRole.toUpperCase() });
           break;
         case 'admin':
-          packagesData = await packagesService.list({});
+          claimsData = await claimsService.list({});
           break;
         default:
-          packagesData = await packagesService.list({});
+          claimsData = await claimsService.list({});
       }
 
-      if (packagesData && packagesData.length > 0) {
-        const packagesWithDetails = await Promise.all(
-          packagesData.map(async (pkg) => {
+      if (claimsData && claimsData.length > 0) {
+        const claimsWithDetails = await Promise.all(
+          claimsData.map(async (pkg) => {
             try {
-              const pkgId = pkg.id || pkg.package_id || pkg.ID;
+              const pkgId = pkg.id || pkg.claim_id || pkg.ID;
               if (pkgId) {
-                const details = await packagesService.get(pkgId, { includeDetails: true });
+                const details = await claimsService.get(pkgId, { includeDetails: true });
                 return details || pkg;
               }
               return pkg;
@@ -209,35 +209,35 @@ const fetchPurchaseOrders = async () => {
             }
           })
         );
-        setPackages(packagesWithDetails);
+        setClaims(claimsWithDetails);
       } else {
-        setPackages([]);
+        setClaims([]);
       }
 
-      const total = packagesData?.length || 0;
-      const pending = packagesData?.filter(p => ['PENDING','SUBMITTED','IN_PROGRESS'].includes(p.status)).length || 0;
-      const completed = packagesData?.filter(p => ['COMPLETED','APPROVED','CLEARED'].includes(p.status)).length || 0;
-      const returned = packagesData?.filter(p => ['RETURNED','SENT_BACK','REJECTED'].includes(p.status)).length || 0;
-      const inProgress = packagesData?.filter(p => p.status === 'IN_PROGRESS').length || 0;
+      const total = claimsData?.length || 0;
+      const pending = claimsData?.filter(p => ['PENDING','SUBMITTED','IN_PROGRESS'].includes(p.status)).length || 0;
+      const completed = claimsData?.filter(p => ['COMPLETED','APPROVED','CLEARED'].includes(p.status)).length || 0;
+      const returned = claimsData?.filter(p => ['RETURNED','SENT_BACK','REJECTED'].includes(p.status)).length || 0;
+      const inProgress = claimsData?.filter(p => p.status === 'IN_PROGRESS').length || 0;
       setStats({ total, pending, completed, returned, inProgress });
 
     } catch (err) {
       console.error('❌ Error fetching data:', err);
       setError(err.message || 'Failed to load data');
-      setPackages([]);
+      setClaims([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDownloadFile = async (packageId, fileId, filename) => {
-    if (!packageId || !fileId) {
-      alert('Invalid file or package ID');
+  const handleDownloadFile = async (claimId, fileId, filename) => {
+    if (!claimId || !fileId) {
+      alert('Invalid file or claim ID');
       return;
     }
     setDownloading(true);
     try {
-      await packagesService.downloadFile(packageId, fileId, filename);
+      await claimsService.downloadFile(claimId, fileId, filename);
     } catch (err) {
       console.error('❌ Download error:', err);
       alert('Failed to download file. Please try again.');
@@ -246,16 +246,16 @@ const fetchPurchaseOrders = async () => {
     }
   };
 
-  const handleViewPackage = async (item) => {
-    const pkgId = item?.id || item?.package_id || item?.ID;
+  const handleViewClaim = async (item) => {
+    const pkgId = item?.id || item?.claim_id || item?.ID;
     if (!pkgId) {
-      console.error('No package ID found in item:', item);
-      alert('Unable to get package ID');
+      console.error('No claim ID found in item:', item);
+      alert('Unable to get claim ID');
       return;
     }
     setLoadingItemId(pkgId);
     try {
-      const details = await packagesService.get(pkgId, { includeDetails: true });
+      const details = await claimsService.get(pkgId, { includeDetails: true });
       let fileUrl = null;
       let fileName = 'document.pdf';
       let fileSize = 'N/A';
@@ -265,7 +265,7 @@ const fetchPurchaseOrders = async () => {
         fileName = file.original_name || file.filename || 'document.pdf';
         fileSize = file.file_size ? `${(file.file_size / 1024).toFixed(1)} KB` : 'N/A';
         if (file.id) {
-          fileUrl = `${API_BASE}/packages/${pkgId}/files/${file.id}/download`;
+          fileUrl = `${API_BASE}/claims/${pkgId}/files/${file.id}/download`;
         } else {
           const rawUrl = file.url || file.file_path || file.download_url || file.public_url || null;
           fileUrl = toAbsoluteUrl(rawUrl);
@@ -276,15 +276,15 @@ const fetchPurchaseOrders = async () => {
       if (!fileUrl && details?.document_url) fileUrl = toAbsoluteUrl(details.document_url);
 
       const submissionData = {
-        id: details?.package_code || details?.packageCode || pkgId,
-        packageId: pkgId,
+        id: details?.claim_code || details?.claimCode || pkgId,
+        claimId: pkgId,
         vendor: details?.vendor_name || details?.vendor || 'N/A',
         projectType: details?.project_name || details?.project?.project_name || 'N/A',
         fileName: fileName,
         fileSize: fileSize,
         fileUrl: fileUrl,
         history: details?.history || [
-          { actor: 'Vendor', date: new Date(details?.created_at).toLocaleString(), action: 'Package Created', remarks: 'Initial submission' }
+          { actor: 'Vendor', date: new Date(details?.created_at).toLocaleString(), action: 'claim Created', remarks: 'Initial submission' }
         ],
         status: details?.status || 'PENDING'
       };
@@ -294,16 +294,16 @@ const fetchPurchaseOrders = async () => {
       setShowViewModal(false);
       setActionRemarks('');
     } catch (err) {
-      console.error('❌ Error fetching package details:', err);
+      console.error('❌ Error fetching claim details:', err);
       const fallbackData = {
-        id: item?.package_code || item?.packageCode || pkgId,
-        packageId: pkgId,
+        id: item?.claim_code || item?.claimCode || pkgId,
+        claimId: pkgId,
         vendor: item?.vendor_name || item?.vendor || 'N/A',
         projectType: item?.project_name || item?.project?.project_name || 'N/A',
         fileName: 'document.pdf',
         fileSize: 'N/A',
         fileUrl: null,
-        history: [{ actor: 'System', date: new Date().toLocaleString(), action: 'Package Retrieved', remarks: 'Basic view' }],
+        history: [{ actor: 'System', date: new Date().toLocaleString(), action: 'claim Retrieved', remarks: 'Basic view' }],
         status: item?.status || 'PENDING'
       };
       setSelectedSubmission(fallbackData);
@@ -317,14 +317,14 @@ const fetchPurchaseOrders = async () => {
 
   const handleOpenPdf = (submission) => {
     if (!submission.fileUrl) {
-      alert('No document available for this package');
+      alert('No document available for this claim');
       return;
     }
-    if (!submission.packageId) {
-      alert('Unable to determine package ID for this document');
+    if (!submission.claimId) {
+      alert('Unable to determine claim ID for this document');
       return;
     }
-    setPdfPackageId(submission.packageId);
+    setPdfclaimId(submission.claimId);
     setShowPdfView(true);
   };
 
@@ -343,16 +343,16 @@ const fetchPurchaseOrders = async () => {
     try {
       const token = localStorage.getItem('accessToken');
       if (!token) throw new Error('No access token found');
-      const pkgId = selectedSubmission?.packageId;
-      if (!pkgId) throw new Error('Package ID not found');
+      const pkgId = selectedSubmission?.claimId;
+      if (!pkgId) throw new Error('claim ID not found');
 
-      const response = await fetch(`${API_BASE}/packages/${pkgId}/sendback`, {
+      const response = await fetch(`${API_BASE}/claims/${pkgId}/sendback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ remarks: actionRemarks })
       });
-      if (!response.ok) throw new Error('Failed to send back package');
-      setSuccessMessage(`Package ${selectedSubmission?.id || pkgId} has been sent back successfully!`);
+      if (!response.ok) throw new Error('Failed to send back claim');
+      setSuccessMessage(`claim ${selectedSubmission?.id || pkgId} has been sent back successfully!`);
       setShowAuditView(false);
       setSelectedSubmission(null);
       setActionRemarks('');
@@ -360,7 +360,7 @@ const fetchPurchaseOrders = async () => {
       setTimeout(() => setSuccessMessage(''), 5000);
     } catch (err) {
       console.error('❌ Error sending back:', err);
-      alert('Failed to send back package: ' + err.message);
+      alert('Failed to send back claim: ' + err.message);
     } finally {
       setProcessing(false);
     }
@@ -375,16 +375,16 @@ const fetchPurchaseOrders = async () => {
     try {
       const token = localStorage.getItem('accessToken');
       if (!token) throw new Error('No access token found');
-      const pkgId = selectedSubmission?.packageId;
-      if (!pkgId) throw new Error('Package ID not found');
+      const pkgId = selectedSubmission?.claimId;
+      if (!pkgId) throw new Error('claim ID not found');
 
-      const response = await fetch(`${API_BASE}/packages/${pkgId}/forward`, {
+      const response = await fetch(`${API_BASE}/claims/${pkgId}/forward`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ remarks: actionRemarks })
       });
-      if (!response.ok) throw new Error('Failed to forward package');
-      setSuccessMessage(`Package ${selectedSubmission?.id || pkgId} has been forwarded successfully!`);
+      if (!response.ok) throw new Error('Failed to forward claim');
+      setSuccessMessage(`claim ${selectedSubmission?.id || pkgId} has been forwarded successfully!`);
       setShowAuditView(false);
       setSelectedSubmission(null);
       setActionRemarks('');
@@ -392,7 +392,7 @@ const fetchPurchaseOrders = async () => {
       setTimeout(() => setSuccessMessage(''), 5000);
     } catch (err) {
       console.error('❌ Error forwarding:', err);
-      alert('Failed to forward package: ' + err.message);
+      alert('Failed to forward claim: ' + err.message);
     } finally {
       setProcessing(false);
     }
@@ -417,23 +417,23 @@ const fetchPurchaseOrders = async () => {
       const token = localStorage.getItem('accessToken');
       if (!token) throw new Error('No access token found');
 
-      const pkgId = selectedItem?.id || selectedItem?.package_id || selectedItem?.ID;
-      if (!pkgId) throw new Error('Package ID not found');
+      const pkgId = selectedItem?.id || selectedItem?.claim_id || selectedItem?.ID;
+      if (!pkgId) throw new Error('claim ID not found');
 
       let endpoint = '';
       let body = { remarks: processRemarks };
 
       if (processAction === 'FORWARD') {
-        endpoint = `${API_BASE}/packages/${pkgId}/forward`;
+        endpoint = `${API_BASE}/claims/${pkgId}/forward`;
       } else if (processAction === 'SENDBACK') {
-        endpoint = `${API_BASE}/packages/${pkgId}/sendback`;
+        endpoint = `${API_BASE}/claims/${pkgId}/sendback`;
       } else if (processAction === 'RESUBMIT') {
-        endpoint = `${API_BASE}/packages/${pkgId}/resubmit`;
+        endpoint = `${API_BASE}/claims/${pkgId}/resubmit`;
       } else if (processAction === 'ASSIGN') {
-        endpoint = `${API_BASE}/packages/${pkgId}/assign`;
+        endpoint = `${API_BASE}/claims/${pkgId}/assign`;
         body.target_user_id = parseInt(selectedTargetUserId);
       } else if (processAction === 'PULLBACK') {
-        endpoint = `${API_BASE}/packages/${pkgId}/pull-back`;
+        endpoint = `${API_BASE}/claims/${pkgId}/pull-back`;
       }
 
       console.log(`📤 Sending ${processAction} request to:`, endpoint);
@@ -444,13 +444,13 @@ const fetchPurchaseOrders = async () => {
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to process package');
+        throw new Error(errorData.message || 'Failed to process claim');
       }
       const result = await response.json();
       console.log('✅ Process successful:', result);
 
       const actionLabel = processAction === 'RESUBMIT' ? 'resubmitted' : processAction.toLowerCase() + 'ed';
-      setSuccessMessage(`Package ${selectedItem.package_code || selectedItem.packageCode || pkgId} has been ${actionLabel} successfully!`);
+      setSuccessMessage(`claim ${selectedItem.claim_code || selectedItem.claimCode || pkgId} has been ${actionLabel} successfully!`);
       setShowProcessModal(false);
       setSelectedItem(null);
       setProcessAction('');
@@ -462,16 +462,16 @@ const fetchPurchaseOrders = async () => {
       }
       setTimeout(() => setSuccessMessage(''), 5000);
     } catch (err) {
-      console.error('❌ Error processing package:', err);
-      alert(`Failed to process package: ${err.message}`);
+      console.error('❌ Error processing claim:', err);
+      alert(`Failed to process claim: ${err.message}`);
     } finally {
       setProcessing(false);
     }
   };
 
-  const filteredItems = packages.filter(item => {
+  const filteredItems = claims.filter(item => {
     const searchTermLower = searchTerm.toLowerCase();
-    const pkgCode = item.package_code || item.packageCode || item.id || '';
+    const pkgCode = item.claim_code || item.claimCode || item.id || '';
     const projectName = item.project_name || item.project?.project_name || '';
     const vendorName = item.vendor_name || item.vendor || '';
     const poNumber = item.po_number || item.po?.po_number || '';
@@ -568,10 +568,10 @@ const fetchPurchaseOrders = async () => {
   }
 
   // Inline PDF view
-  if (showPdfView && pdfPackageId) {
+  if (showPdfView && pdfclaimId) {
     return (
       <PdfViewerPage
-        packageId={pdfPackageId}
+        claimId={pdfclaimId}
         onBack={() => setShowPdfView(false)}
       />
     );
@@ -694,11 +694,11 @@ const fetchPurchaseOrders = async () => {
                 <div className="d-flex flex-wrap gap-2">
                   {userRole === 'vendor' && (
                     <>
-                      <button className="btn btn-primary btn-sm" onClick={() => navigate('/vendor/packages')}>
-                        <i className="bi bi-box-seam me-1"></i> View All Packages
+                      <button className="btn btn-primary btn-sm" onClick={() => navigate('/vendor/claims')}>
+                        <i className="bi bi-box-seam me-1"></i> View All claims
                       </button>
-                      <button className="btn btn-outline-primary btn-sm" onClick={() => navigate('/vendor/packages/create')}>
-                        <i className="bi bi-upload me-1"></i> Submit Package
+                      <button className="btn btn-outline-primary btn-sm" onClick={() => navigate('/vendor/claims/create')}>
+                        <i className="bi bi-upload me-1"></i> Submit claim
                       </button>
                     </>
                   )}
@@ -821,8 +821,8 @@ const fetchPurchaseOrders = async () => {
                   </tr>
                 ) : (
                   filteredItems.map((item, index) => {
-                    const pkgId = item?.id || item?.package_id || item?.ID;
-                    const pkgCode = item?.package_code || item?.packageCode || pkgId || 'N/A';
+                    const pkgId = item?.id || item?.claim_id || item?.ID;
+                    const pkgCode = item?.claim_code || item?.claimCode || pkgId || 'N/A';
                     const projectName = item?.project_name || item?.project?.project_name || 'N/A';
                     const vendorName = item?.vendor_name || item?.vendor || item?.vendor_id || 'N/A';
                     const poNumber = item?.po_number || item?.po?.po_number || 'N/A';
@@ -851,13 +851,13 @@ const fetchPurchaseOrders = async () => {
                         <td className="px-4 py-3 text-end">
                           <div className="d-flex gap-1 justify-content-end flex-wrap">
                             <button className="btn btn-sm btn-outline-primary" style={{ borderRadius: '6px' }}
-                                    onClick={() => handleViewPackage(item)} disabled={loadingItemId === pkgId || !pkgId}>
+                                    onClick={() => handleViewClaim(item)} disabled={loadingItemId === pkgId || !pkgId}>
                               {loadingItemId === pkgId ? <span className="spinner-border spinner-border-sm me-1"></span> : <i className="bi bi-eye me-1"></i>}
                               View
                             </button>
                             {item.status?.toUpperCase() === 'RETURNED' && userRole === 'vendor' && (
                               <button className="btn btn-sm btn-primary" style={{ borderRadius: '6px' }}
-                                      onClick={() => navigate(`/vendor/packages/${pkgId}/resubmit`)}>
+                                      onClick={() => navigate(`/vendor/claims/${pkgId}/resubmit`)}>
                                 <i className="bi bi-arrow-counterclockwise me-1"></i> Resubmit
                               </button>
                             )}
@@ -895,13 +895,13 @@ const fetchPurchaseOrders = async () => {
               <div className="modal-header" style={{ borderBottom: '1px solid #e5e7eb' }}>
                 <h5 className="modal-title fw-bold">
                   <i className="bi bi-eye text-primary me-2"></i>
-                  Package Details: {selectedItem.package_code || selectedItem.packageCode || selectedItem.id || 'N/A'}
+                  claim Details: {selectedItem.claim_code || selectedItem.claimCode || selectedItem.id || 'N/A'}
                 </h5>
                 <button type="button" className="btn-close" onClick={() => { setShowViewModal(false); setSelectedItem(null); }}></button>
               </div>
               <div className="modal-body">
                 <div className="row g-3">
-                  <div className="col-md-6"><div className="bg-light p-3 rounded-3"><label className="text-muted small fw-semibold">Package Code</label><p className="fw-bold mb-0">{selectedItem.package_code || selectedItem.packageCode || 'N/A'}</p></div></div>
+                  <div className="col-md-6"><div className="bg-light p-3 rounded-3"><label className="text-muted small fw-semibold">claim Code</label><p className="fw-bold mb-0">{selectedItem.claim_code || selectedItem.claimCode || 'N/A'}</p></div></div>
                   <div className="col-md-6"><div className="bg-light p-3 rounded-3"><label className="text-muted small fw-semibold">Status</label><p className="mb-0"><StatusBadge status={selectedItem.status} /></p></div></div>
                   <div className="col-md-6"><div className="bg-light p-3 rounded-3"><label className="text-muted small fw-semibold">Project</label><p className="fw-bold mb-0">{selectedItem.project_name || selectedItem.project?.project_name || 'N/A'}</p></div></div>
                   <div className="col-md-6"><div className="bg-light p-3 rounded-3"><label className="text-muted small fw-semibold">Vendor</label><p className="fw-bold mb-0">{selectedItem.vendor_name || selectedItem.vendor || 'N/A'}</p></div></div>
@@ -913,7 +913,7 @@ const fetchPurchaseOrders = async () => {
                       <div className="mt-2">
                         {selectedItem.files.map((file, idx) => {
                           const fileId = file.id || file.file_id || file.ID;
-                          const pkgId = selectedItem.id || selectedItem.package_id || selectedItem.ID;
+                          const pkgId = selectedItem.id || selectedItem.claim_id || selectedItem.ID;
                           return (
                             <div key={idx} className="d-flex align-items-center gap-2 mb-2 p-2 bg-white rounded border">
                               <i className="bi bi-file-earmark-pdf-fill text-danger fs-4"></i>
@@ -956,13 +956,13 @@ const fetchPurchaseOrders = async () => {
               <div className="modal-header" style={{ borderBottom: '1px solid #e5e7eb' }}>
                 <h5 className="modal-title fw-bold">
                   <i className="bi bi-tasks text-primary me-2"></i>
-                  Process Package: {selectedItem.package_code || selectedItem.packageCode || selectedItem.id || 'N/A'}
+                  Process claim: {selectedItem.claim_code || selectedItem.claimCode || selectedItem.id || 'N/A'}
                 </h5>
                 <button type="button" className="btn-close" onClick={() => { setShowProcessModal(false); setSelectedItem(null); setProcessAction(''); setProcessRemarks(''); setSelectedTargetUserId(''); }}></button>
               </div>
               <div className="modal-body">
                 <div className="mb-3">
-                  <label className="form-label fw-semibold">Package Details</label>
+                  <label className="form-label fw-semibold">claim Details</label>
                   <div className="bg-light p-3 rounded-3">
                     <p className="mb-1"><strong>Project:</strong> {selectedItem.project_name || 'N/A'}</p>
                     <p className="mb-1"><strong>Vendor:</strong> {selectedItem.vendor_name || selectedItem.vendor || 'N/A'}</p>
@@ -1018,19 +1018,19 @@ const fetchPurchaseOrders = async () => {
                 </div>
 
                 {processAction === 'FORWARD' && (
-                  <div className="alert alert-info"><i className="bi bi-info-circle-fill me-2"></i>This will forward the package to the next step in the workflow.</div>
+                  <div className="alert alert-info"><i className="bi bi-info-circle-fill me-2"></i>This will forward the claim to the next step in the workflow.</div>
                 )}
                 {processAction === 'SENDBACK' && (
-                  <div className="alert alert-warning"><i className="bi bi-arrow-counterclockwise me-2"></i>This will send the package back to the previous step or vendor.</div>
+                  <div className="alert alert-warning"><i className="bi bi-arrow-counterclockwise me-2"></i>This will send the claim back to the previous step or vendor.</div>
                 )}
                 {processAction === 'ASSIGN' && (
-                  <div className="alert alert-info"><i className="bi bi-person-plus-fill me-2"></i>This will assign the package to the selected officer (manual mode).</div>
+                  <div className="alert alert-info"><i className="bi bi-person-plus-fill me-2"></i>This will assign the claim to the selected officer (manual mode).</div>
                 )}
                 {processAction === 'PULLBACK' && (
-                  <div className="alert alert-warning"><i className="bi bi-arrow-return-left me-2"></i>You will pull the package back from the current assigned officer (only immediate sender can pull back).</div>
+                  <div className="alert alert-warning"><i className="bi bi-arrow-return-left me-2"></i>You will pull the claim back from the current assigned officer (only immediate sender can pull back).</div>
                 )}
                 {processAction === 'RESUBMIT' && (
-                  <div className="alert alert-success"><i className="bi bi-arrow-counterclockwise me-2"></i>You are resubmitting this package after revision.</div>
+                  <div className="alert alert-success"><i className="bi bi-arrow-counterclockwise me-2"></i>You are resubmitting this claim after revision.</div>
                 )}
               </div>
               <div className="modal-footer" style={{ borderTop: '1px solid #e5e7eb' }}>

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { packagesService, projectsService, poService, usersService } from '../services';
+import { claimsService, projectsService, poService, usersService } from '../services';
 import { useAuth } from '../context/AuthContext';
 
-export default function PackageCreate() {
+export default function ClaimCreate() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -137,7 +137,7 @@ export default function PackageCreate() {
 
       if (!vendorId) throw new Error('No vendor ID found. Please contact administrator.');
 
-      const packageData = {
+      const claimData = {
         vendor_id: parseInt(vendorId),
         project_id: parseInt(formData.project_id),
         po_id: parseInt(formData.po_id),
@@ -145,13 +145,13 @@ export default function PackageCreate() {
       };
       
       if (userId) {
-        packageData.vendor_contact_user_id = parseInt(userId);
+        claimData.vendor_contact_user_id = parseInt(userId);
       }
 
-      const createdPackage = await packagesService.create(packageData, formData.files);
-      console.log('Package created:', createdPackage);
+      const createdClaim = await claimsService.create(claimData, formData.files);
+      console.log('claim created:', createdClaim);
 
-      if (createdPackage && createdPackage.id && selectedOfficers.length > 0) {
+      if (createdClaim && createdclaim.id && selectedOfficers.length > 0) {
         const claimPromises = selectedOfficers.map((officerId) => {
           const officer = officers.find(o => o.id === officerId);
           const officerName = officer?.name || officer?.username || 'Unknown';
@@ -160,11 +160,11 @@ export default function PackageCreate() {
 ${formData.remarks}`;
 
           const claimData = {
-            ...packageData,
+            ...claimData,
             remarks: claimRemarks,
           };
 
-          return packagesService.create(claimData, formData.files);
+          return claimsService.create(claimData, formData.files);
         });
 
         const createdClaims = await Promise.all(claimPromises);
@@ -172,7 +172,7 @@ ${formData.remarks}`;
 
         const assignPromises = createdClaims.map((claim, index) => {
           const officerId = selectedOfficers[index];
-          return packagesService.assign(
+          return claimsService.assign(
             claim.id, 
             officerId, 
             `Claim assigned to officer for review`
@@ -186,7 +186,7 @@ ${formData.remarks}`;
         setSuccess('Claim created successfully! You can assign officers later from the claims list.');
       }
       
-      setTimeout(() => navigate('/vendor/packages'), 3000);
+      setTimeout(() => navigate('/vendor/claims'), 3000);
     } catch (err) {
       console.error('Error creating claims:', err);
       setError(err.message || 'Failed to create claims. Please try again.');
@@ -235,7 +235,7 @@ ${formData.remarks}`;
         <button
           type="button"
           className="btn btn-outline-secondary"
-          onClick={() => navigate('/vendor/packages')}
+          onClick={() => navigate('/vendor/claims')}
         >
           <i className="bi bi-arrow-left me-1"></i>
           Back to Claims
@@ -350,11 +350,7 @@ ${formData.remarks}`;
               {!formData.project_id ? (
                 // Default message when no project is selected
                 <div className="text-center py-4 bg-light rounded">
-                  <i className="bi bi-info-circle fs-2 text-primary"></i>
-                  <h6 className="mt-2 mb-1">Please select a project first</h6>
-                  <p className="text-muted mb-0 small">
-                    Choose a project from Step 1 above to see available Purchase Orders
-                  </p>
+                 
                 </div>
               ) : projectPOs.length > 0 ? (
                 <select
@@ -400,7 +396,7 @@ ${formData.remarks}`;
             <div className="card-body">
               <div className="d-flex align-items-center mb-3">
                 <div className="bg-purple bg-opacity-10 p-2 rounded me-2" style={{ backgroundColor: '#6f42c1' }}>
-                  <i className="bi bi-people text-purple fs-4" style={{ color: '#6f42c1' }}></i>
+                  
                 </div>
                 <div>
                   <h6 className="mb-0 fw-bold">Step 3: Select Officers for Review</h6>
@@ -472,8 +468,8 @@ ${formData.remarks}`;
                     </div>
                   ) : (
                     <div className="text-center py-3 bg-light rounded">
-                      <i className="bi bi-person-plus fs-4 text-muted"></i>
-                      <p className="text-muted mt-1 mb-0">No officers selected. Select from the dropdown above.</p>
+                      
+                      
                     </div>
                   )}
                 </>
@@ -622,7 +618,7 @@ ${formData.remarks}`;
           <button
             type="button"
             className="btn btn-outline-secondary btn-lg px-4"
-            onClick={() => navigate('/vendor/packages')}
+            onClick={() => navigate('/vendor/claims')}
           >
             Cancel
           </button>
@@ -654,7 +650,7 @@ ${formData.remarks}`;
                 <div>
                   <h6 className="mb-1 fw-semibold">Claim Submission Workflow</h6>
                   <p className="mb-0 small text-muted">
-                    This will create a claim package. If you select officers, they will be assigned for review.
+                    This will create a claim claim. If you select officers, they will be assigned for review.
                     You can also assign officers later from the claims list.
                   </p>
                 </div>

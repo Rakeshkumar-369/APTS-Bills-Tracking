@@ -301,7 +301,7 @@ export default function RolesAdmin() {
                         style={{ fontFamily: 'monospace', fontSize: '12px' }}
                       />
                       <small className="text-muted">
-                        Enter valid JSON. Example: {"{"}"package": {"{"}"create": true, "read": true{"}"}{"}"}
+                        Enter valid JSON. Example: {"{"}"claim": {"{"}"create": true, "read": true{"}"}{"}"}
                       </small>
                     </div>
                     <div className="col-md-12 mb-3">

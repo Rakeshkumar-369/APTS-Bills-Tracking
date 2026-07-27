@@ -22,11 +22,11 @@ import PurchaseOrdersAdmin from './pages/ADMIN/PurchaseOrdersAdmin';
 // Other Pages
 import Login from './pages/Login';
 import UnifiedDashboard from './pages/UnifiedDashboard';
-import PackageCreate from './pages/PackageCreate';
-import ResubmitPackage from './pages/ResubmitPackage';
+import ClaimCreate from './pages/ClaimCreate';
+import ResubmitClaim from './pages/ResubmitClaim';
 import Inbox from './pages/Inbox';
-import MyPackages from './pages/MyPackages';
-import PackageDetail from './pages/PackageDetail';
+import MyClaims from './pages/MyClaims';
+import ClaimDetail from './pages/ClaimDetail';
 import MatchInvoice from './pages/MatchInvoice';
 import PdfViewerPage from './pages/PdfViewerPage';
 
@@ -63,7 +63,7 @@ export default function App() {
 
       {/* ============ PDF VIEWER - Outside of any layout ============ */}
       <Route element={<ProtectedRoute />}>
-        <Route path="/pdf-viewer/:packageId" element={<PdfViewerPage />} />
+        <Route path="/pdf-viewer/:claimId" element={<PdfViewerPage />} />
       </Route>
 
       {/* ============ ADMIN ROUTES ============ */}
@@ -88,10 +88,10 @@ export default function App() {
         <Route element={<RoleGuard allowedRanks={[10]} redirectTo="/" />}>
           <Route path="/vendor" element={<UnifiedLayout />}>
             <Route index element={<UnifiedDashboard />} />
-            <Route path="packages" element={<MyPackages />} />
-            <Route path="packages/create" element={<PackageCreate />} />
-            <Route path="packages/:id" element={<PackageDetail />} />
-            <Route path="packages/:id/resubmit" element={<ResubmitPackage />} />
+            <Route path="claims" element={<MyClaims />} />
+            <Route path="claims/create" element={<ClaimCreate />} />
+            <Route path="claims/:id" element={<ClaimDetail />} />
+            <Route path="claims/:id/resubmit" element={<ResubmitClaim />} />
             <Route path="*" element={<Navigate to="/vendor" replace />} />
           </Route>
         </Route>
@@ -103,7 +103,7 @@ export default function App() {
           <Route path="/officer" element={<UnifiedLayout />}>
             <Route index element={<UnifiedDashboard />} />
             <Route path="inbox" element={<Inbox />} />
-            <Route path="packages/:id" element={<PackageDetail />} />
+            <Route path="claims/:id" element={<ClaimDetail />} />
             <Route path="*" element={<Navigate to="/officer" replace />} />
           </Route>
         </Route>
@@ -116,7 +116,7 @@ export default function App() {
             <Route index element={<UnifiedDashboard />} />
             <Route path="inbox" element={<Inbox />} />
             <Route path="match" element={<MatchInvoice />} />
-            <Route path="packages/:id" element={<PackageDetail />} />
+            <Route path="claims/:id" element={<ClaimDetail />} />
             <Route path="*" element={<Navigate to="/manager" replace />} />
           </Route>
         </Route>

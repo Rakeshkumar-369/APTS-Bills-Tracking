@@ -11,7 +11,7 @@ export default function VendorLayout() {
 
   const menuItems = [
     { path: '/vendor', label: 'Dashboard', icon: 'bi-grid' },
-    { path: '/vendor/packages', label: 'My Packages', icon: 'bi-boxes' },
+    { path: '/vendor/claims', label: 'My claims', icon: 'bi-boxes' },
   ];
 
   const isActive = (path) => {

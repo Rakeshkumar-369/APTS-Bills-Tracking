@@ -7,8 +7,8 @@ const NAV_SECTIONS = [
     label: 'Workflow',
     items: [
       { to: '/inbox', label: 'My Desk', show: () => true },
-      { to: '/my-packages', label: 'My Packages', show: (user) => user?.role_name === 'Vendor' },
-      { to: '/packages/new', label: 'New Package', permission: 'package.create' },
+      { to: '/my-claims', label: 'My claims', show: (user) => user?.role_name === 'Vendor' },
+      { to: '/claims/new', label: 'New claim', permission: 'claim.create' },
     ],
   },
   {

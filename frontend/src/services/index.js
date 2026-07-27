@@ -6,6 +6,6 @@ export { default as vendorsService } from './vendorsService';
 export { default as projectsService } from './projectsService';
 export { default as rolesService } from './rolesService';
 export { default as workflowsService } from './workflowsService';
-export { default as packagesService } from './packagesService';
+export { default as claimsService } from './claimsService';
 export { default as inboxService } from './inboxService';
 export { default as poService } from './poService';

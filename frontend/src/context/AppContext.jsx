@@ -53,7 +53,7 @@ export function AppProvider({ children }) {
       history: [
         {
           actor: 'Akshara Enterprises (Vendor Node)',
-          action: 'Package Dispatched & Logged',
+          action: 'claim Dispatched & Logged',
           date: new Date().toISOString().split('T')[0],
           remarks: 'Initial particulars baseline documentation mapping.'
         }
@@ -101,7 +101,7 @@ export function AppProvider({ children }) {
       history: [
         {
           actor: `${user ? user.name : 'Vendor Node'}`,
-          action: 'Package Dispatched & Logged',
+          action: 'claim Dispatched & Logged',
           date: new Date().toISOString().split('T')[0],
           remarks: vendorRemarks
         }

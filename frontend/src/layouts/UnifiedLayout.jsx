@@ -91,8 +91,8 @@ export default function UnifiedLayout() {
       case 'vendor':
         return [
           ...baseItems,
-          { path: '/vendor/packages', label: 'My Claims', icon: 'bi-file-earmark-text' },
-          { path: '/vendor/packages/create', label: 'Claim Submission', icon: 'bi-plus-circle' },
+          { path: '/vendor/claims', label: 'My Claims', icon: 'bi-file-earmark-text' },
+          { path: '/vendor/claims/create', label: 'Claim Submission', icon: 'bi-plus-circle' },
         ];
       case 'pm':
       case 'tpa':
@@ -123,12 +123,12 @@ export default function UnifiedLayout() {
       return location.pathname === path;
     }
     // For other paths, check if the current path starts with the menu path
-    // But be careful not to match /vendor/packages when on /vendor/packages/create
-    if (path === '/vendor/packages') {
-      return location.pathname === path || location.pathname === '/vendor/packages/';
+    // But be careful not to match /vendor/claims when on /vendor/claims/create
+    if (path === '/vendor/claims') {
+      return location.pathname === path || location.pathname === '/vendor/claims/';
     }
     // For claim submission, match exactly
-    if (path === '/vendor/packages/create') {
+    if (path === '/vendor/claims/create') {
       return location.pathname === path;
     }
     // For other paths, use startsWith

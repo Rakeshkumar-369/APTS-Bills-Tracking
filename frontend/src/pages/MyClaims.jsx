@@ -1,13 +1,13 @@
-// src/pages/MyPackages.jsx
+// src/pages/MyClaims.jsx
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { packagesService } from '../services';
+import { claimsService } from '../services';
 import { useAuth } from '../context/AuthContext';
 
-export default function MyPackages() {
+export default function MyClaims() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [packages, setPackages] = useState([]);
+  const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -21,19 +21,23 @@ export default function MyPackages() {
 
   useEffect(() => {
     if (user) {
-      fetchPackages();
+      fetchClaims();
     }
   }, [user]);
 
-  const fetchPackages = async () => {
+  const fetchClaims = async () => {
     try {
       setLoading(true);
       const vendorId = user?.vendor_id || user?.id;
-      const response = await packagesService.list({ vendor_id: vendorId });
+      console.log('🔍 Fetching claims for vendorId:', vendorId);
       
-      // Handle both array and object responses
-      const data = Array.isArray(response) ? response : (response?.data || []);
-      setPackages(data);
+      // Since apiClient already extracts the data, response is the array
+      const data = await claimsService.list({ vendor_id: vendorId });
+      console.log('✅ Claims data:', data);
+      console.log('📊 Total claims:', data?.length);
+      
+      // data is already the array, no need for response.data
+      setClaims(data || []);
       
       const total = data?.length || 0;
       const pending = data?.filter(p => 
@@ -48,16 +52,16 @@ export default function MyPackages() {
       
       setStats({ total, pending, completed, returned });
     } catch (err) {
-      console.error('Error fetching packages:', err);
-      setError('Failed to load packages');
+      console.error('❌ Error fetching claims:', err);
+      setError('Failed to load claims: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const filteredPackages = packages.filter(pkg => {
+  const filteredClaims = claims.filter(pkg => {
     const matchesSearch = 
-      (pkg.claim_code || pkg.package_code || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (pkg.claim_code || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (pkg.project_name || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (pkg.vendor_name || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (pkg.po_number || '')?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -100,6 +104,23 @@ export default function MyPackages() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="container-fluid p-4">
+        <div className="alert alert-danger">
+          <i className="bi bi-exclamation-triangle-fill me-2"></i>
+          {error}
+          <button 
+            className="btn btn-outline-danger ms-3"
+            onClick={fetchClaims}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container-fluid p-4" style={{ backgroundColor: '#f8fafc', minHeight: '100vh' }}>
       {/* Header */}
@@ -116,14 +137,14 @@ export default function MyPackages() {
         <div className="d-flex gap-2 flex-wrap">
           <button 
             className="btn btn-primary"
-            onClick={() => navigate('/vendor/packages/create')}
+            onClick={() => navigate('/vendor/claims/create')}
           >
             <i className="bi bi-plus-circle me-1"></i>
             Create New Claim
           </button>
           <button 
             className="btn btn-outline-primary"
-            onClick={fetchPackages}
+            onClick={fetchClaims}
           >
             <i className="bi bi-arrow-counterclockwise me-1"></i>
             Refresh
@@ -234,7 +255,7 @@ export default function MyPackages() {
                 </tr>
               </thead>
               <tbody>
-                {filteredPackages.length === 0 ? (
+                {filteredClaims.length === 0 ? (
                   <tr>
                     <td colSpan="7" className="text-center py-5">
                       <div className="text-muted">
@@ -245,10 +266,10 @@ export default function MyPackages() {
                     </td>
                   </tr>
                 ) : (
-                  filteredPackages.map((pkg) => (
+                  filteredClaims.map((pkg) => (
                     <tr key={pkg.id} className="border-bottom">
                       <td className="px-4 py-3">
-                        <span className="fw-semibold text-primary">{pkg.claim_code || pkg.package_code || 'N/A'}</span>
+                        <span className="fw-semibold text-primary">{pkg.claim_code || 'N/A'}</span>
                       </td>
                       <td className="py-3">
                         <span className="badge bg-light text-dark">{pkg.po_number || 'N/A'}</span>
@@ -266,14 +287,14 @@ export default function MyPackages() {
                       <td className="px-4 py-3 text-end">
                         <div className="d-flex gap-1 justify-content-end flex-wrap">
                           <Link 
-                            to={`/packages/${pkg.id}`} 
+                            to={`/claims/${pkg.id}`} 
                             className="btn btn-sm btn-outline-primary"
                           >
                             <i className="bi bi-eye me-1"></i> View
                           </Link>
                           {pkg.status?.toUpperCase() === 'SENT_BACK' && (
                             <Link 
-                              to={`/vendor/packages/${pkg.id}/resubmit`}
+                              to={`/vendor/claims/${pkg.id}/resubmit`}
                               className="btn btn-sm btn-primary"
                             >
                               <i className="bi bi-arrow-counterclockwise me-1"></i> Resubmit
