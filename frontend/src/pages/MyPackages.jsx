@@ -1,4 +1,4 @@
-// src/pages/MyPackages.jsx (Updated with Create Package button)
+// src/pages/MyPackages.jsx
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { packagesService } from '../services';
@@ -29,8 +29,11 @@ export default function MyPackages() {
     try {
       setLoading(true);
       const vendorId = user?.vendor_id || user?.id;
-      const data = await packagesService.list({ vendor_id: vendorId });
-      setPackages(data || []);
+      const response = await packagesService.list({ vendor_id: vendorId });
+      
+      // Handle both array and object responses
+      const data = Array.isArray(response) ? response : (response?.data || []);
+      setPackages(data);
       
       const total = data?.length || 0;
       const pending = data?.filter(p => 
@@ -54,10 +57,11 @@ export default function MyPackages() {
 
   const filteredPackages = packages.filter(pkg => {
     const matchesSearch = 
-      pkg.package_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      pkg.project_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      pkg.vendor_name?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = filterStatus ? pkg.status === filterStatus : true;
+      (pkg.claim_code || pkg.package_code || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (pkg.project_name || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (pkg.vendor_name || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (pkg.po_number || '')?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = filterStatus ? (pkg.status || '').toUpperCase() === filterStatus.toUpperCase() : true;
     return matchesSearch && matchesStatus;
   });
 
@@ -91,7 +95,7 @@ export default function MyPackages() {
         <div className="spinner-border text-primary" role="status">
           <span className="visually-hidden">Loading...</span>
         </div>
-        <p className="mt-3 text-muted">Loading your packages...</p>
+        <p className="mt-3 text-muted">Loading your claims...</p>
       </div>
     );
   }
@@ -102,11 +106,11 @@ export default function MyPackages() {
       <div className="d-flex flex-wrap justify-content-between align-items-center mb-4">
         <div>
           <h3 className="mb-1 fw-bold text-primary">
-            <i className="bi bi-box-seam me-2"></i>
-            My Packages
+            <i className="bi bi-file-earmark-text me-2"></i>
+            My Claims
           </h3>
           <p className="text-muted small mb-0">
-            View and manage all your submitted packages
+            View and manage all your submitted claims
           </p>
         </div>
         <div className="d-flex gap-2 flex-wrap">
@@ -115,7 +119,7 @@ export default function MyPackages() {
             onClick={() => navigate('/vendor/packages/create')}
           >
             <i className="bi bi-plus-circle me-1"></i>
-            Create New Package
+            Create New Claim
           </button>
           <button 
             className="btn btn-outline-primary"
@@ -132,7 +136,7 @@ export default function MyPackages() {
         <div className="col-md-3">
           <div className="card border-0 shadow-sm">
             <div className="card-body">
-              <h6 className="text-muted mb-0">Total Packages</h6>
+              <h6 className="text-muted mb-0">Total Claims</h6>
               <h3 className="fw-bold text-primary">{stats.total}</h3>
             </div>
           </div>
@@ -175,7 +179,7 @@ export default function MyPackages() {
                 <input
                   type="text"
                   className="form-control"
-                  placeholder="Search by code, project, or vendor..."
+                  placeholder="Search by claim code, project, PO, or vendor..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -194,6 +198,7 @@ export default function MyPackages() {
                 <option value="COMPLETED">Completed</option>
                 <option value="APPROVED">Approved</option>
                 <option value="RETURNED">Returned</option>
+                <option value="SENT_BACK">Sent Back</option>
                 <option value="REJECTED">Rejected</option>
               </select>
             </div>
@@ -212,18 +217,18 @@ export default function MyPackages() {
         </div>
       </div>
 
-      {/* Packages Table */}
+      {/* Claims Table */}
       <div className="card border-0 shadow-sm">
         <div className="card-body p-0">
           <div className="table-responsive">
             <table className="table table-hover align-middle mb-0">
               <thead style={{ backgroundColor: '#f1f5f9' }}>
                 <tr>
-                  <th className="px-4 py-3 text-secondary fw-semibold">Package Code</th>
+                  <th className="px-4 py-3 text-secondary fw-semibold">Claim Code</th>
+                  <th className="py-3 text-secondary fw-semibold">PO Number</th>
                   <th className="py-3 text-secondary fw-semibold">Project</th>
                   <th className="py-3 text-secondary fw-semibold">Status</th>
                   <th className="py-3 text-secondary fw-semibold">Current Step</th>
-                  <th className="py-3 text-secondary fw-semibold">Files</th>
                   <th className="py-3 text-secondary fw-semibold">Created</th>
                   <th className="px-4 py-3 text-end text-secondary fw-semibold">Actions</th>
                 </tr>
@@ -234,8 +239,8 @@ export default function MyPackages() {
                     <td colSpan="7" className="text-center py-5">
                       <div className="text-muted">
                         <i className="bi bi-inbox fs-1 d-block mx-auto mb-3 opacity-25"></i>
-                        <p className="mb-0 fw-semibold">No packages found</p>
-                        <small>Create your first package by clicking the "Create New Package" button</small>
+                        <p className="mb-0 fw-semibold">No claims found</p>
+                        <small>Create your first claim by clicking the "Create New Claim" button</small>
                       </div>
                     </td>
                   </tr>
@@ -243,20 +248,17 @@ export default function MyPackages() {
                   filteredPackages.map((pkg) => (
                     <tr key={pkg.id} className="border-bottom">
                       <td className="px-4 py-3">
-                        <span className="fw-semibold text-primary">{pkg.package_code}</span>
+                        <span className="fw-semibold text-primary">{pkg.claim_code || pkg.package_code || 'N/A'}</span>
+                      </td>
+                      <td className="py-3">
+                        <span className="badge bg-light text-dark">{pkg.po_number || 'N/A'}</span>
                       </td>
                       <td className="py-3">{pkg.project_name || 'N/A'}</td>
                       <td className="py-3"><StatusBadge status={pkg.status} /></td>
-                      <td className="py-3">{pkg.current_step?.step_name || pkg.current_step_name || 'Not Started'}</td>
                       <td className="py-3">
-                        {pkg.files && pkg.files.length > 0 ? (
-                          <span className="badge" style={{ backgroundColor: '#eff6ff', color: '#1d4ed8' }}>
-                            <i className="bi bi-file-earmark-pdf-fill me-1"></i>
-                            {pkg.files.length}
-                          </span>
-                        ) : (
-                          <span className="badge bg-light text-secondary">0</span>
-                        )}
+                        <span className="badge bg-info bg-opacity-10 text-info">
+                          {pkg.current_step_name || pkg.current_step?.step_name || 'Not Started'}
+                        </span>
                       </td>
                       <td className="py-3">
                         {pkg.created_at ? new Date(pkg.created_at).toLocaleDateString() : 'N/A'}
@@ -269,7 +271,7 @@ export default function MyPackages() {
                           >
                             <i className="bi bi-eye me-1"></i> View
                           </Link>
-                          {pkg.status?.toUpperCase() === 'RETURNED' && (
+                          {pkg.status?.toUpperCase() === 'SENT_BACK' && (
                             <Link 
                               to={`/vendor/packages/${pkg.id}/resubmit`}
                               className="btn btn-sm btn-primary"

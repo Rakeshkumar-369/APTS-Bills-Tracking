@@ -91,8 +91,8 @@ export default function UnifiedLayout() {
       case 'vendor':
         return [
           ...baseItems,
-          { path: '/vendor/packages', label: 'My Packages', icon: 'bi-boxes' },
-          { path: '/vendor/packages/create', label: 'Create Package', icon: 'bi-plus-circle' },
+          { path: '/vendor/packages', label: 'My Claims', icon: 'bi-file-earmark-text' },
+          { path: '/vendor/packages/create', label: 'Claim Submission', icon: 'bi-plus-circle' },
         ];
       case 'pm':
       case 'tpa':
@@ -127,7 +127,7 @@ export default function UnifiedLayout() {
     if (path === '/vendor/packages') {
       return location.pathname === path || location.pathname === '/vendor/packages/';
     }
-    // For create package, match exactly
+    // For claim submission, match exactly
     if (path === '/vendor/packages/create') {
       return location.pathname === path;
     }

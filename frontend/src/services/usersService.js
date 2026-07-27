@@ -5,7 +5,6 @@ import { toQueryString } from './queryString';
 export const usersService = {
   async list({ search, role_id, is_active, vendor_id, limit, offset } = {}) {
     const response = await api.get(`/users${toQueryString({ search, role_id, is_active, vendor_id, limit, offset })}`);
-    // Response is already extracted
     return response || [];
   },
   
@@ -29,6 +28,12 @@ export const usersService = {
   
   async remove(id) {
     return api.delete(`/users/${id}`);
+  },
+
+  // NEW: Get officers for claim assignment
+  async getOfficers() {
+    const response = await api.get('/users/officers');
+    return response || [];
   },
 };
 
