@@ -13,7 +13,7 @@ export default function ClaimCreate() {
   const [projects, setProjects] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [officers, setOfficers] = useState([]);
-  const [selectedOfficers, setSelectedOfficers] = useState([]);
+  const [selectedOfficer, setSelectedOfficer] = useState(null);
   const [formData, setFormData] = useState({
     project_id: '',
     po_id: '',
@@ -95,14 +95,8 @@ export default function ClaimCreate() {
     setFormData(prev => ({ ...prev, po_id: poId }));
   };
 
-  const handleOfficerToggle = (officerId) => {
-    setSelectedOfficers(prev => {
-      if (prev.includes(officerId)) {
-        return prev.filter(id => id !== officerId);
-      } else {
-        return [...prev, officerId];
-      }
-    });
+  const handleOfficerSelect = (officerId) => {
+    setSelectedOfficer(officerId);
   };
 
   const handleSubmit = async (e) => {
@@ -121,9 +115,9 @@ export default function ClaimCreate() {
       return;
     }
     
-    // Only validate officers if there are officers available
-    if (officers.length > 0 && selectedOfficers.length === 0) {
-      setError('Please select at least one officer for claim review');
+    // Only validate officer if there are officers available
+    if (officers.length > 0 && !selectedOfficer) {
+      setError('Please select an officer for claim review');
       return;
     }
 
@@ -151,37 +145,14 @@ export default function ClaimCreate() {
       const createdClaim = await claimsService.create(claimData, formData.files);
       console.log('claim created:', createdClaim);
 
-      if (createdClaim && createdclaim.id && selectedOfficers.length > 0) {
-        const claimPromises = selectedOfficers.map((officerId) => {
-          const officer = officers.find(o => o.id === officerId);
-          const officerName = officer?.name || officer?.username || 'Unknown';
-          
-          const claimRemarks = `Claim assigned to ${officerName}
-${formData.remarks}`;
+      if (createdClaim && createdClaim.id && selectedOfficer) {
+        await claimsService.assign(
+          createdClaim.id,
+          selectedOfficer,
+          `Claim assigned to officer for review`
+        );
 
-          const claimData = {
-            ...claimData,
-            remarks: claimRemarks,
-          };
-
-          return claimsService.create(claimData, formData.files);
-        });
-
-        const createdClaims = await Promise.all(claimPromises);
-        console.log('Created claims for officers:', createdClaims);
-
-        const assignPromises = createdClaims.map((claim, index) => {
-          const officerId = selectedOfficers[index];
-          return claimsService.assign(
-            claim.id, 
-            officerId, 
-            `Claim assigned to officer for review`
-          );
-        });
-
-        await Promise.all(assignPromises);
-
-        setSuccess(`${createdClaims.length} claim(s) created successfully and assigned to selected officers for review!`);
+        setSuccess('Claim created successfully and assigned to the selected officer for review!');
       } else {
         setSuccess('Claim created successfully! You can assign officers later from the claims list.');
       }
@@ -209,6 +180,7 @@ ${formData.remarks}`;
   // Get selected project details
   const selectedProject = projects.find(p => p.id === parseInt(formData.project_id));
   const projectPOs = getProjectPOs();
+  const selectedOfficerDetails = officers.find(o => o.id === selectedOfficer);
 
   if (loading) {
     return (
@@ -390,7 +362,7 @@ ${formData.remarks}`;
           </div>
         </div>
 
-        {/* Step 3: Select Officers - Dropdown with Multi-select */}
+        {/* Step 3: Select Officer - Single Select Dropdown */}
         <div className="mb-4">
           <div className="card border-0 shadow-sm">
             <div className="card-body">
@@ -399,12 +371,12 @@ ${formData.remarks}`;
                   
                 </div>
                 <div>
-                  <h6 className="mb-0 fw-bold">Step 3: Select Officers for Review</h6>
-                  <small className="text-muted">Choose officers who will review this claim</small>
-                  {selectedOfficers.length > 0 && (
+                  <h6 className="mb-0 fw-bold">Step 3: Select Officer for Review</h6>
+                  <small className="text-muted">Choose the officer who will review this claim</small>
+                  {selectedOfficer && (
                     <span className="badge bg-primary ms-2">
                       <i className="bi bi-check-circle me-1"></i>
-                      {selectedOfficers.length} selected
+                      1 selected
                     </span>
                   )}
                 </div>
@@ -415,55 +387,43 @@ ${formData.remarks}`;
                   <select
                     className="form-select form-select-lg mb-3"
                     onChange={(e) => {
-                      const officerId = parseInt(e.target.value);
-                      if (officerId) {
-                        handleOfficerToggle(officerId);
-                        e.target.value = ''; // Reset select
-                      }
+                      const officerId = e.target.value ? parseInt(e.target.value) : null;
+                      handleOfficerSelect(officerId);
                     }}
-                    value=""
+                    value={selectedOfficer || ''}
                     style={{ fontSize: '1rem' }}
                   >
-                    <option value="">Select an officer to add...</option>
-                    {officers
-                      .filter(o => !selectedOfficers.includes(o.id))
-                      .map(officer => (
-                        <option key={officer.id} value={officer.id}>
-                          {officer.name || officer.username} 
-                          {officer.role_name && ` (${officer.role_name})`}
-                          {officer.designation && ` - ${officer.designation}`}
-                        </option>
-                      ))
-                    }
+                    <option value="">Select an officer...</option>
+                    {officers.map(officer => (
+                      <option key={officer.id} value={officer.id}>
+                        {officer.name || officer.username} 
+                        {officer.role_name && ` (${officer.role_name})`}
+                        {officer.designation && ` - ${officer.designation}`}
+                      </option>
+                    ))}
                   </select>
 
-                  {/* Selected Officers */}
-                  {selectedOfficers.length > 0 ? (
+                  {/* Selected Officer */}
+                  {selectedOfficer && selectedOfficerDetails ? (
                     <div className="mt-3">
-                      <label className="fw-semibold small text-muted">Selected Officers:</label>
+                      <label className="fw-semibold small text-muted">Selected Officer:</label>
                       <div className="d-flex flex-wrap gap-2 mt-2">
-                        {selectedOfficers.map(officerId => {
-                          const officer = officers.find(o => o.id === officerId);
-                          return officer ? (
-                            <span 
-                              key={officer.id} 
-                              className="badge bg-primary d-flex align-items-center gap-2 p-2"
-                              style={{ fontSize: '0.9rem' }}
-                            >
-                              <i className="bi bi-person-circle"></i>
-                              {officer.name || officer.username}
-                              {officer.role_name && ` (${officer.role_name})`}
-                              <button
-                                type="button"
-                                className="btn btn-sm text-white p-0 ms-1"
-                                onClick={() => handleOfficerToggle(officer.id)}
-                                style={{ background: 'none', border: 'none' }}
-                              >
-                                <i className="bi bi-x-lg"></i>
-                              </button>
-                            </span>
-                          ) : null;
-                        })}
+                        <span 
+                          className="badge bg-primary d-flex align-items-center gap-2 p-2"
+                          style={{ fontSize: '0.9rem' }}
+                        >
+                          <i className="bi bi-person-circle"></i>
+                          {selectedOfficerDetails.name || selectedOfficerDetails.username}
+                          {selectedOfficerDetails.role_name && ` (${selectedOfficerDetails.role_name})`}
+                          <button
+                            type="button"
+                            className="btn btn-sm text-white p-0 ms-1"
+                            onClick={() => setSelectedOfficer(null)}
+                            style={{ background: 'none', border: 'none' }}
+                          >
+                            <i className="bi bi-x-lg"></i>
+                          </button>
+                        </span>
                       </div>
                     </div>
                   ) : (
@@ -573,7 +533,7 @@ ${formData.remarks}`;
         </div>
 
         {/* Selected Summary */}
-        {(formData.project_id || formData.po_id || selectedOfficers.length > 0) && (
+        {(formData.project_id || formData.po_id || selectedOfficer) && (
           <div className="card border-0 shadow-sm bg-light mb-4">
             <div className="card-body">
               <h6 className="fw-bold mb-2">Selection Summary</h6>
@@ -590,10 +550,10 @@ ${formData.remarks}`;
                     {purchaseOrders.find(p => p.id === parseInt(formData.po_id))?.po_number}
                   </span>
                 )}
-                {selectedOfficers.length > 0 && (
+                {selectedOfficer && (
                   <span className="badge bg-info">
                     <i className="bi bi-people me-1"></i>
-                    {selectedOfficers.length} officer(s) selected
+                    1 officer selected
                   </span>
                 )}
                 {formData.remarks && (
@@ -650,7 +610,7 @@ ${formData.remarks}`;
                 <div>
                   <h6 className="mb-1 fw-semibold">Claim Submission Workflow</h6>
                   <p className="mb-0 small text-muted">
-                    This will create a claim claim. If you select officers, they will be assigned for review.
+                    This will create a claim claim. If you select an officer, they will be assigned for review.
                     You can also assign officers later from the claims list.
                   </p>
                 </div>
