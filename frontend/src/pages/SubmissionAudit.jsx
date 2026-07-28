@@ -1,5 +1,5 @@
 // src/components/SubmissionAudit.jsx
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 /**
  * SubmissionAudit
@@ -28,10 +28,33 @@ export default function SubmissionAudit({
   onForward,
   hasDigitalSignature,
 }) {
+  const topRef = useRef(null);
+
+  // This view is swapped in via state (no real route change), so the
+  // browser keeps whatever scroll position the previous list/table had.
+  // Force every possible scroll container back to 0 whenever a (new)
+  // submission is opened — window, html/body, AND any scrollable ancestor
+  // div in a dashboard shell layout. scrollIntoView alone can stop short of
+  // absolute 0 if there's padding/margin above, so we explicitly zero out
+  // scrollTop on every ancestor as well.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+
+    let node = topRef.current?.parentElement;
+    while (node) {
+      if (node.scrollTop > 0) {
+        node.scrollTop = 0;
+      }
+      node = node.parentElement;
+    }
+  }, [submission?.id, submission?.claimId]);
+
   if (!submission) return null;
 
   return (
-    <div className="card border-0 shadow-sm rounded-4 overflow-hidden bg-white animate-fade-in">
+    <div ref={topRef} className="card border-0 shadow-sm rounded-4 overflow-hidden bg-white animate-fade-in">
       <div className="bg-light bg-opacity-60 border-bottom px-4 py-3 d-flex align-items-center justify-content-between">
         <div className="d-flex align-items-center gap-2">
           <button

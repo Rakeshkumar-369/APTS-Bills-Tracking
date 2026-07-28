@@ -103,6 +103,7 @@ export default function App() {
           <Route path="/officer" element={<UnifiedLayout />}>
             <Route index element={<UnifiedDashboard />} />
             <Route path="inbox" element={<Inbox />} />
+            <Route path="outbox" element={<Inbox />} />
             <Route path="claims/:id" element={<ClaimDetail />} />
             <Route path="*" element={<Navigate to="/officer" replace />} />
           </Route>
@@ -115,6 +116,7 @@ export default function App() {
           <Route path="/manager" element={<UnifiedLayout />}>
             <Route index element={<UnifiedDashboard />} />
             <Route path="inbox" element={<Inbox />} />
+            <Route path="outbox" element={<Inbox />} />
             <Route path="match" element={<MatchInvoice />} />
             <Route path="claims/:id" element={<ClaimDetail />} />
             <Route path="*" element={<Navigate to="/manager" replace />} />

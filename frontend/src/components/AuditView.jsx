@@ -1,5 +1,5 @@
 // src/components/AuditView.jsx
-import React from 'react';
+import React, { useEffect } from 'react';
 
 export default function AuditView({
   submission,
@@ -10,6 +10,13 @@ export default function AuditView({
   onForward,
   onOpenPdf,
 }) {
+  // This view is swapped in via state (no route change), so the browser
+  // keeps whatever scroll position the table/list was at. Force it back to
+  // the top whenever a (new) submission is opened.
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [submission?.claimId, submission?.id]);
+
   if (!submission) return null;
 
   // Get activity trails from history or use defaults from image

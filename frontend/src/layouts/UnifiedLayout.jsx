@@ -101,14 +101,12 @@ export default function UnifiedLayout() {
           ...baseItems,
           { path: '/officer/inbox', label: 'Inbox', icon: 'bi-inbox' },
           { path: '/officer/outbox', label: 'Outbox', icon: 'bi-send' },
-          { path: '/match', label: 'Match Invoices', icon: 'bi-search' },
         ];
       case 'apts':
         return [
           ...baseItems,
           { path: '/manager/inbox', label: 'Inbox', icon: 'bi-inbox' },
           { path: '/manager/outbox', label: 'Outbox', icon: 'bi-send' },
-          { path: '/match', label: 'Match Invoices', icon: 'bi-search' },
         ];
       default:
         return baseItems;
@@ -118,21 +116,26 @@ export default function UnifiedLayout() {
   const menuItems = getMenuItems();
 
   const isActive = (path) => {
-    // For dashboard, match exactly
+    // Normalize trailing slashes so "/pm/" and "/pm" are treated the same
+    const current = location.pathname.replace(/\/+$/, '') || '/';
+    const target = path.replace(/\/+$/, '');
+
+    // Dashboard: highlight whether the route lives at the bare role path
+    // (e.g. "/pm") or at a nested "/pm/dashboard" sub-route.
     if (path === `/${userRole}`) {
-      return location.pathname === path;
+      return current === target || current === `${target}/dashboard`;
     }
-    // For other paths, check if the current path starts with the menu path
-    // But be careful not to match /vendor/claims when on /vendor/claims/create
+    // For claims list, don't let it match the create page
     if (path === '/vendor/claims') {
-      return location.pathname === path || location.pathname === '/vendor/claims/';
+      return current === target;
     }
     // For claim submission, match exactly
     if (path === '/vendor/claims/create') {
-      return location.pathname === path;
+      return current === target;
     }
-    // For other paths, use startsWith
-    return location.pathname.startsWith(path);
+    // Boundary-aware prefix match: "/officer/inbox" matches
+    // "/officer/inbox/123" but not "/officer/inboxes"
+    return current === target || current.startsWith(`${target}/`);
   };
 
   // Redirect if not authenticated
