@@ -7,7 +7,7 @@ import SubmissionAudit from './SubmissionAudit';
 import PdfViewerPage from './PdfViewerPage';
 
 export default function UnifiedDashboard() {
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -100,8 +100,8 @@ export default function UnifiedDashboard() {
   const userDisplayName = getUserDisplayName();
   const roleDescription = getRoleDescription();
 
-  useEffect(() => {
-    if (user) {
+useEffect(() => {
+    if (isAuthenticated && user) {
       fetchData();
       if (['pm', 'tpa', 'jdinfra', 'apts'].includes(userRole)) {
         fetchInboxStats();
@@ -114,10 +114,9 @@ export default function UnifiedDashboard() {
       }
     } else {
       setLoading(false);
-      setError('Please login to view your dashboard');
+      setError(null);
     }
-  }, [user]);
-
+  }, [user, isAuthenticated]);
   const fetchInboxStats = async () => {
     try {
       const token = localStorage.getItem('accessToken');
@@ -168,12 +167,15 @@ const fetchPurchaseOrders = async () => {
     }
   };
 
-  const fetchData = async () => {
+const fetchData = async () => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
-      const token = localStorage.getItem('accessToken');
-      if (!token) throw new Error('No access token found');
 
       let claimsData = [];
       switch(userRole) {
