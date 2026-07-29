@@ -62,6 +62,57 @@ export const vendorsService = {
     );
     return vendorsWithProjects;
   },
+
+  // ---- Vendor <-> Project assignment ----
+
+  /**
+   * List all projects assigned to a vendor.
+   * @param {number} id vendor id
+   * @returns {Array} array of project objects
+   */
+  async getProjects(id) {
+    const response = await api.get(`/vendors/${id}/projects`);
+    return response || [];
+  },
+
+  /**
+   * Assign a single project to a vendor.
+   * @param {number} id vendor id
+   * @param {number} projectId
+   */
+  async assignProject(id, projectId) {
+    return api.post(`/vendors/${id}/projects`, { project_id: projectId });
+  },
+
+  /**
+   * Remove a project assignment from a vendor.
+   * @param {number} id vendor id
+   * @param {number} projectId
+   */
+  async removeProject(id, projectId) {
+    return api.delete(`/vendors/${id}/projects/${projectId}`);
+  },
+
+  /**
+   * Sync a vendor's project assignments to match `desiredProjectIds`.
+   * Diffs against `currentProjectIds` and issues only the necessary
+   * assign/remove calls in parallel.
+   * @param {number} id vendor id
+   * @param {number[]} currentProjectIds projects currently assigned (before edit)
+   * @param {number[]} desiredProjectIds projects that should be assigned (after edit)
+   */
+  async syncProjects(id, currentProjectIds = [], desiredProjectIds = []) {
+    const current = new Set(currentProjectIds.map(Number));
+    const desired = new Set(desiredProjectIds.map(Number));
+
+    const toAdd = [...desired].filter(pid => !current.has(pid));
+    const toRemove = [...current].filter(pid => !desired.has(pid));
+
+    await Promise.all([
+      ...toAdd.map(pid => this.assignProject(id, pid)),
+      ...toRemove.map(pid => this.removeProject(id, pid)),
+    ]);
+  },
 };
 
 export default vendorsService;
