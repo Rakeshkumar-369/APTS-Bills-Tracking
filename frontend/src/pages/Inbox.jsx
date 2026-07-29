@@ -133,7 +133,7 @@ export default function Inbox() {
           <table className="table table-hover align-middle">
             <thead>
               <tr>
-                <th>claim</th>
+                <th>Claim</th>
                 <th>Vendor</th>
                 <th>Project</th>
                 <th>Status</th>
@@ -150,16 +150,27 @@ export default function Inbox() {
                   <td><StatusBadge status={pkg.status} /></td>
                   <td>{pkg.current_step_name || pkg.current_step?.step_name}</td>
                   <td className="text-end">
-                    {/* Was "/claims/:id" — not a real route, it just bounced
-                        back to the dashboard. Point at the actual nested
-                        route instead (e.g. /officer/claims/:id). */}
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-primary"
-                      onClick={() => navigate(`${base}/claims/${pkg.id}`)}
-                    >
-                      <i className="bi bi-eye me-1"></i> Open
-                    </button>
+                    <div className="d-flex justify-content-end gap-2">
+                      {/* Review & Process Button for Split-Pane Officer View */}
+                      {tab === 'inbox' && (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`${base}/claims/${pkg.id}/review`)}
+                          className="btn btn-sm btn-primary fw-semibold"
+                        >
+                          Review &amp; Process
+                        </button>
+                      )}
+
+                      {/* Standard View Details Button */}
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-primary"
+                        onClick={() => navigate(`${base}/claims/${pkg.id}`)}
+                      >
+                        <i className="bi bi-eye me-1"></i> Open
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

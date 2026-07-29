@@ -9,6 +9,7 @@ import RoleGuard from './components/RoleGuard';
 // Layouts
 import AdminLayout from './layouts/AdminLayout';
 import UnifiedLayout from './layouts/UnifiedLayout';
+import OfficerClaimReview from './pages/OfficerClaimReview';
 
 // Admin Components
 import AdminDashboard from './pages/ADMIN/AdminDashboard';
@@ -118,6 +119,7 @@ export default function App() {
             <Route index element={<UnifiedDashboard />} />
             <Route path="inbox" element={<Inbox />} />
             <Route path="outbox" element={<Inbox />} />
+            <Route path="claims/:id/review" element={<OfficerClaimReview />} />
             <Route path="claims/:id" element={<ClaimDetail />} />
             <Route path="*" element={<Navigate to="/officer" replace />} />
           </Route>
@@ -132,6 +134,7 @@ export default function App() {
             <Route path="inbox" element={<Inbox />} />
             <Route path="outbox" element={<Inbox />} />
             <Route path="match" element={<MatchInvoice />} />
+            <Route path="claims/:id/review" element={<OfficerClaimReview />} />
             <Route path="claims/:id" element={<ClaimDetail />} />
             <Route path="*" element={<Navigate to="/manager" replace />} />
           </Route>
