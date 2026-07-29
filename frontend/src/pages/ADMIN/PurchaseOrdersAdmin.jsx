@@ -9,6 +9,7 @@ export default function PurchaseOrdersAdmin() {
 
   const [pos, setPos] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -81,6 +82,7 @@ export default function PurchaseOrdersAdmin() {
       setError(err.message || 'Failed to load purchase orders');
     } finally {
       setLoading(false);
+      setInitialLoading(false);
     }
   }, [searchTerm, filterStatus, filterProject, filterVendor, page, limit]);
 
@@ -257,7 +259,7 @@ export default function PurchaseOrdersAdmin() {
     );
   };
 
-  if (loading && page === 1) {
+  if (initialLoading) {
     return (
       <div className="d-flex justify-content-center py-5">
         <div className="spinner-border text-primary" role="status">

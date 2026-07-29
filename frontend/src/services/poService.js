@@ -38,7 +38,7 @@ export const poService = {
    */
   list: async (params = {}) => {
     const query = buildQuery(params);
-    const res = await customFetch(`${BASE}?${query}`);
+    const res = await customFetch(`${BASE}${query}`);
     const body = await res.json();           // { success, data, meta }
     return {
       data: body.data || [],
