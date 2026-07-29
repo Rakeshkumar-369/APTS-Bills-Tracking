@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { claimsService, projectsService, poService, usersService } from '../services';
 import { useAuth } from '../context/AuthContext';
 
 export default function ClaimCreate() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // Read URL query params if redirected from PO Claims History page
+  const queryProjectId = searchParams.get('projectId');
+  const queryPoId = searchParams.get('poId');
+
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -15,8 +21,8 @@ export default function ClaimCreate() {
   const [officers, setOfficers] = useState([]);
   const [selectedOfficer, setSelectedOfficer] = useState(null);
   const [formData, setFormData] = useState({
-    project_id: '',
-    po_id: '',
+    project_id: queryProjectId || '',
+    po_id: queryPoId || '',
     remarks: '',
     files: [],
   });
@@ -36,7 +42,14 @@ export default function ClaimCreate() {
         // Fetch projects
         try {
           const projectList = await projectsService.list({ vendor_id: vendorId });
-          setProjects(Array.isArray(projectList) ? projectList : []);
+          const list = Array.isArray(projectList?.data?.items)
+            ? projectList.data.items
+            : Array.isArray(projectList?.data)
+            ? projectList.data
+            : Array.isArray(projectList)
+            ? projectList
+            : [];
+          setProjects(list);
         } catch (projectError) {
           console.error('Error fetching projects:', projectError);
           setProjects([]);
@@ -45,7 +58,7 @@ export default function ClaimCreate() {
         // Fetch POs
         try {
           const poResponse = await poService.list({ vendor_id: vendorId });
-          const poData = poResponse?.data || poResponse || [];
+          const poData = poResponse?.data?.items || poResponse?.data || poResponse || [];
           setPurchaseOrders(Array.isArray(poData) ? poData : []);
         } catch (poError) {
           console.error('Error fetching POs:', poError);
@@ -55,8 +68,12 @@ export default function ClaimCreate() {
         // Fetch officers using the dedicated endpoint
         try {
           const officersList = await usersService.getOfficers();
-          setOfficers(Array.isArray(officersList) ? officersList : []);
-          console.log('Officers fetched:', officersList);
+          const oList = Array.isArray(officersList?.data)
+            ? officersList.data
+            : Array.isArray(officersList)
+            ? officersList
+            : [];
+          setOfficers(oList);
         } catch (officerError) {
           console.warn('Could not fetch officers:', officerError.message);
           setOfficers([]);
@@ -78,21 +95,21 @@ export default function ClaimCreate() {
   // Get project-specific POs
   const getProjectPOs = () => {
     if (!formData.project_id) return [];
-    return (Array.isArray(purchaseOrders) ? purchaseOrders : [])
-      .filter(po => po.status === 'ACTIVE' && po.project_id === parseInt(formData.project_id));
+    return (Array.isArray(purchaseOrders) ? purchaseOrders : []).filter(
+      (po) =>
+        (po.status === 'ACTIVE' || !po.status) &&
+        String(po.project_id) === String(formData.project_id)
+    );
   };
 
-  const handleProjectSelect = (projectId) => {
-    setFormData(prev => ({ 
-      ...prev, 
-      project_id: projectId, 
-      po_id: '' // Reset PO when project changes
-    }));
+  const handleProjectCardClick = (projectId) => {
+    // Navigates to PO listing for this project
+    navigate(`/vendor/claims/project/${projectId}`);
   };
 
   const handlePOSelect = (e) => {
     const poId = e.target.value;
-    setFormData(prev => ({ ...prev, po_id: poId }));
+    setFormData((prev) => ({ ...prev, po_id: poId }));
   };
 
   const handleOfficerSelect = (officerId) => {
@@ -114,8 +131,7 @@ export default function ClaimCreate() {
       setError('Please enter remarks (minimum 3 characters)');
       return;
     }
-    
-    // Only validate officer if there are officers available
+
     if (officers.length > 0 && !selectedOfficer) {
       setError('Please select an officer for claim review');
       return;
@@ -137,13 +153,12 @@ export default function ClaimCreate() {
         po_id: parseInt(formData.po_id),
         remarks: formData.remarks.trim(),
       };
-      
+
       if (userId) {
         claimData.vendor_contact_user_id = parseInt(userId);
       }
 
       const createdClaim = await claimsService.create(claimData, formData.files);
-      console.log('claim created:', createdClaim);
 
       if (createdClaim && createdClaim.id && selectedOfficer) {
         await claimsService.assign(
@@ -156,8 +171,8 @@ export default function ClaimCreate() {
       } else {
         setSuccess('Claim created successfully! You can assign officers later from the claims list.');
       }
-      
-      setTimeout(() => navigate('/vendor/claims'), 3000);
+
+      setTimeout(() => navigate('/vendor/claims'), 2000);
     } catch (err) {
       console.error('Error creating claims:', err);
       setError(err.message || 'Failed to create claims. Please try again.');
@@ -168,19 +183,18 @@ export default function ClaimCreate() {
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
-    setFormData(prev => ({ ...prev, files }));
+    setFormData((prev) => ({ ...prev, files }));
   };
 
   const removeFile = (index) => {
     const newFiles = [...formData.files];
     newFiles.splice(index, 1);
-    setFormData(prev => ({ ...prev, files: newFiles }));
+    setFormData((prev) => ({ ...prev, files: newFiles }));
   };
 
-  // Get selected project details
-  const selectedProject = projects.find(p => p.id === parseInt(formData.project_id));
+  const selectedProject = projects.find((p) => String(p.id) === String(formData.project_id));
   const projectPOs = getProjectPOs();
-  const selectedOfficerDetails = officers.find(o => o.id === selectedOfficer);
+  const selectedOfficerDetails = officers.find((o) => o.id === selectedOfficer);
 
   if (loading) {
     return (
@@ -193,6 +207,104 @@ export default function ClaimCreate() {
     );
   }
 
+  // =========================================================================
+  // VIEW MODE A: If NO PO has been selected yet via Query Params,
+  // Show ONLY the Project Cards for selection.
+  // =========================================================================
+  if (!queryProjectId && !formData.po_id) {
+    return (
+      <div className="container-fluid py-4">
+        {/* Header */}
+        <div className="d-flex justify-content-between align-items-center mb-4">
+          <div>
+            <h4 className="mb-1 fw-bold">
+              <i className="bi bi-folder-check text-primary me-2"></i>
+              Select Project for Claim Submission
+            </h4>
+            <p className="text-muted mb-0">Choose a project below to view its Purchase Orders</p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-outline-secondary"
+            onClick={() => navigate('/vendor/claims')}
+          >
+            <i className="bi bi-arrow-left me-1"></i>
+            Back to Claims
+          </button>
+        </div>
+
+        {error && (
+          <div className="alert alert-danger alert-dismissible fade show">
+            <i className="bi bi-exclamation-triangle-fill me-2"></i>
+            {error}
+            <button type="button" className="btn-close" onClick={() => setError(null)}></button>
+          </div>
+        )}
+
+        {Array.isArray(projects) && projects.length > 0 ? (
+          <div className="row g-4">
+            {projects.map((project) => (
+              <div key={project.id} className="col-md-6 col-lg-4">
+                <div
+                  className="card h-100 border-0 shadow-sm cursor-pointer hover-shadow transition-all"
+                  onClick={() => handleProjectCardClick(project.id)}
+                  style={{
+                    cursor: 'pointer',
+                    transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-4px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  <div className="card-body p-4 d-flex flex-column justify-content-between">
+                    <div>
+                      <div className="d-flex justify-content-between align-items-center mb-3">
+                        <span className="badge bg-primary bg-opacity-10 text-primary px-3 py-2">
+                          {project.project_code || project.code || `PRJ-${project.id}`}
+                        </span>
+                        <span className="badge bg-success">Active</span>
+                      </div>
+                      <h5 className="fw-bold text-dark mb-2">
+                        {project.project_name || project.name}
+                      </h5>
+                      <p className="text-muted small mb-3">
+                        {project.description || 'No description provided.'}
+                      </p>
+                      {project.location && (
+                        <div className="small text-muted mb-3">
+                          <i className="bi bi-geo-alt me-1 text-primary"></i>
+                          {project.location}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-3 border-top d-flex justify-content-between align-items-center text-primary fw-semibold small">
+                      <span>View Purchase Orders</span>
+                      <i className="bi bi-arrow-right"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-5 bg-white rounded border">
+            <i className="bi bi-folder-x fs-1 text-muted"></i>
+            <h5 className="mt-3 text-muted">No projects assigned to you</h5>
+            <p className="text-muted small">Please contact your administrator if this is an error.</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // VIEW MODE B: When project and PO are selected (e.g. from PO Claims page)
+  // Show the Claim Form
+  // =========================================================================
   return (
     <div className="container-fluid py-4">
       {/* Header */}
@@ -200,17 +312,23 @@ export default function ClaimCreate() {
         <div>
           <h4 className="mb-1 fw-bold">
             <i className="bi bi-plus-circle text-primary me-2"></i>
-            Claim Submission
+            Submit New Claim / Bill
           </h4>
-          <p className="text-muted mb-0">Submit a claim for review by officers</p>
+          <p className="text-muted mb-0">Fill in the details to submit your claim</p>
         </div>
         <button
           type="button"
           className="btn btn-outline-secondary"
-          onClick={() => navigate('/vendor/claims')}
+          onClick={() =>
+            navigate(
+              formData.project_id && formData.po_id
+                ? `/vendor/claims/project/${formData.project_id}/po/${formData.po_id}`
+                : '/vendor/claims/create'
+            )
+          }
         >
           <i className="bi bi-arrow-left me-1"></i>
-          Back to Claims
+          Back
         </button>
       </div>
 
@@ -230,270 +348,108 @@ export default function ClaimCreate() {
       )}
 
       <form onSubmit={handleSubmit}>
-        {/* Step 1: Select Project - Card Grid */}
+        {/* Project & PO Summary Info Card */}
+        <div className="card border-0 shadow-sm mb-4">
+          <div className="card-body">
+            <h6 className="fw-bold mb-3">Selected Project & Purchase Order</h6>
+            <div className="row g-3">
+              <div className="col-md-6">
+                <label className="form-label small text-muted">Project</label>
+                <div className="form-control bg-light font-semibold">
+                  {selectedProject?.project_name || selectedProject?.name || `Project #${formData.project_id}`}
+                </div>
+              </div>
+              <div className="col-md-6">
+                <label className="form-label small text-muted">Purchase Order</label>
+                {projectPOs.length > 0 ? (
+                  <select
+                    className="form-select"
+                    value={formData.po_id}
+                    onChange={handlePOSelect}
+                    required
+                  >
+                    <option value="">Select PO...</option>
+                    {projectPOs.map((po) => (
+                      <option key={po.id} value={po.id}>
+                        {po.po_number || po.number} - ₹
+                        {Number(po.amount || po.total_value || 0).toLocaleString('en-IN')}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="form-control bg-light font-semibold">
+                    PO #{formData.po_id}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Step 3: Select Officer */}
         <div className="mb-4">
           <div className="card border-0 shadow-sm">
             <div className="card-body">
               <div className="d-flex align-items-center mb-3">
                 <div className="bg-primary bg-opacity-10 p-2 rounded me-2">
-                  <i className="bi bi-folder text-primary fs-4"></i>
+                  <i className="bi bi-person-check text-primary fs-4"></i>
                 </div>
                 <div>
-                  <h6 className="mb-0 fw-bold">Step 1: Select Project</h6>
-                  <small className="text-muted">Choose the project for this claim</small>
-                  {formData.project_id && selectedProject && (
-                    <span className="badge bg-success ms-2">
-                      <i className="bi bi-check-circle me-1"></i>
-                      Selected: {selectedProject.project_name || selectedProject.name}
-                    </span>
-                  )}
+                  <h6 className="mb-0 fw-bold">Select Officer for Review</h6>
+                  <small className="text-muted">Choose the officer who will review this claim</small>
                 </div>
               </div>
-              
-              {Array.isArray(projects) && projects.length > 0 ? (
-                <div className="row g-3">
-                  {projects.map(project => (
-                    <div key={project.id} className="col-md-4 col-lg-3">
-                      <div 
-                        className={`card h-100 cursor-pointer transition-all ${formData.project_id === String(project.id) ? 'border-primary border-3 shadow-lg' : 'border-0 shadow-sm'}`}
-                        onClick={() => handleProjectSelect(project.id)}
-                        style={{ 
-                          cursor: 'pointer',
-                          transition: 'all 0.3s ease',
-                          transform: formData.project_id === String(project.id) ? 'scale(1.02)' : 'scale(1)'
-                        }}
-                      >
-                        <div className="card-body text-center">
-                          {formData.project_id === String(project.id) && (
-                            <div className="position-absolute top-0 end-0 m-2">
-                              <span className="badge bg-primary rounded-circle p-2">
-                                <i className="bi bi-check-lg"></i>
-                              </span>
-                            </div>
-                          )}
-                          <div className="rounded-circle bg-primary bg-opacity-10 p-3 d-inline-flex mb-3">
-                            <i className="bi bi-building fs-1 text-primary"></i>
-                          </div>
-                          <h6 className="mb-1 fw-bold">{project.project_name || project.name}</h6>
-                          {project.project_code && (
-                            <small className="text-muted d-block">{project.project_code}</small>
-                          )}
-                          {project.location && (
-                            <small className="text-muted d-block">
-                              <i className="bi bi-geo-alt me-1"></i>
-                              {project.location}
-                            </small>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-4 bg-light rounded">
-                  <i className="bi bi-folder-x fs-1 text-muted"></i>
-                  <p className="text-muted mt-2">No projects assigned to you</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
 
-        {/* Step 2: Select Purchase Order - Dropdown (Conditional) */}
-        <div className="mb-4">
-          <div className="card border-0 shadow-sm">
-            <div className="card-body">
-              <div className="d-flex align-items-center mb-3">
-                <div className="bg-success bg-opacity-10 p-2 rounded me-2">
-                  <i className="bi bi-receipt text-success fs-4"></i>
-                </div>
-                <div>
-                  <h6 className="mb-0 fw-bold">Step 2: Select Purchase Order</h6>
-                  <small className="text-muted">Choose the PO for this claim</small>
-                  {formData.po_id && (
-                    <span className="badge bg-success ms-2">
-                      <i className="bi bi-check-circle me-1"></i>
-                      Selected
-                    </span>
-                  )}
-                </div>
-              </div>
-              
-              {!formData.project_id ? (
-                // Default message when no project is selected
-                <div className="text-center py-4 bg-light rounded">
-                 
-                </div>
-              ) : projectPOs.length > 0 ? (
+              {Array.isArray(officers) && officers.length > 0 ? (
                 <select
-                  className="form-select form-select-lg"
-                  value={formData.po_id}
-                  onChange={handlePOSelect}
-                  required
-                  style={{ fontSize: '1rem' }}
+                  className="form-select form-select-lg mb-3"
+                  onChange={(e) => {
+                    const officerId = e.target.value ? parseInt(e.target.value) : null;
+                    handleOfficerSelect(officerId);
+                  }}
+                  value={selectedOfficer || ''}
                 >
-                  <option value="">Choose a PO...</option>
-                  {projectPOs.map(po => (
-                    <option 
-                      key={po.id} 
-                      value={po.id}
-                      style={{ 
-                        fontSize: '0.95rem', 
-                        padding: '8px 12px'
-                      }}
-                    >
-                      {po.po_number} - ₹{parseFloat(po.amount).toLocaleString('en-IN')}
-                      {po.start_date && po.end_date && 
-                        ` (${new Date(po.start_date).toLocaleDateString()} - ${new Date(po.end_date).toLocaleDateString()})`
-                      }
+                  <option value="">Select an officer...</option>
+                  {officers.map((officer) => (
+                    <option key={officer.id} value={officer.id}>
+                      {officer.name || officer.username}{' '}
+                      {officer.role_name && `(${officer.role_name})`}
+                      {officer.designation && ` - ${officer.designation}`}
                     </option>
                   ))}
                 </select>
               ) : (
-                <div className="text-center py-4 bg-light rounded">
-                  <i className="bi bi-receipt-cutoff fs-2 text-warning"></i>
-                  <h6 className="mt-2 mb-1">No Purchase Orders Available</h6>
-                  <p className="text-muted mb-0 small">
-                    No active Purchase Orders found for the selected project
-                  </p>
+                <div className="text-center py-3 bg-light rounded">
+                  <p className="text-muted mb-0 small">No officers available. Proceeding without pre-assignment.</p>
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* Step 3: Select Officer - Single Select Dropdown */}
-        <div className="mb-4">
-          <div className="card border-0 shadow-sm">
-            <div className="card-body">
-              <div className="d-flex align-items-center mb-3">
-                <div className="bg-purple bg-opacity-10 p-2 rounded me-2" style={{ backgroundColor: '#6f42c1' }}>
-                  
-                </div>
-                <div>
-                  <h6 className="mb-0 fw-bold">Step 3: Select Officer for Review</h6>
-                  <small className="text-muted">Choose the officer who will review this claim</small>
-                  {selectedOfficer && (
-                    <span className="badge bg-primary ms-2">
-                      <i className="bi bi-check-circle me-1"></i>
-                      1 selected
-                    </span>
-                  )}
-                </div>
-              </div>
-              
-              {Array.isArray(officers) && officers.length > 0 ? (
-                <>
-                  <select
-                    className="form-select form-select-lg mb-3"
-                    onChange={(e) => {
-                      const officerId = e.target.value ? parseInt(e.target.value) : null;
-                      handleOfficerSelect(officerId);
-                    }}
-                    value={selectedOfficer || ''}
-                    style={{ fontSize: '1rem' }}
-                  >
-                    <option value="">Select an officer...</option>
-                    {officers.map(officer => (
-                      <option key={officer.id} value={officer.id}>
-                        {officer.name || officer.username} 
-                        {officer.role_name && ` (${officer.role_name})`}
-                        {officer.designation && ` - ${officer.designation}`}
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* Selected Officer */}
-                  {selectedOfficer && selectedOfficerDetails ? (
-                    <div className="mt-3">
-                      <label className="fw-semibold small text-muted">Selected Officer:</label>
-                      <div className="d-flex flex-wrap gap-2 mt-2">
-                        <span 
-                          className="badge bg-primary d-flex align-items-center gap-2 p-2"
-                          style={{ fontSize: '0.9rem' }}
-                        >
-                          <i className="bi bi-person-circle"></i>
-                          {selectedOfficerDetails.name || selectedOfficerDetails.username}
-                          {selectedOfficerDetails.role_name && ` (${selectedOfficerDetails.role_name})`}
-                          <button
-                            type="button"
-                            className="btn btn-sm text-white p-0 ms-1"
-                            onClick={() => setSelectedOfficer(null)}
-                            style={{ background: 'none', border: 'none' }}
-                          >
-                            <i className="bi bi-x-lg"></i>
-                          </button>
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-3 bg-light rounded">
-                      
-                      
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-center py-4 bg-light rounded">
-                  <i className="bi bi-person-x fs-4 text-muted"></i>
-                  <p className="text-muted mt-1 mb-0">No officers available. Please contact your administrator.</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Step 4: Remarks & Files */}
+        {/* Step 4: Remarks & Documents */}
         <div className="row g-4 mb-4">
           <div className="col-md-8">
-            <div className="card border-0 shadow-sm">
+            <div className="card border-0 shadow-sm h-100">
               <div className="card-body">
-                <div className="d-flex align-items-center mb-3">
-                  <div className="bg-primary bg-opacity-10 p-2 rounded me-2">
-                    <i className="bi bi-chat text-primary fs-4"></i>
-                  </div>
-                  <div>
-                    <h6 className="mb-0 fw-bold">Step 4: Remarks</h6>
-                    <small className="text-muted">Provide details about this claim</small>
-                    {formData.remarks && formData.remarks.length >= 3 && (
-                      <span className="badge bg-success ms-2">
-                        <i className="bi bi-check-circle me-1"></i>
-                        Added
-                      </span>
-                    )}
-                  </div>
-                </div>
+                <h6 className="fw-bold mb-3">Remarks / Description</h6>
                 <textarea
                   className="form-control"
-                  rows="4"
-                  placeholder="Describe the claim details, work completed, and any supporting information..."
+                  rows="5"
+                  placeholder="Describe the claim details, work completed for this period, etc..."
                   value={formData.remarks}
-                  onChange={(e) => setFormData(prev => ({ ...prev, remarks: e.target.value }))}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, remarks: e.target.value }))}
                   required
-                  minLength="3"
+                  minLength={3}
                 />
               </div>
             </div>
           </div>
 
           <div className="col-md-4">
-            <div className="card h-100 border-0 shadow-sm">
+            <div className="card border-0 shadow-sm h-100">
               <div className="card-body">
-                <div className="d-flex align-items-center mb-3">
-                  <div className="bg-success bg-opacity-10 p-2 rounded me-2">
-                    <i className="bi bi-file-earmark-arrow-up text-success fs-4"></i>
-                  </div>
-                  <div>
-                    <h6 className="mb-0 fw-bold">Attach Documents</h6>
-                    <small className="text-muted">Supporting documents</small>
-                    {formData.files.length > 0 && (
-                      <span className="badge bg-info ms-2">
-                        <i className="bi bi-check-circle me-1"></i>
-                        {formData.files.length} file(s)
-                      </span>
-                    )}
-                  </div>
-                </div>
+                <h6 className="fw-bold mb-3">Attach Invoice / Documents</h6>
                 <input
                   type="file"
                   className="form-control"
@@ -502,23 +458,22 @@ export default function ClaimCreate() {
                   onChange={handleFileChange}
                 />
                 <small className="text-muted d-block mt-2">
-                  PDF, Word, Excel, Images (Max 10MB each)
+                  PDF, Word, Excel, Images (Max 10MB)
                 </small>
 
                 {formData.files.length > 0 && (
                   <div className="mt-3">
                     {formData.files.map((file, index) => (
-                      <div key={index} className="d-flex justify-content-between align-items-center bg-light p-2 rounded mb-1">
-                        <div className="d-flex align-items-center">
-                          <i className="bi bi-file-earmark-pdf text-danger me-2"></i>
-                          <span className="small">{file.name}</span>
-                          <span className="text-muted ms-2 small">
-                            ({(file.size / 1024).toFixed(1)} KB)
-                          </span>
-                        </div>
+                      <div
+                        key={index}
+                        className="d-flex justify-content-between align-items-center bg-light p-2 rounded mb-1"
+                      >
+                        <span className="small text-truncate" style={{ maxWidth: '180px' }}>
+                          {file.name}
+                        </span>
                         <button
                           type="button"
-                          className="btn btn-sm btn-outline-danger"
+                          className="btn btn-sm btn-outline-danger border-0"
                           onClick={() => removeFile(index)}
                         >
                           <i className="bi bi-x"></i>
@@ -532,61 +487,22 @@ export default function ClaimCreate() {
           </div>
         </div>
 
-        {/* Selected Summary */}
-        {(formData.project_id || formData.po_id || selectedOfficer) && (
-          <div className="card border-0 shadow-sm bg-light mb-4">
-            <div className="card-body">
-              <h6 className="fw-bold mb-2">Selection Summary</h6>
-              <div className="d-flex flex-wrap gap-2">
-                {formData.project_id && selectedProject && (
-                  <span className="badge bg-primary">
-                    <i className="bi bi-folder me-1"></i>
-                    {selectedProject.project_name || selectedProject.name}
-                  </span>
-                )}
-                {formData.po_id && (
-                  <span className="badge bg-success">
-                    <i className="bi bi-receipt me-1"></i>
-                    {purchaseOrders.find(p => p.id === parseInt(formData.po_id))?.po_number}
-                  </span>
-                )}
-                {selectedOfficer && (
-                  <span className="badge bg-info">
-                    <i className="bi bi-people me-1"></i>
-                    1 officer selected
-                  </span>
-                )}
-                {formData.remarks && (
-                  <span className="badge bg-secondary">
-                    <i className="bi bi-chat me-1"></i>
-                    Remarks added
-                  </span>
-                )}
-                {formData.files.length > 0 && (
-                  <span className="badge bg-warning text-dark">
-                    <i className="bi bi-file-earmark me-1"></i>
-                    {formData.files.length} file(s)
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Action Buttons */}
         <div className="d-flex gap-2 justify-content-end">
           <button
             type="button"
             className="btn btn-outline-secondary btn-lg px-4"
-            onClick={() => navigate('/vendor/claims')}
+            onClick={() =>
+              navigate(
+                formData.project_id && formData.po_id
+                  ? `/vendor/claims/project/${formData.project_id}/po/${formData.po_id}`
+                  : '/vendor/claims/create'
+              )
+            }
           >
             Cancel
           </button>
-          <button
-            type="submit"
-            className="btn btn-primary btn-lg px-4"
-            disabled={submitting || !Array.isArray(projects) || projects.length === 0}
-          >
+          <button type="submit" className="btn btn-primary btn-lg px-4" disabled={submitting}>
             {submitting ? (
               <>
                 <span className="spinner-border spinner-border-sm me-2" role="status"></span>
@@ -599,24 +515,6 @@ export default function ClaimCreate() {
               </>
             )}
           </button>
-        </div>
-
-        {/* Info Footer */}
-        <div className="mt-4">
-          <div className="card border-0 shadow-sm bg-light">
-            <div className="card-body">
-              <div className="d-flex align-items-start gap-3">
-                <i className="bi bi-info-circle text-primary fs-4"></i>
-                <div>
-                  <h6 className="mb-1 fw-semibold">Claim Submission Workflow</h6>
-                  <p className="mb-0 small text-muted">
-                    This will create a claim claim. If you select an officer, they will be assigned for review.
-                    You can also assign officers later from the claims list.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </form>
     </div>

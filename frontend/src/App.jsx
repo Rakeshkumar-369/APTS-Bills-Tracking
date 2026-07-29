@@ -19,6 +19,7 @@ import RolesAdmin from './pages/ADMIN/RolesAdmin';
 import WorkflowsAdmin from './pages/ADMIN/WorkflowsAdmin';
 import WorkflowDetail from './pages/ADMIN/WorkflowDetail';
 import PurchaseOrdersAdmin from './pages/ADMIN/PurchaseOrdersAdmin';
+
 // Other Pages
 import Login from './pages/Login';
 import UnifiedDashboard from './pages/UnifiedDashboard';
@@ -29,6 +30,10 @@ import MyClaims from './pages/MyClaims';
 import ClaimDetail from './pages/ClaimDetail';
 import MatchInvoice from './pages/MatchInvoice';
 import PdfViewerPage from './pages/PdfViewerPage';
+
+// New Vendor Flow Pages
+import VendorProjectPOs from './pages/VendorProjectPOs';
+import VendorPOClaimsHistory from './pages/VendorPOClaimsHistory';
 
 // Loading Screen Component
 function LoadingScreen() {
@@ -89,7 +94,16 @@ export default function App() {
           <Route path="/vendor" element={<UnifiedLayout />}>
             <Route index element={<UnifiedDashboard />} />
             <Route path="claims" element={<MyClaims />} />
+            
+            {/* Step 1: Projects List */}
             <Route path="claims/create" element={<ClaimCreate />} />
+            
+            {/* Step 2: POs under Selected Project */}
+            <Route path="claims/project/:projectId" element={<VendorProjectPOs />} />
+            
+            {/* Step 3: Previously Submitted Claims under Selected PO */}
+            <Route path="claims/project/:projectId/po/:poId" element={<VendorPOClaimsHistory />} />
+
             <Route path="claims/:id" element={<ClaimDetail />} />
             <Route path="claims/:id/resubmit" element={<ResubmitClaim />} />
             <Route path="*" element={<Navigate to="/vendor" replace />} />
