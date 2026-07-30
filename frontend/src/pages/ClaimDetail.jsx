@@ -1,15 +1,9 @@
 // src/pages/ClaimDetail.jsx
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { claimsService } from '../services';
+import { claimsService, usersService } from '../services';
 import { useAuth } from '../context/AuthContext';
 import { StatusBadge } from './Inbox';
-
-const ACTIONS = {
-  forward: { label: 'Forward', verb: 'forward', tone: 'primary', icon: 'bi-arrow-right-circle' },
-  sendback: { label: 'Send Back', verb: 'sendback', tone: 'danger', icon: 'bi-arrow-left-circle' },
-  resubmit: { label: 'Re-submit', verb: 'resubmit', tone: 'success', icon: 'bi-arrow-counterclockwise' },
-};
 
 export default function ClaimDetail() {
   const { id } = useParams();
@@ -21,27 +15,31 @@ export default function ClaimDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const [remarks, setRemarks] = useState('');
-  const [activeAction, setActiveAction] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
+  // Manual assignment states
+  const [officers, setOfficers] = useState([]);
+  const [selectedOfficerId, setSelectedOfficerId] = useState('');
+  const [assignRemarks, setAssignRemarks] = useState('');
+  const [assignSubmitting, setAssignSubmitting] = useState(false);
+  const [pullBackSubmitting, setPullBackSubmitting] = useState(false);
   const [actionError, setActionError] = useState('');
 
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
+  // Load claim data
   const load = useCallback(async () => {
     if (!id) {
       setError('No claim ID provided');
       setLoading(false);
       return;
     }
-    
+
     setLoading(true);
     setError('');
     try {
       const claimData = await claimsService.get(id, { includeDetails: true });
-      
+
       let claim = null;
       if (claimData) {
         if (Array.isArray(claimData) && claimData.length > 0) {
@@ -54,15 +52,15 @@ export default function ClaimDetail() {
           claim = claimData;
         }
       }
-      
+
       if (!claim) {
         setError('Claim data not found');
         setLoading(false);
         return;
       }
-      
+
       setPkg(claim);
-      
+
       try {
         const historyData = await claimsService.getHistory(id);
         let historyArray = [];
@@ -78,7 +76,6 @@ export default function ClaimDetail() {
         console.warn('Could not fetch history:', historyErr);
         setHistory([]);
       }
-      
     } catch (err) {
       console.error('❌ ClaimDetail load error:', err);
       setError(err.message || 'Failed to load claim.');
@@ -86,6 +83,21 @@ export default function ClaimDetail() {
       setLoading(false);
     }
   }, [id]);
+
+  // Load officers for assignment
+  const loadOfficers = useCallback(async () => {
+    if (!usersService || typeof usersService.getOfficers !== 'function') {
+      console.warn('usersService.getOfficers not available');
+      return;
+    }
+    try {
+      const data = await usersService.getOfficers();
+      setOfficers(data || []);
+    } catch (err) {
+      console.warn('Could not fetch officers:', err);
+      setOfficers([]);
+    }
+  }, []);
 
   useEffect(() => {
     if (id) {
@@ -96,34 +108,62 @@ export default function ClaimDetail() {
     }
   }, [id, load]);
 
-  async function submitAction(e) {
+  // Load officers as soon as claim is loaded
+  useEffect(() => {
+    if (pkg) {
+      loadOfficers();
+    }
+  }, [pkg, loadOfficers]);
+
+  // --- Action handlers ---
+
+  async function handleAssign(e) {
     e.preventDefault();
-    if (remarks.trim().length < 3) {
+    if (!selectedOfficerId) {
+      setActionError('Please select an officer.');
+      return;
+    }
+    if (assignRemarks.trim().length < 3) {
       setActionError('Remarks must be at least 3 characters.');
       return;
     }
-    setSubmitting(true);
+    setAssignSubmitting(true);
     setActionError('');
     try {
-      if (activeAction === 'forward') {
-        await claimsService.forward(id, remarks.trim());
-        setSuccessMessage('Claim forwarded successfully!');
-      } else if (activeAction === 'sendback') {
-        await claimsService.sendback(id, remarks.trim());
-        setSuccessMessage('Claim sent back successfully!');
-      } else if (activeAction === 'resubmit') {
-        await claimsService.resubmit(id, remarks.trim());
-        setSuccessMessage('Claim resubmitted successfully!');
-      }
-      setRemarks('');
-      setActiveAction(null);
+      await claimsService.assign(id, selectedOfficerId, assignRemarks.trim());
+      setSuccessMessage('Claim assigned successfully!');
+      setSelectedOfficerId('');
+      setAssignRemarks('');
       await load();
       setTimeout(() => setSuccessMessage(''), 5000);
     } catch (err) {
-      console.error('Action error:', err);
-      setActionError(err.message || 'Action failed.');
+      console.error('Assign error:', err);
+      setActionError(err.message || 'Assignment failed.');
     } finally {
-      setSubmitting(false);
+      setAssignSubmitting(false);
+    }
+  }
+
+  async function handlePullBack(e) {
+    e.preventDefault();
+    if (!confirm('Pull back this claim from the current officer?')) return;
+    if (assignRemarks.trim().length < 3) {
+      setActionError('Remarks must be at least 3 characters.');
+      return;
+    }
+    setPullBackSubmitting(true);
+    setActionError('');
+    try {
+      await claimsService.pullBack(id, assignRemarks.trim());
+      setSuccessMessage('Claim pulled back successfully!');
+      setAssignRemarks('');
+      await load();
+      setTimeout(() => setSuccessMessage(''), 5000);
+    } catch (err) {
+      console.error('Pull-back error:', err);
+      setActionError(err.message || 'Pull-back failed.');
+    } finally {
+      setPullBackSubmitting(false);
     }
   }
 
@@ -159,6 +199,15 @@ export default function ClaimDetail() {
     }
   }
 
+  // --- Derived booleans ---
+  const isVendor = user?.role_name === 'Vendor' || user?.role_rank === 10;
+  const isAdmin = user?.role_rank === 100;
+  const canUpload = isVendor || isAdmin;
+
+  // Pull-back availability: last history entry's from_user_id === current user
+  const lastHistory = history.length > 0 ? history[history.length - 1] : null;
+  const canPullBack = lastHistory && lastHistory.from_user_id === user?.id;
+
   if (loading) {
     return (
       <div className="d-flex justify-content-center align-items-center vh-100 bg-light">
@@ -189,13 +238,6 @@ export default function ClaimDetail() {
     );
   }
 
-  const isVendor = user?.role_name === 'Vendor' || user?.role_rank === 10;
-  const isAdmin = user?.role_rank === 100;
-  const canUpload = isVendor || isAdmin;
-  const canForward = hasPermission('claim.forward') || isAdmin;
-  const canSendback = hasPermission('claim.sendback') || isAdmin;
-  const canResubmit = isVendor && pkg.status?.toUpperCase() === 'SENT_BACK';
-
   // Find attached PDF file
   const pdfFile = (pkg.files || []).find((f) =>
     f.original_name?.toLowerCase().endsWith('.pdf') || f.file_type?.includes('pdf')
@@ -205,9 +247,11 @@ export default function ClaimDetail() {
     ? `/api/claims/${id}/files/${pdfFile.id}/download`
     : pkg.file_url || null;
 
+  const isManual = !pkg.workflow_id; // used only for display
+
   return (
     <div className="d-flex flex-column vh-100 bg-body-tertiary overflow-hidden">
-      
+
       {/* Workspace Navigation Header */}
       <header className="bg-white border-bottom px-4 py-2.5 d-flex justify-content-between align-items-center shadow-sm z-2">
         <div className="d-flex align-items-center gap-3">
@@ -221,7 +265,7 @@ export default function ClaimDetail() {
           </div>
           <StatusBadge status={pkg.status} />
           <span className="badge bg-light text-dark border fw-medium px-2 py-1">
-            Stage: {pkg.current_step_name || pkg.current_step?.step_name || 'In Review'}
+            Stage: {pkg.current_step_name || pkg.current_step?.step_name || (isManual ? 'Manual Assignment' : 'In Review')}
           </span>
         </div>
 
@@ -240,7 +284,7 @@ export default function ClaimDetail() {
 
       {/* Workspace Main Grid Layout */}
       <div className="d-flex flex-grow-1 overflow-hidden">
-        
+
         {/* Left Pane: Embedded PDF Viewer (60% width) */}
         <div className="border-end bg-secondary-subtle d-flex flex-column h-100" style={{ flex: '0 0 60%', width: '60%' }}>
           {pdfUrl ? (
@@ -262,7 +306,7 @@ export default function ClaimDetail() {
 
         {/* Right Pane: Summary, Officer Actions & History (40% width) */}
         <div className="bg-white d-flex flex-column h-100 overflow-y-auto p-4" style={{ flex: '0 0 40%', width: '40%' }}>
-          
+
           {successMessage && (
             <div className="alert alert-success alert-dismissible fade show border-0 shadow-sm py-2 px-3 mb-3 small">
               <i className="bi bi-check-circle-fill me-2"></i>
@@ -308,7 +352,7 @@ export default function ClaimDetail() {
                 </div>
                 <div className="col-6">
                   <span className="text-muted d-block small" style={{ fontSize: '0.75rem' }}>Workflow</span>
-                  <span className="text-dark fw-medium text-truncate d-block">{pkg.workflow_name || pkg.workflow?.workflow_name || 'N/A'}</span>
+                  <span className="text-dark fw-medium text-truncate d-block">{pkg.workflow_name || pkg.workflow?.workflow_name || (isManual ? 'Manual Assignment' : 'N/A')}</span>
                 </div>
                 {pkg.remarks && (
                   <div className="col-12 border-top pt-2 mt-1">
@@ -320,7 +364,7 @@ export default function ClaimDetail() {
             </div>
           </div>
 
-          {/* Section 2: Officer Review Panel */}
+          {/* Section 2: Officer Review Panel (always shows assignment + pullback) */}
           <div className="card border border-primary-subtle shadow-sm mb-3 bg-body-highlight">
             <div className="card-body p-3">
               <h6 className="card-subtitle text-uppercase text-primary fw-bold mb-3 small d-flex align-items-center">
@@ -328,107 +372,92 @@ export default function ClaimDetail() {
                 Officer Review Decision
               </h6>
 
-              {!activeAction ? (
-                <div className="d-grid gap-2">
-                  {canForward && pkg.status?.toUpperCase() !== 'COMPLETED' && (
-                    <button 
-                      type="button"
-                      className="btn btn-primary fw-semibold py-2 d-flex align-items-center justify-content-center gap-2"
-                      onClick={() => setActiveAction('forward')}
+              {/* Officer Assignment */}
+              <div className="d-flex flex-column gap-3">
+                <div>
+                  <label className="form-label small fw-semibold text-dark mb-1">
+                    Assign to Officer <span className="text-danger">*</span>
+                  </label>
+                  <div className="d-flex gap-2">
+                    <select
+                      className="form-select form-select-sm flex-grow-1"
+                      value={selectedOfficerId}
+                      onChange={(e) => setSelectedOfficerId(e.target.value)}
+                      disabled={assignSubmitting || pullBackSubmitting}
                     >
-                      <i className="bi bi-arrow-right-circle fs-6"></i>
-                      <span>Forward to Next Step</span>
-                    </button>
-                  )}
-                  {canSendback && pkg.status?.toUpperCase() !== 'COMPLETED' && (
-                    <button 
-                      type="button"
-                      className="btn btn-outline-danger fw-semibold py-2 d-flex align-items-center justify-content-center gap-2"
-                      onClick={() => setActiveAction('sendback')}
-                    >
-                      <i className="bi bi-arrow-left-circle fs-6"></i>
-                      <span>Send Back</span>
-                    </button>
-                  )}
-                  {canResubmit && (
-                    <button 
-                      type="button"
-                      className="btn btn-success fw-semibold py-2 d-flex align-items-center justify-content-center gap-2"
-                      onClick={() => setActiveAction('resubmit')}
-                    >
-                      <i className="bi bi-arrow-counterclockwise fs-6"></i>
-                      <span>Re-submit Claim</span>
-                    </button>
-                  )}
-                  {!canForward && !canSendback && !canResubmit && (
-                    <div className="alert alert-info mb-0 small py-2">
-                      <i className="bi bi-info-circle me-1"></i>
-                      No pending approval actions required for your role at this stage.
-                    </div>
-                  )}
-                  {pkg.status?.toUpperCase() === 'COMPLETED' && (
-                    <div className="alert alert-success mb-0 small py-2">
-                      <i className="bi bi-check-circle-fill me-1"></i>
-                      This claim has completed the full verification pipeline.
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <form onSubmit={submitAction} className="d-flex flex-column gap-2">
-                  <div>
-                    <label className="form-label small fw-semibold text-dark mb-1">
-                      Officer Remarks <span className="text-danger">*</span> 
-                      <span className="badge bg-secondary-subtle text-dark ms-1 font-normal">
-                        {ACTIONS[activeAction].label}
-                      </span>
-                    </label>
-                    <textarea
-                      className="form-control form-control-sm"
-                      rows={3}
-                      value={remarks}
-                      onChange={(e) => setRemarks(e.target.value)}
-                      minLength={3}
-                      required
-                      autoFocus
-                      placeholder={`Enter notes for ${ACTIONS[activeAction].label.toLowerCase()}...`}
-                    />
-                  </div>
-                  <div className="d-flex gap-2 pt-1">
+                      <option value="">Select an officer...</option>
+                      {officers.map((off) => (
+                        <option key={off.id} value={off.id}>
+                          {off.name} ({off.email})
+                        </option>
+                      ))}
+                    </select>
                     <button
-                      type="submit"
-                      className={`btn btn-sm btn-${ACTIONS[activeAction].tone} fw-bold flex-grow-1 py-1.5`}
-                      disabled={submitting}
+                      type="button"
+                      className="btn btn-sm btn-primary text-nowrap"
+                      onClick={handleAssign}
+                      disabled={!selectedOfficerId || assignSubmitting || pullBackSubmitting}
                     >
-                      {submitting ? (
-                        <>
-                          <span className="spinner-border spinner-border-sm me-1"></span>
-                          Processing...
-                        </>
+                      {assignSubmitting ? (
+                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                      ) : (
+                        'Assign'
+                      )}
+                    </button>
+                  </div>
+                  <textarea
+                    className="form-control form-control-sm mt-2"
+                    rows={2}
+                    placeholder="Assignment remarks (min 3 characters)..."
+                    value={assignRemarks}
+                    onChange={(e) => setAssignRemarks(e.target.value)}
+                    disabled={assignSubmitting || pullBackSubmitting}
+                  />
+                </div>
+
+                {/* Pull Back */}
+                {canPullBack && (
+                  <div>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary w-100"
+                      onClick={handlePullBack}
+                      disabled={pullBackSubmitting || assignSubmitting}
+                    >
+                      {pullBackSubmitting ? (
+                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                       ) : (
                         <>
-                          <i className={`${ACTIONS[activeAction].icon} me-1`}></i>
-                          Confirm {ACTIONS[activeAction].label}
+                          <i className="bi bi-arrow-return-left me-1"></i>
+                          Pull Back from Current Officer
                         </>
                       )}
                     </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-secondary py-1.5 px-3"
-                      onClick={() => {
-                        setActiveAction(null);
-                        setRemarks('');
-                        setActionError('');
-                      }}
-                    >
-                      Cancel
-                    </button>
+                    <p className="small text-muted mt-1 mb-0">
+                      You can pull back if you are the one who assigned this claim to the current officer.
+                    </p>
                   </div>
-                </form>
-              )}
+                )}
+
+                {!canPullBack && pkg.status?.toUpperCase() !== 'COMPLETED' && (
+                  <div className="alert alert-info mb-0 small py-2">
+                    <i className="bi bi-info-circle me-1"></i>
+                    {pkg.current_assigned_user_id
+                      ? `Currently assigned to: ${pkg.current_assigned_user_name || 'Officer'}`
+                      : 'No officer assigned yet.'}
+                  </div>
+                )}
+                {pkg.status?.toUpperCase() === 'COMPLETED' && (
+                  <div className="alert alert-success mb-0 small py-2">
+                    <i className="bi bi-check-circle-fill me-1"></i>
+                    This claim is complete.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Section 3: Document Attachments */}
+          {/* Section 3: Document Attachments (unchanged) */}
           <div className="card border shadow-sm mb-3">
             <div className="card-body p-3">
               <h6 className="card-subtitle text-uppercase text-secondary fw-bold mb-2.5 small">
@@ -451,8 +480,8 @@ export default function ClaimDetail() {
                       </span>
                     </button>
                     {(isAdmin || isVendor) && (
-                      <button 
-                        className="btn btn-sm btn-outline-danger py-0 px-1" 
+                      <button
+                        className="btn btn-sm btn-outline-danger py-0 px-1"
                         onClick={() => handleDeleteFile(f.id)}
                         title="Delete file"
                       >
@@ -482,7 +511,7 @@ export default function ClaimDetail() {
             </div>
           </div>
 
-          {/* Section 4: Audit & Action History */}
+          {/* Section 4: Audit & Action History (unchanged) */}
           <div className="card border shadow-sm">
             <div className="card-body p-3">
               <h6 className="card-subtitle text-uppercase text-secondary fw-bold mb-3 small">
@@ -500,6 +529,9 @@ export default function ClaimDetail() {
                           <span className="badge bg-secondary me-1.5">{h.action}</span>
                           {h.from_step_name && <span className="text-muted">{h.from_step_name} → </span>}
                           {h.to_step_name && <span className="text-dark">{h.to_step_name}</span>}
+                          {h.to_user_name && (
+                            <span className="text-muted">→ {h.to_user_name}</span>
+                          )}
                         </span>
                         <span className="text-muted" style={{ fontSize: '0.7rem' }}>
                           {h.created_at ? new Date(h.created_at).toLocaleDateString() : ''}
