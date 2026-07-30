@@ -4,7 +4,7 @@ class ClaimRepository {
   // ── Claims ──
 
   async getAll({ limit = 50, offset = 0, status, vendor_id, project_id, workflow_id, po_id, current_step_id, is_completed, search, involved_role_id, involved_user_id } = {}) {
-    let conditions = [];
+    let conditions = ['c.is_deleted = false'];
     let params = [];
 
     if (status) { conditions.push('c.status = ?'); params.push(status); }
@@ -19,10 +19,8 @@ class ClaimRepository {
       params.push(`%${search}%`, `%${search}%`);
     }
     if (involved_role_id && involved_user_id) {
-      // Non-vendor, non-admin users: only see claims they're involved with
-      // (their role appears in the workflow steps, they've acted on it, or they're the current assignee)
       conditions.push(`(
-        EXISTS (SELECT 1 FROM workflow_steps ws WHERE ws.workflow_id = c.workflow_id AND ws.required_role_id = ?)
+        EXISTS (SELECT 1 FROM workflow_steps ws WHERE ws.workflow_id = c.workflow_id AND ws.required_role_id = ? AND ws.is_deleted = false)
         OR EXISTS (SELECT 1 FROM claim_history ch WHERE ch.claim_id = c.id AND ch.performed_by = ?)
         OR c.current_assigned_user_id = ?
       )`);
@@ -42,12 +40,12 @@ class ClaimRepository {
       FROM claims c
       JOIN vendors v ON c.vendor_id = v.id
       JOIN projects pr ON c.project_id = pr.id
-      LEFT JOIN workflow_master wm ON c.workflow_id = wm.id
-      LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id
-      LEFT JOIN purchase_orders po ON c.po_id = po.id
-      LEFT JOIN users u ON c.created_by = u.id
-      LEFT JOIN users cu ON c.vendor_contact_user_id = cu.id
-      LEFT JOIN users au ON c.current_assigned_user_id = au.id
+      LEFT JOIN workflow_master wm ON c.workflow_id = wm.id AND wm.is_deleted = false
+      LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id AND ws.is_deleted = false
+      LEFT JOIN purchase_orders po ON c.po_id = po.id AND po.is_deleted = false
+      LEFT JOIN users u ON c.created_by = u.id AND u.is_deleted = false
+      LEFT JOIN users cu ON c.vendor_contact_user_id = cu.id AND cu.is_deleted = false
+      LEFT JOIN users au ON c.current_assigned_user_id = au.id AND au.is_deleted = false
       ${whereClause}
       ORDER BY c.created_at DESC
       LIMIT ? OFFSET ?
@@ -75,13 +73,13 @@ class ClaimRepository {
       FROM claims c
       JOIN vendors v ON c.vendor_id = v.id
       JOIN projects pr ON c.project_id = pr.id
-      LEFT JOIN workflow_master wm ON c.workflow_id = wm.id
-      LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id
-      LEFT JOIN purchase_orders po ON c.po_id = po.id
-      LEFT JOIN users u ON c.created_by = u.id
-      LEFT JOIN users cu ON c.vendor_contact_user_id = cu.id
-      LEFT JOIN users au ON c.current_assigned_user_id = au.id
-      WHERE c.id = ?
+      LEFT JOIN workflow_master wm ON c.workflow_id = wm.id AND wm.is_deleted = false
+      LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id AND ws.is_deleted = false
+      LEFT JOIN purchase_orders po ON c.po_id = po.id AND po.is_deleted = false
+      LEFT JOIN users u ON c.created_by = u.id AND u.is_deleted = false
+      LEFT JOIN users cu ON c.vendor_contact_user_id = cu.id AND cu.is_deleted = false
+      LEFT JOIN users au ON c.current_assigned_user_id = au.id AND au.is_deleted = false
+      WHERE c.id = ? AND c.is_deleted = false
     `, [id]);
     return rows[0];
   }
@@ -129,8 +127,8 @@ class ClaimRepository {
     const [rows] = await pool.query(
       `SELECT cf.*, u.name AS uploaded_by_name
        FROM claim_files cf
-       LEFT JOIN users u ON cf.uploaded_by = u.id
-       WHERE cf.claim_id = ?
+       LEFT JOIN users u ON cf.uploaded_by = u.id AND u.is_deleted = false
+       WHERE cf.claim_id = ? AND cf.is_deleted = false
        ORDER BY cf.created_at DESC`,
       [claimId]
     );
@@ -147,9 +145,8 @@ class ClaimRepository {
   }
 
   async deleteFile(fileId) {
-    const [rows] = await pool.query('SELECT * FROM claim_files WHERE id = ?', [fileId]);
-    await pool.query('DELETE FROM claim_files WHERE id = ?', [fileId]);
-    return rows[0];
+    await pool.query('UPDATE claim_files SET is_deleted = 1 WHERE id = ?', [fileId]);
+    return { id: fileId, is_deleted: 1 };
   }
 
   // ── Claim History ──
@@ -159,27 +156,32 @@ class ClaimRepository {
       SELECT ch.*,
              fs.step_name AS from_step_name,
              ts.step_name AS to_step_name,
-             fu.name AS forwarded_to_user_name,
+             fu.name AS from_user_name,
+             tu.name AS to_user_name,
+             fwd.name AS forwarded_to_user_name,
              u.name AS performed_by_name,
              r.role_name AS performed_by_role_name
       FROM claim_history ch
-      LEFT JOIN workflow_steps fs ON ch.from_step_id = fs.id
-      LEFT JOIN workflow_steps ts ON ch.to_step_id = ts.id
-      LEFT JOIN users fu ON ch.forwarded_to_user_id = fu.id
-      LEFT JOIN users u ON ch.performed_by = u.id
-      LEFT JOIN roles r ON ch.performed_by_role_id = r.id
+      LEFT JOIN workflow_steps fs ON ch.from_step_id = fs.id AND fs.is_deleted = false
+      LEFT JOIN workflow_steps ts ON ch.to_step_id = ts.id AND ts.is_deleted = false
+      LEFT JOIN users fu ON ch.from_user_id = fu.id AND fu.is_deleted = false
+      LEFT JOIN users tu ON ch.to_user_id = tu.id AND tu.is_deleted = false
+      LEFT JOIN users fwd ON ch.forwarded_to_user_id = fwd.id AND fwd.is_deleted = false
+      LEFT JOIN users u ON ch.performed_by = u.id AND u.is_deleted = false
+      LEFT JOIN roles r ON ch.performed_by_role_id = r.id AND r.is_deleted = false
       WHERE ch.claim_id = ?
       ORDER BY ch.created_at ASC
     `, [claimId]);
     return rows;
   }
 
-  async createHistory({ claim_id, from_step_id, to_step_id, forwarded_to_user_id, action, action_label, performed_by, performed_by_role_id, remarks }) {
+  async createHistory({ claim_id, from_step_id, to_step_id, from_user_id, to_user_id, forwarded_to_user_id, action, action_label, performed_by, performed_by_role_id, remarks }) {
     const [result] = await pool.query(
-      `INSERT INTO claim_history (claim_id, from_step_id, to_step_id, forwarded_to_user_id, action, action_label,
-        performed_by, performed_by_role_id, remarks)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [claim_id, from_step_id || null, to_step_id || null, forwarded_to_user_id || null, action, action_label || null,
+      `INSERT INTO claim_history (claim_id, from_step_id, to_step_id, from_user_id, to_user_id, forwarded_to_user_id,
+        action, action_label, performed_by, performed_by_role_id, remarks)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [claim_id, from_step_id || null, to_step_id || null, from_user_id || null, to_user_id || null,
+       forwarded_to_user_id || null, action, action_label || null,
        performed_by, performed_by_role_id, remarks]
     );
     return result.insertId;
@@ -193,7 +195,7 @@ class ClaimRepository {
     const [rows] = await pool.query(`
       SELECT ch.*, fu.name AS target_user_name
       FROM claim_history ch
-      LEFT JOIN users fu ON ch.forwarded_to_user_id = fu.id
+      LEFT JOIN users fu ON ch.forwarded_to_user_id = fu.id AND fu.is_deleted = false
       WHERE ch.claim_id = ?
         AND ch.action = 'FORWARD'
         AND ch.performed_by = ?
@@ -207,8 +209,6 @@ class ClaimRepository {
   // ── Inbox Queries ──
 
   async getInbox(roleId, userId, { limit = 50, offset = 0 } = {}) {
-    // Combined inbox: workflow-based (role matches current step)
-    // and non-workflow (user is the current assigned user)
     const [rows] = await pool.query(`
       SELECT c.*, v.vendor_name, pr.project_name, wm.workflow_name,
              ws.step_name AS current_step_name, ws.step_code AS current_step_code,
@@ -219,11 +219,11 @@ class ClaimRepository {
       FROM claims c
       JOIN vendors v ON c.vendor_id = v.id
       JOIN projects pr ON c.project_id = pr.id
-      LEFT JOIN workflow_master wm ON c.workflow_id = wm.id
-      LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id
-      LEFT JOIN purchase_orders po ON c.po_id = po.id
-      LEFT JOIN users cu ON c.vendor_contact_user_id = cu.id
-      LEFT JOIN users au ON c.current_assigned_user_id = au.id
+      LEFT JOIN workflow_master wm ON c.workflow_id = wm.id AND wm.is_deleted = false
+      LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id AND ws.is_deleted = false
+      LEFT JOIN purchase_orders po ON c.po_id = po.id AND po.is_deleted = false
+      LEFT JOIN users cu ON c.vendor_contact_user_id = cu.id AND cu.is_deleted = false
+      LEFT JOIN users au ON c.current_assigned_user_id = au.id AND au.is_deleted = false
       WHERE (
         (c.workflow_id IS NOT NULL AND ws.required_role_id = ?)
         OR
@@ -238,7 +238,7 @@ class ClaimRepository {
     const [countResult] = await pool.query(`
       SELECT COUNT(*) as total
       FROM claims c
-      LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id
+      LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id AND ws.is_deleted = false
       WHERE (
         (c.workflow_id IS NOT NULL AND ws.required_role_id = ?)
         OR
@@ -261,8 +261,8 @@ class ClaimRepository {
       FROM claims c
       JOIN vendors v ON c.vendor_id = v.id
       JOIN projects pr ON c.project_id = pr.id
-      LEFT JOIN workflow_master wm ON c.workflow_id = wm.id
-      LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id
+      LEFT JOIN workflow_master wm ON c.workflow_id = wm.id AND wm.is_deleted = false
+      LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id AND ws.is_deleted = false
       WHERE c.id IN (
         SELECT claim_id FROM claim_history WHERE performed_by = ?
       )
@@ -287,7 +287,7 @@ class ClaimRepository {
         SUM(CASE WHEN c.status = 'IN_PROGRESS' THEN 1 ELSE 0 END) AS pending,
         SUM(CASE WHEN c.status = 'SENT_BACK' THEN 1 ELSE 0 END) AS returned
       FROM claims c
-      LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id
+      LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id AND ws.is_deleted = false
       WHERE (
         (c.workflow_id IS NOT NULL AND ws.required_role_id = ?)
         OR

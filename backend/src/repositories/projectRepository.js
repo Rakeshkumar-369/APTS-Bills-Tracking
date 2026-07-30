@@ -2,7 +2,7 @@ const pool = require('../config/db');
 
 class ProjectRepository {
   async getAll({ limit = 50, offset = 0, search, is_active, vendor_id } = {}) {
-    let conditions = [];
+    let conditions = ['p.is_deleted = false'];
     let joins = [];
     let params = [];
 
@@ -19,13 +19,13 @@ class ProjectRepository {
       params.push(vendor_id);
     }
 
-    const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
     const joinClause = joins.join(' ');
 
     const [rows] = await pool.query(
       `SELECT p.*, wm.workflow_name
        FROM projects p
-       LEFT JOIN workflow_master wm ON p.workflow_id = wm.id
+       LEFT JOIN workflow_master wm ON p.workflow_id = wm.id AND wm.is_deleted = false
        ${joinClause}
        ${whereClause}
        ORDER BY p.project_name ASC LIMIT ? OFFSET ?`,
@@ -46,8 +46,8 @@ class ProjectRepository {
     const [rows] = await pool.query(
       `SELECT p.*, wm.workflow_name
        FROM projects p
-       LEFT JOIN workflow_master wm ON p.workflow_id = wm.id
-       WHERE p.id = ?`,
+       LEFT JOIN workflow_master wm ON p.workflow_id = wm.id AND wm.is_deleted = false
+       WHERE p.id = ? AND p.is_deleted = false`,
       [id]
     );
     return rows[0];
@@ -81,7 +81,7 @@ class ProjectRepository {
   }
 
   async delete(id) {
-    await pool.query('UPDATE projects SET is_active = 0 WHERE id = ?', [id]);
+    await pool.query('UPDATE projects SET is_deleted = 1 WHERE id = ?', [id]);
   }
 
   // ── Vendor-Project Assignment ──
@@ -90,9 +90,9 @@ class ProjectRepository {
     const [rows] = await pool.query(
       `SELECT p.*, wm.workflow_name
        FROM projects p
-       LEFT JOIN workflow_master wm ON p.workflow_id = wm.id
+       LEFT JOIN workflow_master wm ON p.workflow_id = wm.id AND wm.is_deleted = false
        JOIN vendor_projects vp ON p.id = vp.project_id
-       WHERE vp.vendor_id = ? AND p.is_active = 1
+       WHERE vp.vendor_id = ? AND p.is_active = 1 AND p.is_deleted = false
        ORDER BY p.project_name ASC`,
       [vendorId]
     );

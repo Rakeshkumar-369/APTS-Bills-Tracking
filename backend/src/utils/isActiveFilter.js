@@ -6,6 +6,9 @@
  * Default: only active records (is_active = 1).
  * Only Super Admin can override by passing ?is_active=0 (or ?is_active=false).
  *
+ * The `is_deleted` column is separate — records with is_deleted = 1 are NEVER
+ * returned regardless of role, enforced at the repository level.
+ *
  * @param {object} user - The authenticated user object (req.user).
  * @param {string|undefined} rawIsActive - The raw query param value from req.query.
  * @returns {number} 1 (active only) or 0 (inactive only).

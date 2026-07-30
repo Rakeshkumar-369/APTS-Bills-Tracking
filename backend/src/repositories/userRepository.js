@@ -16,7 +16,8 @@ class UserRepository {
       FROM users u
       JOIN roles r ON u.role_id = r.id
       LEFT JOIN vendors v ON u.vendor_id = v.id
-      WHERE u.email = ? AND u.is_active = true AND r.is_active = true
+      WHERE u.email = ? AND u.is_active = true AND u.is_deleted = false
+        AND r.is_active = true
     `, [email]);
 
     if (rows[0]) {
@@ -33,7 +34,7 @@ class UserRepository {
       FROM users u
       JOIN roles r ON u.role_id = r.id
       LEFT JOIN vendors v ON u.vendor_id = v.id
-      WHERE u.id = ? AND u.is_active = true
+      WHERE u.id = ? AND u.is_active = true AND u.is_deleted = false
     `, [id]);
 
     if (rows[0]) {
@@ -152,9 +153,14 @@ class UserRepository {
 
   // ── USER MANAGEMENT ──
 
+  /**
+   * Find user by email regardless of is_deleted status.
+   * Used for checking duplicates on create — excludes only is_deleted=1 so
+   * users CAN register with an email that belonged to a deleted account.
+   */
   async findByEmailAll(email) {
     const [rows] = await pool.query(
-      'SELECT id, email, is_active FROM users WHERE email = ?',
+      'SELECT id, email, is_active, is_deleted FROM users WHERE email = ? AND is_deleted = false',
       [email]
     );
     return rows[0];
@@ -170,7 +176,7 @@ class UserRepository {
   }
 
   async getAllUsers({ limit, offset, search, role_id, is_active, vendor_id } = {}) {
-    let whereConditions = [];
+    let whereConditions = ['u.is_deleted = false'];
     let params = [];
 
     if (search) {
@@ -190,7 +196,7 @@ class UserRepository {
       params.push(vendor_id);
     }
 
-    const whereClause = whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : '';
+    const whereClause = 'WHERE ' + whereConditions.join(' AND ');
 
     const [rows] = await pool.query(`
       SELECT u.id, u.name, u.email, u.role_id, r.role_name, r.role_rank,
@@ -222,7 +228,7 @@ class UserRepository {
       SELECT u.id, u.name, r.role_name
       FROM users u
       JOIN roles r ON u.role_id = r.id
-      WHERE u.is_active = true
+      WHERE u.is_active = true AND u.is_deleted = false
         AND r.is_active = true
         AND r.role_name NOT IN ('Super Admin', 'Admin', 'Vendor')
       ORDER BY r.role_rank ASC, u.name ASC
@@ -252,14 +258,14 @@ class UserRepository {
   }
 
   async deleteUser(id) {
-    await pool.query('UPDATE users SET is_active = 0 WHERE id = ?', [id]);
+    await pool.query('UPDATE users SET is_deleted = 1 WHERE id = ?', [id]);
   }
 
   async findVendorUsers(vendorId) {
     const [rows] = await pool.query(`
       SELECT u.id, u.name, u.email, u.designation, u.phone
       FROM users u
-      WHERE u.vendor_id = ? AND u.is_active = true
+      WHERE u.vendor_id = ? AND u.is_active = true AND u.is_deleted = false
     `, [vendorId]);
     return rows;
   }

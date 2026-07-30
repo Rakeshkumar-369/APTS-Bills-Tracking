@@ -304,7 +304,7 @@ def run_all_tests():
     if po_admin_ok and test_vendor_id and test_project_wf_id:
         po_resp = po_admin.post("/purchase-orders", {
             "project_id": test_project_wf_id,
-            "vendor_id": test_vendor_id,
+            "vendor_ids": [test_vendor_id],
             "description": "Test PO for workflow project",
             "amount": 500000.00
         }, "PO Admin: Create PO for workflow project")
@@ -321,7 +321,7 @@ def run_all_tests():
             "/purchase-orders",
             files={
                 "project_id": (None, str(test_project_wf_id)),
-                "vendor_id": (None, str(test_vendor_id)),
+                "vendor_ids": (None, str(test_vendor_id)),
                 "description": (None, "PO with file attachment"),
                 "amount": (None, "100000.00"),
                 "files": ("po_doc_create.pdf", f, "application/pdf")
@@ -344,7 +344,7 @@ def run_all_tests():
     if po_admin_ok and test_vendor_id and test_project_nwf_id:
         po_resp_nwf = po_admin.post("/purchase-orders", {
             "project_id": test_project_nwf_id,
-            "vendor_id": test_vendor_id,
+            "vendor_ids": [test_vendor_id],
             "description": "Test PO for manual project",
             "amount": 250000.00
         }, "PO Admin: Create PO for non-workflow project")
@@ -430,7 +430,7 @@ def run_all_tests():
                 po_admin.delete(f"/purchase-orders/{po_id_wf}/files/{reup_id}", "Cleanup PO file")
 
     # Permission check: PM should FAIL to create POs
-    pm.post("/purchase-orders", {"project_id": 1, "vendor_id": 1},
+    pm.post("/purchase-orders", {"project_id": 1, "vendor_ids": [1]},
             "PM: Cannot create PO (permission)")
 
     # ── 6. Super Admin: Workflow Management ────────────────────────────────
@@ -633,8 +633,32 @@ def run_all_tests():
                 f"Status: {status}, Completed: {completed}, History entries: {history_count}")
             print("\n  \ud83d\udccb Claim Timeline (Workflow):")
             for h in claim_data.get("history", []):
+                from_name = h.get('from_user_name', '?')
+                to_name = h.get('to_user_name', '?')
                 print(f"     \u2022 {h.get('action', '?'):12s} | {h.get('performed_by_name', '?'):30s} | "
-                      f"{h.get('action_label', '?'):45s} | \"{h.get('remarks', '')}\"")
+                      f"FROM: {from_name:25s} TO: {to_name:25s} | "
+                      f"{h.get('action_label', '?'):45s}")
+
+            # Verify from_user_id is NEVER null (always tracks who sent it)
+            history_entries = claim_data.get("history", [])
+            all_from_filled = len(history_entries) > 0 and all(
+                h.get('from_user_id') is not None for h in history_entries
+            )
+            log("All history entries have from_user_id", "PASS" if all_from_filled else "FAIL",
+                f"{len(history_entries)} entries checked")
+
+            # Verify that for CREATE action, from_user_id == performed_by
+            create_entry = next((h for h in claim_data.get("history", []) if h.get('action') == 'CREATE'), None)
+            if create_entry:
+                from_matches = create_entry.get('from_user_id') == create_entry.get('performed_by')
+                log("CREATE: from_user_id matches performed_by", "PASS" if from_matches else "FAIL", "")
+
+            # Verify the LAST history entry has from_user_id set (pullback logic)
+            last_entry = claim_data["history"][-1] if claim_data.get("history") else None
+            if last_entry:
+                log("Last history entry has from_user_id for pullback check",
+                    "PASS" if last_entry.get('from_user_id') else "FAIL",
+                    f"from_user_id={last_entry.get('from_user_id')}")
 
     # ── 9. CLAIM MANUAL ASSIGN (Non-Workflow: Assign + Pull-back) ────────
     print("\n\u2500\u2500\u2500 9. CLAIM MANUAL ASSIGN (Non-Workflow) \u2500\u2500\u2500")
@@ -808,7 +832,7 @@ def run_all_tests():
     admin.post("/claims", {
         "vendor_id": 1, "project_id": 1, "po_id": 1,
         "remarks": "Super Admin should not be able to create claims"
-    }, "Super Admin cannot create claims (permission)")
+    }, "Super Admin cannot create claims (expected)")
 
     vendor.post("/vendors", {"vendor_name": "Hack Attempt"}, "Vendor cannot create vendor (permission)")
     pm.post("/users", {"name": "Hack", "email": "hack@test.com", "password": "Test@1234", "role_id": 2},

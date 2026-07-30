@@ -3,14 +3,16 @@ const pool = require('../config/db');
 
 class RoleRepository {
   async getAll({ is_active } = {}) {
-    let query = 'SELECT id, role_name, description, role_rank, permissions, is_active FROM roles';
+    let query = 'SELECT id, role_name, description, role_rank, permissions, is_active, is_deleted FROM roles';
+    const conditions = ['is_deleted = false'];
     const params = [];
 
     if (is_active !== undefined) {
-      query += ' WHERE is_active = ?';
+      conditions.push('is_active = ?');
       params.push(is_active);
     }
 
+    query += ' WHERE ' + conditions.join(' AND ');
     query += ' ORDER BY role_rank DESC';
 
     const [rows] = await pool.query(query, params);
@@ -19,7 +21,7 @@ class RoleRepository {
 
   async getById(id) {
     const [rows] = await pool.query(
-      'SELECT id, role_name, description, role_rank, permissions, is_active FROM roles WHERE id = ?',
+      'SELECT id, role_name, description, role_rank, permissions, is_active, is_deleted FROM roles WHERE id = ? AND is_deleted = false',
       [id]
     );
     return rows[0];
@@ -27,7 +29,7 @@ class RoleRepository {
 
   async getByName(name) {
     const [rows] = await pool.query(
-      'SELECT id FROM roles WHERE role_name = ?',
+      'SELECT id FROM roles WHERE role_name = ? AND is_deleted = false',
       [name]
     );
     return rows[0];
@@ -35,7 +37,7 @@ class RoleRepository {
 
   async getByNameExcludingId(name, excludeId) {
     const [rows] = await pool.query(
-      'SELECT id FROM roles WHERE role_name = ? AND id != ?',
+      'SELECT id FROM roles WHERE role_name = ? AND id != ? AND is_deleted = false',
       [name, excludeId]
     );
     return rows[0];
@@ -73,12 +75,12 @@ class RoleRepository {
   }
 
   async delete(id) {
-    await pool.query('UPDATE roles SET is_active = 0 WHERE id = ?', [id]);
+    await pool.query('UPDATE roles SET is_deleted = 1 WHERE id = ?', [id]);
   }
 
   async getUserCountByRoleId(roleId) {
     const [rows] = await pool.query(
-      'SELECT COUNT(*) as count FROM users WHERE role_id = ?',
+      'SELECT COUNT(*) as count FROM users WHERE role_id = ? AND is_deleted = false',
       [roleId]
     );
     return rows[0].count;

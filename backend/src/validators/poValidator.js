@@ -6,10 +6,8 @@ const createPOValidation = [
     .notEmpty().withMessage('Project is required')
     .isInt({ min: 1 }).withMessage('Project ID must be a positive integer')
     .toInt(),
-  body('vendor_id')
-    .notEmpty().withMessage('Vendor is required')
-    .isInt({ min: 1 }).withMessage('Vendor ID must be a positive integer')
-    .toInt(),
+  body('vendor_ids')
+    .notEmpty().withMessage('At least one vendor is required'),
   body('description')
     .optional()
     .trim()
@@ -26,10 +24,8 @@ const updatePOValidation = [
     .optional()
     .isInt({ min: 1 }).withMessage('Project ID must be a positive integer')
     .toInt(),
-  body('vendor_id')
-    .optional()
-    .isInt({ min: 1 }).withMessage('Vendor ID must be a positive integer')
-    .toInt(),
+  body('vendor_ids')
+    .optional({ nullable: true }),
   body('description')
     .optional()
     .trim()

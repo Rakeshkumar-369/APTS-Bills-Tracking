@@ -2,7 +2,7 @@ const pool = require('../config/db');
 
 class VendorRepository {
   async getAll({ limit = 50, offset = 0, search, is_active } = {}) {
-    let conditions = [];
+    let conditions = ['is_deleted = false'];
     let params = [];
 
     if (search) {
@@ -14,7 +14,7 @@ class VendorRepository {
       params.push(is_active);
     }
 
-    const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
 
     const [rows] = await pool.query(
       `SELECT * FROM vendors ${whereClause} ORDER BY vendor_name ASC LIMIT ? OFFSET ?`,
@@ -30,7 +30,7 @@ class VendorRepository {
   }
 
   async getById(id) {
-    const [rows] = await pool.query('SELECT * FROM vendors WHERE id = ?', [id]);
+    const [rows] = await pool.query('SELECT * FROM vendors WHERE id = ? AND is_deleted = false', [id]);
     return rows[0];
   }
 
@@ -65,7 +65,7 @@ class VendorRepository {
   }
 
   async delete(id) {
-    await pool.query('UPDATE vendors SET is_active = 0 WHERE id = ?', [id]);
+    await pool.query('UPDATE vendors SET is_deleted = 1 WHERE id = ?', [id]);
   }
 }
 

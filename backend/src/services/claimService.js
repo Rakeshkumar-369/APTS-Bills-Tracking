@@ -75,11 +75,14 @@ class ClaimService {
     if (!po || !po.is_active) {
       throw new ApiError(400, 'Purchase Order not found or is inactive');
     }
-    if (po.vendor_id !== vendorIdNum) {
-      throw new ApiError(403, 'This Purchase Order is not assigned to your vendor');
-    }
     if (po.project_id !== projectIdNum) {
       throw new ApiError(400, 'Purchase Order does not belong to the selected project');
+    }
+
+    // Check that the vendor is assigned to this PO (multi-vendor support)
+    const poVendorIds = await poRepository.getVendorIds(poIdNum);
+    if (!poVendorIds.includes(vendorIdNum)) {
+      throw new ApiError(403, 'This Purchase Order is not assigned to your vendor');
     }
 
     // Verify the vendor has access to this project
@@ -132,10 +135,15 @@ class ClaimService {
     });
 
     // Record creation history
+    // from_user_id = the vendor user who created the claim (the "from officer")
+    // to_user_id = in non-workflow mode, the claim stays with the vendor (self);
+    //              in workflow mode, null because it goes to a step/role not a specific user
     await claimRepository.createHistory({
       claim_id: claimId,
       from_step_id: null,
       to_step_id: current_step_id,
+      from_user_id: currentUser.user_id,
+      to_user_id: current_assigned_user_id || null,
       forwarded_to_user_id: null,
       action: 'CREATE',
       action_label: actionLabel,
@@ -240,11 +248,15 @@ class ClaimService {
       completed_at: completedAt
     });
 
-    // Record history
+    // Record history with from_step filled (the previous step)
+    // from_user_id = the officer who forwarded it
+    // to_user_id = null — goes to the next step/role, not a specific user
     await claimRepository.createHistory({
       claim_id: claim.id,
       from_step_id: claim.current_step_id,
       to_step_id: transition.to_step_id,
+      from_user_id: currentUser.user_id,
+      to_user_id: null,
       forwarded_to_user_id: null,
       action: isCompleted ? 'COMPLETE' : 'FORWARD',
       action_label: actionLabel,
@@ -292,6 +304,8 @@ class ClaimService {
         claim_id: claim.id,
         from_step_id: null,
         to_step_id: null,
+        from_user_id: currentUser.user_id,
+        to_user_id: claim.created_by,
         forwarded_to_user_id: null,
         action: 'SENDBACK',
         action_label: 'Returned to vendor for revision',
@@ -332,8 +346,12 @@ class ClaimService {
       newStatus = 'SENT_BACK';
       actionLabel = 'Returned to vendor for revision';
     } else {
-      const backStep = transition.to_step_id ? await workflowService.getStepById(transition.to_step_id).catch(() => null) : null;
-      actionLabel = backStep ? `Returned to ${backStep.step_name} for revision` : 'Returned with remarks';
+      const backStep = transition.to_step_id
+        ? await workflowService.getStepById(transition.to_step_id).catch(() => null)
+        : null;
+      actionLabel = backStep
+        ? `Returned to ${backStep.step_name} for revision`
+        : 'Returned with remarks';
     }
 
     await claimRepository.updateCurrentStep(claim.id, {
@@ -342,10 +360,15 @@ class ClaimService {
       status: newStatus
     });
 
+    // Record history with from_step properly filled (the step sending it back)
+    // from_user_id = the officer who sent it back
+    // to_user_id = null — goes to another step/role or vendor (not a specific user)
     await claimRepository.createHistory({
       claim_id: claim.id,
       from_step_id: claim.current_step_id,
       to_step_id: transition.to_step_id,
+      from_user_id: currentUser.user_id,
+      to_user_id: null,
       forwarded_to_user_id: null,
       action: 'SENDBACK',
       action_label: actionLabel,
@@ -407,12 +430,16 @@ class ClaimService {
     // Update claim: set current_assigned_user_id to target
     await claimRepository.updateCurrentAssignee(claim.id, targetUserId);
 
-    // Record history
+    // Record history with from_user and to_user filled
+    // from_user_id = the officer who assigned it
+    // to_user_id = the target officer who received it
     await claimRepository.createHistory({
       claim_id: claim.id,
       from_step_id: null,
       to_step_id: null,
-      forwarded_to_user_id: targetUserId,
+      from_user_id: currentUser.user_id,
+      to_user_id: targetUserId,
+      forwarded_to_user_id: null,
       action: 'FORWARD',
       action_label: `Forwarded to ${targetUser.name}`,
       performed_by: currentUser.user_id,
@@ -432,7 +459,7 @@ class ClaimService {
     return this.getWithDetails(claim.id);
   }
 
-  // ── Pull Back (non-workflow: undo assign) ──
+  // ── Pull Back (undo the last forward — works for both workflow and non-workflow) ──
 
   async pullBack(claimId, remarks, currentUser, ipAddress) {
     const claim = await this.getById(claimId);
@@ -441,15 +468,68 @@ class ClaimService {
       throw new ApiError(400, 'Claim is already completed');
     }
 
-    if (claim.workflow_id) {
-      throw new ApiError(400, 'This claim uses a workflow. Pull-back is not available.');
-    }
-
     if (!remarks || !remarks.trim()) {
       throw new ApiError(400, 'Remarks are mandatory when pulling back a claim');
     }
 
-    // Find the latest forward entry where currentUser forwarded to the current assignee
+    // For workflow mode: find the latest forward from currentUser to find the previous step
+    if (claim.workflow_id) {
+      // Find the latest history entry where currentUser forwarded this claim
+      const history = await claimRepository.getHistory(claimId);
+
+      // Find the most recent FORWARD action performed by this user
+      const latestForward = [...history].reverse().find(
+        h => h.action === 'FORWARD' && h.performed_by === currentUser.user_id
+      );
+
+      if (!latestForward) {
+        throw new ApiError(400,
+          'You cannot pull back this claim. Only the person who forwarded it can pull it back.'
+        );
+      }
+
+      // The claim was forwarded FROM latestForward.from_step_id TO latestForward.to_step_id
+      // To pull back, we need to go back to from_step_id (the previous step)
+      if (!latestForward.from_step_id) {
+        throw new ApiError(400, 'Cannot pull back — this claim was forwarded from the start');
+      }
+
+      // Update claim: go back to the previous step
+      await claimRepository.updateCurrentStep(claim.id, {
+        current_step_id: latestForward.from_step_id,
+        status: 'IN_PROGRESS'
+      });
+
+      // Record history
+      // from_user_id = who pulled it back (the current user)
+      // to_user_id = null — goes back to a step, not a specific user
+      await claimRepository.createHistory({
+        claim_id: claim.id,
+        from_step_id: latestForward.to_step_id,
+        to_step_id: latestForward.from_step_id,
+        from_user_id: currentUser.user_id,
+        to_user_id: null,
+        forwarded_to_user_id: null,
+        action: 'PULL_BACK',
+        action_label: `Pulled back to previous step`,
+        performed_by: currentUser.user_id,
+        performed_by_role_id: currentUser.role_id,
+        remarks: remarks
+      });
+
+      await auditService.log({
+        table_name: 'claims',
+        record_id: claim.id,
+        action: 'PULL_BACK',
+        new_value: { from_step: latestForward.to_step_id, to_step: latestForward.from_step_id },
+        performed_by: currentUser.user_id,
+        ip_address: ipAddress
+      });
+
+      return this.getWithDetails(claim.id);
+    }
+
+    // Non-workflow pull-back: find the latest forward entry where currentUser forwarded to the current assignee
     const latestForward = await claimRepository.findLatestForward(
       claim.id,
       currentUser.user_id,
@@ -466,10 +546,14 @@ class ClaimService {
     await claimRepository.updateCurrentAssignee(claim.id, currentUser.user_id);
 
     // Record history
+    // from_user_id = who pulled it back
+    // to_user_id = the user they pulled it FROM (the previous assignee)
     await claimRepository.createHistory({
       claim_id: claim.id,
       from_step_id: null,
       to_step_id: null,
+      from_user_id: currentUser.user_id,
+      to_user_id: claim.current_assigned_user_id,
       forwarded_to_user_id: null,
       action: 'PULL_BACK',
       action_label: `Pulled back from ${latestForward.target_user_name || 'previous assignee'}`,
@@ -526,6 +610,8 @@ class ClaimService {
         claim_id: claim.id,
         from_step_id: null,
         to_step_id: null,
+        from_user_id: currentUser.user_id,
+        to_user_id: returnToUserId,
         forwarded_to_user_id: null,
         action: 'RESUBMIT',
         action_label: 'Re-submitted after revision',
@@ -556,31 +642,57 @@ class ClaimService {
 
     const sendbackOriginStepId = lastEntry.from_step_id;
     if (!sendbackOriginStepId) {
-      throw new ApiError(400, 'Cannot determine where to send the claim');
+      // If from_step_id is null, it was sent back to vendor — send back to step 1
+      const firstStep = await workflowService.getFirstStep(claim.workflow_id);
+      if (!firstStep) {
+        throw new ApiError(400, 'Cannot determine where to send the claim');
+      }
+
+      await claimRepository.updateCurrentStep(claim.id, {
+        current_step_id: firstStep.id,
+        current_step_order: firstStep.step_order,
+        status: 'IN_PROGRESS'
+      });
+
+      await claimRepository.createHistory({
+        claim_id: claim.id,
+        from_step_id: null,
+        to_step_id: firstStep.id,
+        from_user_id: currentUser.user_id,
+        to_user_id: null,
+        forwarded_to_user_id: null,
+        action: 'RESUBMIT',
+        action_label: `Re-submitted after revision — dispatched to ${firstStep.step_name}`,
+        performed_by: currentUser.user_id,
+        performed_by_role_id: currentUser.role_id,
+        remarks: remarks
+      });
+    } else {
+      await claimRepository.updateCurrentStep(claim.id, {
+        current_step_id: sendbackOriginStepId,
+        status: 'IN_PROGRESS'
+      });
+
+      await claimRepository.createHistory({
+        claim_id: claim.id,
+        from_step_id: null,
+        to_step_id: sendbackOriginStepId,
+        from_user_id: currentUser.user_id,
+        to_user_id: null,
+        forwarded_to_user_id: null,
+        action: 'RESUBMIT',
+        action_label: 'Re-submitted after revision',
+        performed_by: currentUser.user_id,
+        performed_by_role_id: currentUser.role_id,
+        remarks: remarks
+      });
     }
-
-    await claimRepository.updateCurrentStep(claim.id, {
-      current_step_id: sendbackOriginStepId,
-      status: 'IN_PROGRESS'
-    });
-
-    await claimRepository.createHistory({
-      claim_id: claim.id,
-      from_step_id: null,
-      to_step_id: sendbackOriginStepId,
-      forwarded_to_user_id: null,
-      action: 'RESUBMIT',
-      action_label: 'Re-submitted after revision',
-      performed_by: currentUser.user_id,
-      performed_by_role_id: currentUser.role_id,
-      remarks: remarks
-    });
 
     await auditService.log({
       table_name: 'claims',
       record_id: claim.id,
       action: 'RESUBMIT',
-      new_value: { to_step: sendbackOriginStepId, status: 'IN_PROGRESS' },
+      new_value: { status: 'IN_PROGRESS' },
       performed_by: currentUser.user_id,
       ip_address: ipAddress
     });
@@ -619,16 +731,7 @@ class ClaimService {
 
   async deleteFile(claimId, fileId, currentUser) {
     const claim = await this.getById(claimId);
-    const file = await claimRepository.deleteFile(fileId);
-
-    if (file) {
-      const fullPath = path.join(__dirname, '../..', file.file_path);
-      if (fs.existsSync(fullPath)) {
-        fs.unlinkSync(fullPath);
-      }
-    }
-
-    return file;
+    return claimRepository.deleteFile(fileId);
   }
 
   async getHistory(claimId) {

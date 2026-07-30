@@ -7,7 +7,7 @@ class WorkflowRepository {
   // =============================================================
 
   async getAll({ limit = 50, offset = 0, search, is_active } = {}) {
-    let conditions = [];
+    let conditions = ['is_deleted = false'];
     let params = [];
 
     if (search) {
@@ -19,7 +19,7 @@ class WorkflowRepository {
       params.push(is_active);
     }
 
-    const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
 
     const [rows] = await pool.query(
       `SELECT * FROM workflow_master ${whereClause} ORDER BY workflow_name ASC LIMIT ? OFFSET ?`,
@@ -35,7 +35,7 @@ class WorkflowRepository {
   }
 
   async getById(id) {
-    const [rows] = await pool.query('SELECT * FROM workflow_master WHERE id = ?', [id]);
+    const [rows] = await pool.query('SELECT * FROM workflow_master WHERE id = ? AND is_deleted = false', [id]);
     return rows[0];
   }
 
@@ -72,8 +72,8 @@ class WorkflowRepository {
     const [rows] = await pool.query(
       `SELECT ws.*, r.role_name AS required_role_name
        FROM workflow_steps ws
-       LEFT JOIN roles r ON ws.required_role_id = r.id
-       WHERE ws.workflow_id = ? AND ws.is_active = 1
+       LEFT JOIN roles r ON ws.required_role_id = r.id AND r.is_deleted = false
+       WHERE ws.workflow_id = ? AND ws.is_active = 1 AND ws.is_deleted = false
        ORDER BY ws.step_order ASC`,
       [workflowId]
     );
@@ -84,9 +84,9 @@ class WorkflowRepository {
     const [rows] = await pool.query(
       `SELECT ws.*, wm.workflow_name, r.role_name AS required_role_name
        FROM workflow_steps ws
-       JOIN workflow_master wm ON ws.workflow_id = wm.id
-       LEFT JOIN roles r ON ws.required_role_id = r.id
-       WHERE ws.id = ?`,
+       JOIN workflow_master wm ON ws.workflow_id = wm.id AND wm.is_deleted = false
+       LEFT JOIN roles r ON ws.required_role_id = r.id AND r.is_deleted = false
+       WHERE ws.id = ? AND ws.is_deleted = false`,
       [id]
     );
     return rows[0];
@@ -96,8 +96,8 @@ class WorkflowRepository {
     const [rows] = await pool.query(
       `SELECT ws.*, r.role_name AS required_role_name
        FROM workflow_steps ws
-       LEFT JOIN roles r ON ws.required_role_id = r.id
-       WHERE ws.workflow_id = ? AND ws.step_order > ? AND ws.is_active = 1
+       LEFT JOIN roles r ON ws.required_role_id = r.id AND r.is_deleted = false
+       WHERE ws.workflow_id = ? AND ws.step_order > ? AND ws.is_active = 1 AND ws.is_deleted = false
        ORDER BY ws.step_order ASC
        LIMIT 1`,
       [workflowId, currentStepOrder]
@@ -109,8 +109,8 @@ class WorkflowRepository {
     const [rows] = await pool.query(
       `SELECT ws.*, r.role_name AS required_role_name
        FROM workflow_steps ws
-       LEFT JOIN roles r ON ws.required_role_id = r.id
-       WHERE ws.workflow_id = ? AND ws.is_active = 1
+       LEFT JOIN roles r ON ws.required_role_id = r.id AND r.is_deleted = false
+       WHERE ws.workflow_id = ? AND ws.is_active = 1 AND ws.is_deleted = false
        ORDER BY ws.step_order ASC
        LIMIT 1`,
       [workflowId]
@@ -148,7 +148,7 @@ class WorkflowRepository {
   }
 
   async deleteStep(id) {
-    await pool.query('UPDATE workflow_steps SET is_active = 0 WHERE id = ?', [id]);
+    await pool.query('UPDATE workflow_steps SET is_deleted = 1 WHERE id = ?', [id]);
   }
 
   // =============================================================
@@ -162,10 +162,10 @@ class WorkflowRepository {
               ts.step_name AS to_step_name,
               r.role_name AS allowed_role_name
        FROM workflow_step_transitions wst
-       LEFT JOIN workflow_steps fs ON wst.from_step_id = fs.id
-       LEFT JOIN workflow_steps ts ON wst.to_step_id = ts.id
-       LEFT JOIN roles r ON wst.allowed_role_id = r.id
-       WHERE wst.workflow_id = ? AND wst.is_active = 1
+       LEFT JOIN workflow_steps fs ON wst.from_step_id = fs.id AND fs.is_deleted = false
+       LEFT JOIN workflow_steps ts ON wst.to_step_id = ts.id AND ts.is_deleted = false
+       LEFT JOIN roles r ON wst.allowed_role_id = r.id AND r.is_deleted = false
+       WHERE wst.workflow_id = ? AND wst.is_active = 1 AND wst.is_deleted = false
        ORDER BY wst.transition_type, wst.id ASC`,
       [workflowId]
     );
@@ -179,10 +179,10 @@ class WorkflowRepository {
               ts.step_name AS to_step_name,
               r.role_name AS allowed_role_name
        FROM workflow_step_transitions wst
-       LEFT JOIN workflow_steps fs ON wst.from_step_id = fs.id
-       LEFT JOIN workflow_steps ts ON wst.to_step_id = ts.id
-       LEFT JOIN roles r ON wst.allowed_role_id = r.id
-       WHERE wst.id = ?`,
+       LEFT JOIN workflow_steps fs ON wst.from_step_id = fs.id AND fs.is_deleted = false
+       LEFT JOIN workflow_steps ts ON wst.to_step_id = ts.id AND ts.is_deleted = false
+       LEFT JOIN roles r ON wst.allowed_role_id = r.id AND r.is_deleted = false
+       WHERE wst.id = ? AND wst.is_deleted = false`,
       [id]
     );
     return rows[0];
@@ -192,7 +192,7 @@ class WorkflowRepository {
     const [rows] = await pool.query(
       `SELECT * FROM workflow_step_transitions
        WHERE workflow_id = ? AND from_step_id = ? AND allowed_role_id = ?
-       AND transition_type = 'FORWARD' AND is_active = 1
+       AND transition_type = 'FORWARD' AND is_active = 1 AND is_deleted = false
        LIMIT 1`,
       [workflowId, fromStepId, roleId]
     );
@@ -203,7 +203,7 @@ class WorkflowRepository {
     const [rows] = await pool.query(
       `SELECT * FROM workflow_step_transitions
        WHERE workflow_id = ? AND from_step_id = ? AND allowed_role_id = ?
-       AND transition_type = 'SENDBACK' AND is_active = 1
+       AND transition_type = 'SENDBACK' AND is_active = 1 AND is_deleted = false
        LIMIT 1`,
       [workflowId, fromStepId, roleId]
     );
@@ -216,7 +216,7 @@ class WorkflowRepository {
       `SELECT wst.* FROM workflow_step_transitions wst
        WHERE wst.workflow_id = ? AND wst.from_step_id IS NULL
        AND wst.allowed_role_id = ? AND wst.transition_type = 'FORWARD'
-       AND wst.is_active = 1
+       AND wst.is_active = 1 AND wst.is_deleted = false
        LIMIT 1`,
       [workflowId, roleId]
     );
@@ -252,7 +252,7 @@ class WorkflowRepository {
   }
 
   async deleteTransition(id) {
-    await pool.query('UPDATE workflow_step_transitions SET is_active = 0 WHERE id = ?', [id]);
+    await pool.query('UPDATE workflow_step_transitions SET is_deleted = 1 WHERE id = ?', [id]);
   }
 }
 

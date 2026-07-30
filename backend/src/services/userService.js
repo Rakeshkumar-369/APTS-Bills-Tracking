@@ -28,7 +28,8 @@ class UserService {
   async create(data, performedBy, ipAddress) {
     const { name, email, password, role_id, designation, phone, vendor_id } = data;
 
-    // Check ALL users (active + inactive) to prevent duplicate email
+    // Check only non-deleted users to prevent duplicate email
+    // Users can re-use an email from a deleted account
     const existing = await userRepository.findByEmailAll(email);
     if (existing) throw new ApiError(409, 'Email already in use');
 

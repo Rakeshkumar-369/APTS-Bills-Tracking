@@ -75,9 +75,10 @@ If a project has **no workflow assigned** (`workflow_id = NULL`), claims under t
 1. **Vendor creates the claim** under a Purchase Order — it stays with the vendor
 2. **Vendor assigns** the claim to any officer via `POST /api/claims/:id/assign`
 3. **Officer can forward** to any other officer (except Super Admin, Admin, or the creating vendor)
-4. **Pull-back**: The sender can pull back from the current officer via `POST /api/claims/:id/pull-back` — chain rule: only the immediate sender can pull back
-   - Vendor→A → Vendor can pull back
-   - Vendor→A→B → A can pull back (from B), Vendor cannot
+4. **Pull-back** (both modes): The sender can pull back from the current step/officer via `POST /api/claims/:id/pull-back`. Chain rule: only the immediate sender can pull back.
+   - **Non-workflow:** Vendor→A → Vendor can pull back. Vendor→A→B → A can pull back (from B), Vendor cannot.
+   - **Workflow:** The forwarding officer can pull back from the next step to the previous step.
+   - Frontend check: `claim.history[last].from_user_id === currentUserId` determines whether to show the pull-back button.
 
 ## Purchase Orders
 
@@ -87,11 +88,11 @@ Purchase Orders (POs) are managed by the **Admin** role (rank 80). Each PO is li
 |---|---|
 | **Code format** | Auto-generated: `PO-2026-0001` |
 | **Statuses** | `ACTIVE`, `CLOSED`, `CANCELLED` |
-| **Vendor assignment** | Admin selects the vendor when creating/updating the PO |
-| **Claim link** | Every claim must reference a PO the vendor has access to |
+| **Vendor assignment** | Admin selects one or more vendors when creating/updating the PO (send as `vendor_ids: [1, 2, 3]` or comma-separated string `"1,2,3"`) |
+| **Claim link** | Every claim must reference a PO that the vendor is assigned to |
 | **Vendor visibility** | Vendors only see POs assigned to them |
 
-A vendor creates a claim under a PO → the claim is linked to both the PO and the project. The PO must belong to the same project and vendor.
+A vendor creates a claim under a PO → the claim is linked to both the PO and the project. The PO must belong to the same project and the vendor must be one of the assigned vendors (multi-vendor supported).
 
 ---
 
@@ -140,22 +141,28 @@ A vendor creates a claim under a PO → the claim is linked to both the PO and t
 | `workflow_steps` | Ordered steps within a workflow | `id, workflow_id, step_order, step_name, required_role_id` |
 | `workflow_step_transitions` | Who can move from which step to which | `id, from_step_id, to_step_id, transition_type (FORWARD/SENDBACK), allowed_role_id` |
 
-### Vendor-Project Assignment
+### Vendor-Project & PO-Vendor Assignment
 
 | Table | Purpose | Key Columns |
 |---|---|---|
 | `vendor_projects` | Many-to-many: which projects each vendor can access | `vendor_id, project_id` (composite PK) |
+| `po_vendors` | Many-to-many: which vendors are assigned to a Purchase Order | `po_id, vendor_id` (composite PK) |
 
 ### Claim System
 
 | Table | Purpose | Key Columns |
 |---|---|---|
-| `purchase_orders` | Admin-managed POs linked to projects + vendors | `id, po_number, project_id, vendor_id, status, amount` |
+| `purchase_orders` | Admin-managed POs linked to projects (vendors via `po_vendors`) | `id, po_number, project_id, status, amount` |
 | `claims` | The core submission entity | `id, claim_code, vendor_id, project_id, po_id, workflow_id?, current_step_id?, current_assigned_user_id?, status, is_completed` |
-| `claim_files` | Documents attached to a claim | `id, claim_id, original_name, stored_name, file_path, file_size` |
-| `claim_history` | Immutable timeline of every movement | `id, claim_id, from_step_id?, to_step_id?, forwarded_to_user_id?, action, remarks, performed_by` |
+| `claim_files` | Documents attached to a claim (soft-deletable) | `id, claim_id, original_name, stored_name, file_path, file_size, is_deleted` |
+| `claim_history` | Immutable timeline of every movement | `id, claim_id, from_step_id?, to_step_id?, from_user_id?, to_user_id?, action, remarks, performed_by` |
 
 **New action types in claim_history:** `CREATE`, `FORWARD`, `SENDBACK`, `COMPLETE`, `REJECT`, `RESUBMIT`, `PULL_BACK`
+
+**from_user_id / to_user_id tracking:** Each history entry records:
+- `from_user_id` — the user who SENT/initiated the action (always filled — this is the "from officer")
+- `to_user_id` — the user who RECEIVED it (filled for manual assignments, null for workflow step forwards)
+- The frontend can check if the last history entry's `from_user_id` matches the current logged-in user to decide whether to show the pull-back button
 
 ### Security & Audit
 
@@ -284,8 +291,8 @@ A vendor creates a claim under a PO → the claim is linked to both the PO and t
 |---|---|---|---|
 | GET | `/api/purchase-orders` | `po.read` | List POs (filtered by vendor for Vendor users). Query: `?project_id=&vendor_id=&status=&search=&limit=&offset=` |
 | GET | `/api/purchase-orders/:id` | `po.read` | Get PO by ID (includes `files` array when `?include_files=true`) |
-| POST | `/api/purchase-orders` | `po.create` | Create PO (multipart/form-data). Fields: project_id, vendor_id, description?, amount? + optional file field files[] (multiple). Returns PO with attached files.|
-| PUT | `/api/purchase-orders/:id` | `po.update` | Update PO. Body: `{project_id?, vendor_id?, description?, amount?, status?, is_active?}` |
+| POST | `/api/purchase-orders` | `po.create` | Create PO (multipart/form-data). Fields: `project_id`, `vendor_ids` (array `[1,2,3]` or comma-separated string `"1,2,3"`), `description?`, `amount?` + optional file field `files[]`. Returns PO with attached files.|
+| PUT | `/api/purchase-orders/:id` | `po.update` | Update PO. Body: `{project_id?, vendor_ids?, description?, amount?, status?, is_active?}` — `vendor_ids` accepts array or comma-separated string |
 | DELETE | `/api/purchase-orders/:id` | `po.delete` | Soft-delete PO (sets `is_active=0`, status `CANCELLED`) |
 | POST | `/api/purchase-orders/:id/files` | `po.update` | Upload file to PO (multipart, field: `file`, accepts PDF/images). Files are visible to anyone with `po.read` permission |
 | DELETE | `/api/purchase-orders/:id/files/:fileId` | `po.update` | Delete a file |
@@ -375,7 +382,11 @@ python backend/tests/test_api.py
 - **Hierarchy enforcement** — users can only CRUD users with roles of lower rank
 - **Permissions as JSON** — fully configurable per role
 - **Data isolation** — vendors see only their own packages; officers see packages where their role is in the workflow chain; admins see all packages
-- **is_active access control** — all list endpoints (`GET /api/:entity`) default to returning **only active records** (`is_active = 1`). Only **Super Admin** can pass `?is_active=0` to see soft-deleted/inactive records. This prevents non-admin users from accessing deactivated projects, workflows, vendors, roles, or users. The logic is implemented in a shared helper: `src/utils/isActiveFilter.js` — `resolveIsActiveFilter(user, rawIsActive)`.
+- **is_active access control** — all list endpoints (`GET /api/:entity`) default to returning **only active records** (`is_active = 1`). Only **Super Admin** can pass `?is_active=0` to see inactive records. This prevents non-admin users from accessing deactivated projects, workflows, vendors, roles, or users. The logic is implemented in a shared helper: `src/utils/isActiveFilter.js` — `resolveIsActiveFilter(user, rawIsActive)`.
+- **is_deleted soft delete** — the system uses a separate `is_deleted` column (BOOLEAN DEFAULT FALSE) to distinguish "deleted" from "deactivated" (is_active=0). DELETE API endpoints now set `is_deleted=1` instead of `is_active=0`. Records with `is_deleted=1` are **never** returned by any query — not even to Super Admin. This preserves audit trail data while hiding truly deleted records. Users can re-register with an email that belonged to a deleted account; projects can be re-created with a project code that was previously deleted.
+- **File soft deletion** — `claim_files` and `po_files` also use soft deletion (`is_deleted` column). Files stay on disk and in the database after deletion. `getFiles()` only returns non-deleted files. Physical files are never removed from disk — preserving sensitive documents for future reference.
+- **Unique constraint with is_deleted** — UNIQUE constraints on `email`, `role_name`, `vendor_code`, `project_code`, `workflow_name`, `po_number`, and `claim_code` now include `is_deleted` as a compound key, allowing one active AND one deleted record to share the same unique value.
+- **Friendly duplicate error handling** — MySQL `ER_DUP_ENTRY` errors are caught and returned as HTTP 409 with a clear message (e.g. "A record with this email already exists") instead of a generic 500.
 
 ---
 
