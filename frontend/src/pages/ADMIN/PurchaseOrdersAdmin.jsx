@@ -23,7 +23,7 @@ export default function PurchaseOrdersAdmin() {
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({
     project_id: '',
-    vendor_id: '',
+    vendor_ids: [], // Changed to array for multiple vendors
     description: '',
     amount: '',
     status: 'ACTIVE',
@@ -98,7 +98,7 @@ export default function PurchaseOrdersAdmin() {
     setEditingId(null);
     setFormData({
       project_id: '',
-      vendor_id: '',
+      vendor_ids: [], // Changed to empty array
       description: '',
       amount: '',
       status: 'ACTIVE',
@@ -112,7 +112,7 @@ export default function PurchaseOrdersAdmin() {
     setEditingId(po.id);
     setFormData({
       project_id: po.project_id || '',
-      vendor_id: po.vendor_id || '',
+      vendor_ids: po.vendor_ids || [], // Changed to array
       description: po.description || '',
       amount: po.amount || '',
       status: po.status || 'ACTIVE',
@@ -137,9 +137,12 @@ export default function PurchaseOrdersAdmin() {
 
     const errors = {};
     if (!formData.project_id) errors.project_id = 'Project is required';
-    if (!formData.vendor_id) errors.vendor_id = 'Vendor is required';
+    if (!formData.vendor_ids || formData.vendor_ids.length === 0) {
+      errors.vendor_ids = 'At least one vendor is required';
+    }
     if (!formData.amount) errors.amount = 'Amount is required';
     if (isNaN(parseFloat(formData.amount))) errors.amount = 'Amount must be a number';
+    
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
       setSubmitting(false);
@@ -348,7 +351,7 @@ export default function PurchaseOrdersAdmin() {
         </div>
       </div>
 
-      {/* Table – Files column removed */}
+      {/* Table */}
       <div className="card border-0 shadow-sm" style={{ borderRadius: '12px', overflow: 'hidden' }}>
         <div className="card-body p-0">
           {error && (
@@ -468,7 +471,7 @@ export default function PurchaseOrdersAdmin() {
                         setFormData(prev => ({
                           ...prev,
                           project_id: projectId,
-                          vendor_id: '',   // reset vendor on project change
+                          vendor_ids: [], // reset vendors on project change
                         }));
                       }}
                       required
@@ -480,21 +483,43 @@ export default function PurchaseOrdersAdmin() {
                     </select>
                     {formErrors.project_id && <div className="invalid-feedback">{formErrors.project_id}</div>}
                   </div>
+                  
+                  {/* Updated Vendor selection with checkboxes for multiple selection */}
                   <div className="mb-3">
-                    <label className="form-label fw-semibold">Vendor <span className="text-danger">*</span></label>
-                    <select
-                      className={`form-select ${formErrors.vendor_id ? 'is-invalid' : ''}`}
-                      value={formData.vendor_id}
-                      onChange={(e) => setFormData({ ...formData, vendor_id: e.target.value })}
-                      required
-                    >
-                      <option value="">Select Vendor</option>
-                      {getFilteredVendors(formData.project_id).map(v => (
-                        <option key={v.id} value={v.id}>{v.vendor_name}</option>
-                      ))}
-                    </select>
-                    {formErrors.vendor_id && <div className="invalid-feedback">{formErrors.vendor_id}</div>}
+                    <label className="form-label fw-semibold">Vendors <span className="text-danger">*</span></label>
+                    <div className={`border rounded-3 p-3 ${formErrors.vendor_ids ? 'border-danger' : ''}`} style={{ maxHeight: '150px', overflowY: 'auto' }}>
+                      {getFilteredVendors(formData.project_id).length === 0 ? (
+                        <div className="text-muted text-center py-2">No vendors available for this project</div>
+                      ) : (
+                        getFilteredVendors(formData.project_id).map(v => (
+                          <div key={v.id} className="form-check">
+                            <input
+                              className="form-check-input"
+                              type="checkbox"
+                              id={`vendor-${v.id}`}
+                              value={v.id}
+                              checked={formData.vendor_ids.includes(String(v.id))}
+                              onChange={(e) => {
+                                const vendorId = e.target.value;
+                                setFormData(prev => ({
+                                  ...prev,
+                                  vendor_ids: e.target.checked
+                                    ? [...prev.vendor_ids, vendorId]
+                                    : prev.vendor_ids.filter(id => id !== vendorId)
+                                }));
+                              }}
+                            />
+                            <label className="form-check-label" htmlFor={`vendor-${v.id}`}>
+                              {v.vendor_name}
+                            </label>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    {formErrors.vendor_ids && <div className="invalid-feedback d-block">{formErrors.vendor_ids}</div>}
+                    <small className="text-muted">Select one or more vendors for this purchase order</small>
                   </div>
+
                   <div className="mb-3">
                     <label className="form-label fw-semibold">Description</label>
                     <input
@@ -584,8 +609,12 @@ export default function PurchaseOrdersAdmin() {
                       </div>
                       <div className="col-md-6">
                         <div className="bg-light p-3 rounded-3">
-                          <label className="text-muted small fw-semibold">Vendor</label>
-                          <p className="fw-bold mb-0">{selectedPo.vendor_name || 'N/A'}</p>
+                          <label className="text-muted small fw-semibold">Vendors</label>
+                          <p className="fw-bold mb-0">
+                            {selectedPo.vendors && selectedPo.vendors.length > 0 
+                              ? selectedPo.vendors.map(v => v.vendor_name).join(', ')
+                              : 'N/A'}
+                          </p>
                         </div>
                       </div>
                       <div className="col-md-6">
