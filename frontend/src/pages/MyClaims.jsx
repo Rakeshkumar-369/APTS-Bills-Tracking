@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { claimsService } from '../services';
 import { useAuth } from '../context/AuthContext';
-import SubmissionAudit from './SubmissionAudit';
 import PdfViewerPage from './PdfViewerPage';
 
 export default function MyClaims() {
@@ -21,24 +20,13 @@ export default function MyClaims() {
     returned: 0
   });
 
-  // --- inline claim view state (no more navigating to /claims/:id) ---
+  // --- inline claim view state ---
   const [loadingItemId, setLoadingItemId] = useState(null);
-  const [selectedSubmission, setSelectedSubmission] = useState(null);
-  const [showAuditView, setShowAuditView] = useState(false);
-  const [actionRemarks, setActionRemarks] = useState('');
+  const [selectedClaim, setSelectedClaim] = useState(null);
+  const [showDetailView, setShowDetailView] = useState(false);
   const [showPdfView, setShowPdfView] = useState(false);
-  const [pdfclaimId, setPdfclaimId] = useState(null);
 
   const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
-  const SERVER_ORIGIN = API_BASE.replace(/\/api\/?$/, '');
-
-  const toAbsoluteUrl = (path) => {
-    if (!path) return null;
-    if (/^https?:\/\//i.test(path)) return path.replace(/\\/g, '/');
-    let normalized = path.replace(/\\/g, '/');
-    normalized = normalized.replace(/^\/?/, '/');
-    return `${SERVER_ORIGIN}${normalized}`;
-  };
 
   useEffect(() => {
     if (user) {
@@ -50,12 +38,7 @@ export default function MyClaims() {
     try {
       setLoading(true);
       const vendorId = user?.vendor_id || user?.id;
-      console.log('🔍 Fetching claims for vendorId:', vendorId);
-
       const data = await claimsService.list({ vendor_id: vendorId });
-      console.log('✅ Claims data:', data);
-      console.log('📊 Total claims:', data?.length);
-
       setClaims(data || []);
 
       const total = data?.length || 0;
@@ -78,17 +61,17 @@ export default function MyClaims() {
     }
   };
 
-  // Fetches claim details and shows them inline (no route change, no remount)
   const handleViewClaim = async (item) => {
-    const pkgId = item?.id || item?.claim_id || item?.ID;
-    if (!pkgId) {
-      console.error('No claim ID found in item:', item);
+    const claimId = item?.id || item?.claim_id || item?.ID;
+    if (!claimId) {
       alert('Unable to get claim ID');
       return;
     }
-    setLoadingItemId(pkgId);
+    setLoadingItemId(claimId);
     try {
-      const details = await claimsService.get(pkgId, { includeDetails: true });
+      const details = await claimsService.get(claimId, { includeDetails: true });
+      
+      // Get the file info
       let fileUrl = null;
       let fileName = 'document.pdf';
       let fileSize = 'N/A';
@@ -98,71 +81,52 @@ export default function MyClaims() {
         fileName = file.original_name || file.filename || 'document.pdf';
         fileSize = file.file_size ? `${(file.file_size / 1024).toFixed(1)} KB` : 'N/A';
         if (file.id) {
-          fileUrl = `${API_BASE}/claims/${pkgId}/files/${file.id}/download`;
-        } else {
-          const rawUrl = file.url || file.file_path || file.download_url || file.public_url || null;
-          fileUrl = toAbsoluteUrl(rawUrl);
+          fileUrl = `${API_BASE}/claims/${claimId}/files/${file.id}/download`;
         }
       }
-      if (!fileUrl && details?.file_url) fileUrl = toAbsoluteUrl(details.file_url);
-      if (!fileUrl && details?.attachment_url) fileUrl = toAbsoluteUrl(details.attachment_url);
-      if (!fileUrl && details?.document_url) fileUrl = toAbsoluteUrl(details.document_url);
 
-      const submissionData = {
-        id: details?.claim_code || details?.claimCode || pkgId,
-        claimId: pkgId,
-        vendor: details?.vendor_name || details?.vendor || 'N/A',
-        projectType: details?.project_name || details?.project?.project_name || 'N/A',
+      // Get history
+      const history = details?.history || [
+        { 
+          actor: details?.vendor_name || 'Vendor', 
+          date: new Date(details?.created_at).toLocaleString(), 
+          action: 'Claim Created', 
+          remarks: details?.submission_note || 'Initial submission' 
+        }
+      ];
+
+      const claimData = {
+        id: details?.claim_code || details?.claimCode || claimId,
+        claimId: claimId,
+        vendor: details?.vendor_name || details?.vendor || 'Akshara Enterprises',
+        project: details?.project_name || details?.project?.project_name || 'Video Conferencing',
+        poReference: details?.po_reference || 'Workflow',
+        poNumber: details?.po_number || 'PO-2026-0003',
+        package: details?.package_name || 'Standard Vendor Package C...',
+        submissionNote: details?.submission_note || details?.remarks || 'fhgfkmjhklk',
         fileName,
         fileSize,
         fileUrl,
-        history: details?.history || [
-          { actor: 'Vendor', date: new Date(details?.created_at).toLocaleString(), action: 'claim Created', remarks: 'Initial submission' }
-        ],
-        status: details?.status || 'PENDING'
+        history: history,
+        status: details?.status || 'IN_PROGRESS',
+        currentStage: details?.current_step_name || 'PM Verification',
+        created_at: details?.created_at
       };
 
-      setSelectedSubmission(submissionData);
-      setShowAuditView(true);
-      setActionRemarks('');
+      setSelectedClaim(claimData);
+      setShowDetailView(true);
     } catch (err) {
       console.error('❌ Error fetching claim details:', err);
-      const fallbackData = {
-        id: item?.claim_code || item?.claimCode || pkgId,
-        claimId: pkgId,
-        vendor: item?.vendor_name || item?.vendor || 'N/A',
-        projectType: item?.project_name || item?.project?.project_name || 'N/A',
-        fileName: 'document.pdf',
-        fileSize: 'N/A',
-        fileUrl: null,
-        history: [{ actor: 'System', date: new Date().toLocaleString(), action: 'claim Retrieved', remarks: 'Basic view' }],
-        status: item?.status || 'PENDING'
-      };
-      setSelectedSubmission(fallbackData);
-      setShowAuditView(true);
-      setActionRemarks('');
+      alert('Failed to load claim details');
     } finally {
       setLoadingItemId(null);
     }
   };
 
-  const handleOpenPdf = (submission) => {
-    if (!submission.fileUrl) {
-      alert('No document available for this claim');
-      return;
-    }
-    if (!submission.claimId) {
-      alert('Unable to determine claim ID for this document');
-      return;
-    }
-    setPdfclaimId(submission.claimId);
-    setShowPdfView(true);
-  };
-
-  const handleBackFromAudit = () => {
-    setShowAuditView(false);
-    setSelectedSubmission(null);
-    setActionRemarks('');
+  const handleBackFromDetail = () => {
+    setShowDetailView(false);
+    setSelectedClaim(null);
+    setShowPdfView(false);
   };
 
   const filteredClaims = claims.filter(pkg => {
@@ -199,6 +163,188 @@ export default function MyClaims() {
     );
   };
 
+  // Claim Detail View (Vendor View - matches second image)
+  if (showDetailView && selectedClaim) {
+    const lastEntry = selectedClaim.history && selectedClaim.history.length > 0
+      ? selectedClaim.history[selectedClaim.history.length - 1]
+      : null;
+
+    return (
+      <div className="container-fluid p-0" style={{ backgroundColor: '#f8fafc', minHeight: '100vh' }}>
+        {/* Header */}
+        <div className="bg-white border-bottom px-4 py-3 d-flex align-items-center justify-content-between" style={{ zIndex: 10 }}>
+          <div className="d-flex align-items-center gap-3">
+            <button
+              onClick={handleBackFromDetail}
+              className="btn btn-outline-secondary btn-sm rounded-circle px-2 py-1 border-0 bg-white shadow-sm"
+            >
+              <i className="bi bi-arrow-left"></i>
+            </button>
+            <div>
+              <h5 className="mb-0 fw-bold text-dark">{selectedClaim.id}</h5>
+              <span className="text-muted small">{selectedClaim.vendor} • {selectedClaim.project}</span>
+            </div>
+          </div>
+          <div className="d-flex align-items-center gap-2">
+            <StatusBadge status={selectedClaim.status} />
+            <span className="text-muted small">
+              Stage: {selectedClaim.currentStage}
+            </span>
+          </div>
+        </div>
+
+        {/* Main Content - Split Layout */}
+        <div className="row g-0" style={{ height: 'calc(100vh - 80px)' }}>
+          {/* Left - PDF Viewer (using PdfViewerPage embedded) */}
+          <div className="col-12 col-lg-7" style={{ height: '100%', backgroundColor: '#ffffff' }}>
+            {selectedClaim.fileUrl ? (
+              <PdfViewerPage 
+                claimId={selectedClaim.claimId}
+                onBack={() => setShowPdfView(false)}
+                embedded={true}
+              />
+            ) : (
+              <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted p-5 text-center">
+                <div className="bg-white p-4 rounded-circle shadow-sm mb-3">
+                  <i className="bi bi-file-earmark-pdf fs-1 text-secondary"></i>
+                </div>
+                <h6 className="fw-bold text-dark mb-1">No Document Available</h6>
+                <p className="small text-muted mb-0">No PDF document is attached to this claim.</p>
+              </div>
+            )}
+          </div>
+
+          {/* Right - Claim Details */}
+          <div className="col-12 col-lg-5" style={{ height: '100%', overflowY: 'auto', backgroundColor: '#ffffff' }}>
+            <div className="p-4">
+              {/* Claim Overview */}
+              <div className="mb-4">
+                <h6 className="fw-bold text-dark mb-3" style={{ fontSize: '0.85rem' }}>
+                  CLAIM OVERVIEW
+                </h6>
+                <div className="bg-light rounded-3 p-3">
+                  <div className="d-flex justify-content-between py-1">
+                    <span className="text-muted small">Vendor</span>
+                    <span className="fw-semibold small">{selectedClaim.vendor}</span>
+                  </div>
+                  <div className="d-flex justify-content-between py-1 border-top">
+                    <span className="text-muted small">Project</span>
+                    <span className="fw-semibold small">{selectedClaim.project}</span>
+                  </div>
+                  <div className="d-flex justify-content-between py-1 border-top">
+                    <span className="text-muted small">PO Reference</span>
+                    <span className="fw-semibold small">{selectedClaim.poReference}</span>
+                  </div>
+                  <div className="d-flex justify-content-between py-1 border-top">
+                    <span className="text-muted small">PO Number</span>
+                    <span className="fw-semibold small">{selectedClaim.poNumber}</span>
+                  </div>
+                  <div className="d-flex justify-content-between py-1 border-top">
+                    <span className="text-muted small">Package</span>
+                    <span className="fw-semibold small">{selectedClaim.package}</span>
+                  </div>
+                  {selectedClaim.submissionNote && (
+                    <div className="mt-2 pt-2 border-top">
+                      <span className="text-muted small">Submission Note</span>
+                      <p className="mb-0 small mt-1">{selectedClaim.submissionNote}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Officer Review Decision */}
+              <div className="mb-4">
+                <h6 className="fw-bold text-dark mb-3" style={{ fontSize: '0.85rem' }}>
+                  OFFICER REVIEW DECISION
+                </h6>
+                <div className="bg-light rounded-3 p-3 text-center text-muted">
+                  <i className="bi bi-info-circle me-2"></i>
+                  No pending approval actions required for your role at this stage.
+                </div>
+              </div>
+
+              {/* Attachments */}
+              <div className="mb-4">
+                <h6 className="fw-bold text-dark mb-3" style={{ fontSize: '0.85rem' }}>
+                  ATTACHMENTS
+                </h6>
+                <div className="bg-light rounded-3 p-3">
+                  {selectedClaim.fileName && (
+                    <div className="d-flex align-items-center justify-content-between p-2 bg-white rounded border mb-2">
+                      <div className="d-flex align-items-center gap-2">
+                        <i className="bi bi-file-earmark-pdf text-danger"></i>
+                        <div>
+                          <div className="fw-semibold small">{selectedClaim.fileName}</div>
+                          <div className="text-muted small">{selectedClaim.fileSize}</div>
+                        </div>
+                      </div>
+                      {selectedClaim.fileUrl && (
+                        <button
+                          onClick={() => {
+                            // This will open the PDF in a new tab using the full PdfViewerPage
+                            window.open(`/pdf-viewer/${selectedClaim.claimId}`, '_blank');
+                          }}
+                          className="btn btn-sm btn-outline-primary"
+                        >
+                          <i className="bi bi-box-arrow-up-right me-1"></i> View
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <div className="text-muted small">
+                    <i className="bi bi-info-circle me-1"></i>
+                    File upload is disabled in view-only mode
+                  </div>
+                </div>
+              </div>
+
+              {/* Workflow Audit Trail */}
+              <div>
+                <h6 className="fw-bold text-dark mb-3" style={{ fontSize: '0.85rem' }}>
+                  WORKFLOW AUDIT TRAIL
+                </h6>
+                <div className="bg-light rounded-3 p-3" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                  {selectedClaim.history && selectedClaim.history.length > 0 ? (
+                    selectedClaim.history.map((log, index) => {
+                      const actionText = log.action_label || log.action || 'Action';
+                      const actorName = log.performed_by_name || log.actor || 'Unknown';
+                      const actorRole = log.performed_by_role_name || log.role || '';
+                      const dateText = log.created_at
+                        ? new Date(log.created_at).toLocaleString()
+                        : (log.date || '');
+                      const remarksText = log.remarks;
+
+                      return (
+                        <div key={log.id || index} className="mb-3 pb-3 border-bottom border-light">
+                          <div className="fw-bold small text-dark">{actionText}</div>
+                          <div className="d-flex justify-content-between align-items-center">
+                            <span className="text-muted small">
+                              {actorName}{actorRole ? ` • ${actorRole}` : ''}
+                            </span>
+                            <span className="text-muted small">{dateText}</span>
+                          </div>
+                          {remarksText && (
+                            <div className="small text-muted mt-1">"{remarksText}"</div>
+                          )}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="text-center text-muted py-3">
+                      <i className="bi bi-inbox fs-4 d-block mb-2"></i>
+                      No activity history available
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Main Claims List View
   if (loading) {
     return (
       <div className="text-center py-5">
@@ -216,43 +362,8 @@ export default function MyClaims() {
         <div className="alert alert-danger">
           <i className="bi bi-exclamation-triangle-fill me-2"></i>
           {error}
-          <button
-            className="btn btn-outline-danger ms-3"
-            onClick={fetchClaims}
-          >
-            Retry
-          </button>
+          <button className="btn btn-outline-danger ms-3" onClick={fetchClaims}>Retry</button>
         </div>
-      </div>
-    );
-  }
-
-  // Inline PDF view
-  if (showPdfView && pdfclaimId) {
-    return (
-      <PdfViewerPage
-        claimId={pdfclaimId}
-        onBack={() => setShowPdfView(false)}
-      />
-    );
-  }
-
-  // Inline Audit view (this replaces the old navigate-to-/claims/:id behavior)
-  if (showAuditView && selectedSubmission) {
-    const daysElapsed = Math.floor(Math.random() * 10) + 1;
-    return (
-      <div className="container-fluid p-4" style={{ backgroundColor: '#f8fafc', minHeight: '100vh' }}>
-        <SubmissionAudit
-          submission={selectedSubmission}
-          daysElapsed={daysElapsed}
-          actionRemarks={actionRemarks}
-          onRemarksChange={setActionRemarks}
-          onBack={handleBackFromAudit}
-          onOpenPdf={handleOpenPdf}
-          onSendBack={null}
-          onForward={null}
-          hasDigitalSignature={false}
-        />
       </div>
     );
   }
@@ -423,30 +534,19 @@ export default function MyClaims() {
                           {pkg.created_at ? new Date(pkg.created_at).toLocaleDateString() : 'N/A'}
                         </td>
                         <td className="px-4 py-3 text-end">
-                          <div className="d-flex gap-1 justify-content-end flex-wrap">
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-outline-primary"
-                              onClick={() => handleViewClaim(pkg)}
-                              disabled={loadingItemId === pkgId || !pkgId}
-                            >
-                              {loadingItemId === pkgId ? (
-                                <span className="spinner-border spinner-border-sm me-1"></span>
-                              ) : (
-                                <i className="bi bi-eye me-1"></i>
-                              )}
-                              View
-                            </button>
-                            {pkg.status?.toUpperCase() === 'SENT_BACK' && (
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-primary"
-                                onClick={() => navigate(`/vendor/claims/${pkgId}/resubmit`)}
-                              >
-                                <i className="bi bi-arrow-counterclockwise me-1"></i> Resubmit
-                              </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-primary"
+                            onClick={() => handleViewClaim(pkg)}
+                            disabled={loadingItemId === pkgId || !pkgId}
+                          >
+                            {loadingItemId === pkgId ? (
+                              <span className="spinner-border spinner-border-sm me-1"></span>
+                            ) : (
+                              <i className="bi bi-eye me-1"></i>
                             )}
-                          </div>
+                            View
+                          </button>
                         </td>
                       </tr>
                     );

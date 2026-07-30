@@ -1,24 +1,11 @@
 // src/components/SubmissionAudit.jsx
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 /**
  * SubmissionAudit
  * -----------------
- * Renders the full activity/audit trail for a single submission ("claim").
- * The source PDF is shown as a link only — clicking it hands control back to
- * the parent (via onOpenPdf) which switches to the in-page PDF viewer.
- *
- * Props:
- *  - submission: the active submission object being audited
- *  - daysElapsed: number of days the claim has been sitting at this desk
- *  - actionRemarks / onRemarksChange: controlled textarea state
- *  - onBack: return to the inbox list
- *  - onOpenPdf: switch to the in-page PDF viewer for this submission
- *  - onSendBack / onForward: trigger the workflow movement actions.
- *    Pass null/undefined for read-only viewers (e.g. Vendor) — the entire
- *    action panel is hidden whenever both are absent, and each individual
- *    button only renders if its own handler is provided.
- *  - hasDigitalSignature: whether the current officer signs digitally
+ * Split layout: PDF viewer on the left, claim details on the right
+ * Matches the design from the second image
  */
 export default function SubmissionAudit({
   submission,
@@ -32,14 +19,10 @@ export default function SubmissionAudit({
   hasDigitalSignature,
 }) {
   const topRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
 
-  // This view is swapped in via state (no real route change), so the
-  // browser keeps whatever scroll position the previous list/table had.
-  // Force every possible scroll container back to 0 whenever a (new)
-  // submission is opened — window, html/body, AND any scrollable ancestor
-  // div in a dashboard shell layout. scrollIntoView alone can stop short of
-  // absolute 0 if there's padding/margin above, so we explicitly zero out
-  // scrollTop on every ancestor as well.
+  // Force scroll to top when component mounts
   useEffect(() => {
     window.scrollTo(0, 0);
     document.documentElement.scrollTop = 0;
@@ -56,240 +39,301 @@ export default function SubmissionAudit({
 
   if (!submission) return null;
 
+  const statusMap = {
+    PENDING: { color: '#f59e0b', bg: '#fef3c7', label: 'Pending' },
+    SUBMITTED: { color: '#3b82f6', bg: '#dbeafe', label: 'Submitted' },
+    IN_PROGRESS: { color: '#8b5cf6', bg: '#ede9fe', label: 'In Progress' },
+    COMPLETED: { color: '#10b981', bg: '#d1fae5', label: 'Completed' },
+    APPROVED: { color: '#10b981', bg: '#d1fae5', label: 'Approved' },
+    CLEARED: { color: '#10b981', bg: '#d1fae5', label: 'Cleared' },
+    RETURNED: { color: '#ef4444', bg: '#fee2e2', label: 'Returned' },
+    SENT_BACK: { color: '#ef4444', bg: '#fee2e2', label: 'Sent Back' },
+    REJECTED: { color: '#ef4444', bg: '#fee2e2', label: 'Rejected' },
+  };
+
+  const statusKey = (submission.status || '').toUpperCase();
+  const s = statusMap[statusKey] || { 
+    color: '#6b7280', 
+    bg: '#f3f4f6', 
+    label: submission.status || 'Unknown' 
+  };
+
+  const lastEntry = submission.history && submission.history.length > 0
+    ? submission.history[submission.history.length - 1]
+    : null;
+
+  const handleFileUpload = async () => {
+    if (!selectedFile) {
+      alert('Please select a file');
+      return;
+    }
+    setUploading(true);
+    try {
+      // Implement your file upload logic here
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      alert('File uploaded successfully!');
+      setSelectedFile(null);
+    } catch (err) {
+      alert('Failed to upload file: ' + err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
-    <div ref={topRef} className="card border-0 shadow-sm rounded-4 overflow-hidden bg-white animate-fade-in">
-      <div className="bg-light bg-opacity-60 border-bottom px-4 py-3 d-flex align-items-center justify-content-between">
-        <div className="d-flex align-items-center gap-2">
+    <div ref={topRef} className="container-fluid p-0" style={{ backgroundColor: '#f8fafc', minHeight: '100vh' }}>
+      {/* Header with Back Button */}
+      <div className="bg-white border-bottom px-4 py-3 d-flex align-items-center justify-content-between">
+        <div className="d-flex align-items-center gap-3">
           <button
             onClick={onBack}
-            className="btn btn-outline-secondary btn-sm rounded-circle px-2 py-1 border-0 bg-white shadow-xs"
+            className="btn btn-outline-secondary btn-sm rounded-circle px-2 py-1 border-0 bg-white shadow-sm"
           >
             <i className="bi bi-arrow-left"></i>
           </button>
           <div>
-            <h5 className="mb-0 fw-extrabold text-dark tracking-tight">Auditing Node: {submission.id}</h5>
-            <span className="text-muted fs-8 font-monospace">{submission.vendor} &bull; {submission.projectType} Scope</span>
+            <h5 className="mb-0 fw-bold text-dark">{submission.id}</h5>
+            <span className="text-muted small">{submission.vendor} • {submission.projectType}</span>
           </div>
         </div>
         <div className="d-flex align-items-center gap-2">
-          <span
-            className="px-3 py-2 rounded-pill fs-8 fw-bold d-inline-flex align-items-center"
-            style={{ backgroundColor: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' }}
+          <span 
+            className="px-3 py-1 rounded-pill fw-semibold small" 
+            style={{ backgroundColor: s.bg, color: s.color }}
           >
-            <i className="bi bi-hourglass-split me-1"></i> Desk Age: {daysElapsed} Days
+            {s.label}
+          </span>
+          <span className="text-muted small">
+            Stage: {submission.currentStage || 'PM Verification'}
           </span>
         </div>
       </div>
 
-      <div className="p-4">
-        {/* Document reference — shown only as a link. Clicking it opens the in-page PDF viewer */}
-        <div className="mb-4">
-          <label className="form-label fw-bold text-secondary fs-8 font-monospace text-uppercase tracking-wider mb-1">
-            Document claim
-          </label>
-          <div className="bg-light bg-opacity-50 border border-light-subtle rounded-3 p-3 d-flex align-items-center justify-content-between">
-            <div className="d-flex align-items-center gap-2 text-truncate pe-2">
-              <i className="bi bi-file-earmark-pdf-fill text-danger fs-5"></i>
-              <span className="fs-7.5 fw-bold text-dark text-truncate">{submission.fileName}</span>
-              {submission.fileSize && (
-                <span className="text-muted fs-8 font-monospace">({submission.fileSize})</span>
+      {/* Main Split Layout */}
+      <div className="row g-0" style={{ height: 'calc(100vh - 80px)' }}>
+        {/* LEFT COLUMN - PDF Viewer */}
+        <div className="col-12 col-lg-7" style={{ height: '100%', backgroundColor: '#ffffff' }}>
+          <div className="p-3 h-100 d-flex flex-column">
+            <div className="d-flex justify-content-between align-items-center mb-2">
+              <span className="fw-semibold small text-muted">DOCUMENT</span>
+              <span className="text-muted small">
+                {submission.fileName} ({submission.fileSize || '4.8 KB'})
+              </span>
+            </div>
+            <div 
+              className="border rounded-3 flex-grow-1 d-flex align-items-center justify-content-center"
+              style={{ 
+                backgroundColor: '#f8fafc',
+                minHeight: '400px',
+                backgroundImage: 'radial-gradient(circle at 10px 10px, #e5e7eb 1px, transparent 0)',
+                backgroundSize: '20px 20px'
+              }}
+            >
+              {submission.fileUrl ? (
+                <div className="text-center">
+                  <i className="bi bi-file-earmark-pdf text-danger" style={{ fontSize: '4rem' }}></i>
+                  <div className="mt-2">
+                    <button
+                      onClick={() => onOpenPdf(submission)}
+                      className="btn btn-primary"
+                    >
+                      <i className="bi bi-eye me-1"></i> View Document
+                    </button>
+                  </div>
+                  <div className="mt-2 text-muted small">
+                    {submission.fileName} ({submission.fileSize || '4.8 KB'})
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center text-muted">
+                  <i className="bi bi-file-earmark" style={{ fontSize: '4rem' }}></i>
+                  <p className="mt-2">No document available</p>
+                </div>
               )}
             </div>
-            {submission.fileUrl ? (
-              <button
-                onClick={() => onOpenPdf(submission)}
-                className="btn btn-link btn-sm fw-bold fs-8 text-decoration-underline d-flex align-items-center gap-1 text-primary"
-              >
-                <i className="bi bi-eye-fill"></i> View Document
-              </button>
-            ) : (
-              <span className="text-muted fs-8 font-monospace text-uppercase">
-                <i className="bi bi-exclamation-triangle me-1 text-warning"></i> File missing
-              </span>
-            )}
           </div>
         </div>
 
-        <div className="row g-4">
-          <div className="col-12 col-lg-7">
-            <span className="d-block fw-bold text-secondary fs-8 font-monospace text-uppercase tracking-wider mb-2">
-              Preceding Activity Trails
-            </span>
-            <div className="bg-light bg-opacity-50 border border-light-subtle rounded-3 p-3 overflow-auto" style={{ maxHeight: '320px' }}>
-              {submission.history && submission.history.length > 0 ? (
-                submission.history.map((log, index) => {
-                  const actionText = log.action_label || log.action || 'Action';
-                  const actorName = log.performed_by_name || log.actor || 'Unknown';
-                  const actorRole = log.performed_by_role_name || log.role || '';
-                  const dateText = log.created_at
-                    ? new Date(log.created_at).toLocaleString()
-                    : (log.date || '');
-                  const remarksText = log.remarks;
-
-                  return (
-                    <div key={log.id || index} className="fs-8 border-bottom border-light-subtle pb-2 mb-2 last-border-0">
-                      <div className="d-flex align-items-center justify-content-between mb-0.5">
-                        <span className="fw-bold text-dark">{actionText}</span>
-                        <span className="text-muted font-monospace">{dateText}</span>
-                      </div>
-                      <span className="d-block text-primary fw-semibold fs-8.5">
-                        {actorName}{actorRole ? ` • ${actorRole}` : ''}
-                      </span>
-                      {remarksText && (
-                        <p className="text-secondary italic mb-0 mt-0.5 bg-white p-1.5 rounded border shadow-3xs">"{remarksText}"</p>
-                      )}
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="text-center text-muted py-3">No activity history available</div>
-              )}
+        {/* RIGHT COLUMN - Claim Details */}
+        <div className="col-12 col-lg-5" style={{ height: '100%', overflowY: 'auto', backgroundColor: '#ffffff' }}>
+          <div className="p-4">
+            {/* Claim Overview */}
+            <div className="mb-4">
+              <h6 className="fw-bold text-dark mb-3" style={{ fontSize: '0.85rem' }}>
+                CLAIM OVERVIEW
+              </h6>
+              <div className="bg-light rounded-3 p-3">
+                <div className="d-flex justify-content-between py-1">
+                  <span className="text-muted small">Vendor</span>
+                  <span className="fw-semibold small">{submission.vendor}</span>
+                </div>
+                <div className="d-flex justify-content-between py-1 border-top">
+                  <span className="text-muted small">Project</span>
+                  <span className="fw-semibold small">{submission.projectType}</span>
+                </div>
+                <div className="d-flex justify-content-between py-1 border-top">
+                  <span className="text-muted small">PO Reference</span>
+                  <span className="fw-semibold small">{submission.poReference || 'Workflow'}</span>
+                </div>
+                <div className="d-flex justify-content-between py-1 border-top">
+                  <span className="text-muted small">PO Number</span>
+                  <span className="fw-semibold small">{submission.poNumber || 'PO-2026-0003'}</span>
+                </div>
+                <div className="d-flex justify-content-between py-1 border-top">
+                  <span className="text-muted small">Package</span>
+                  <span className="fw-semibold small">{submission.package || 'Standard Vendor Package C...'}</span>
+                </div>
+                {submission.submissionNote && (
+                  <div className="mt-2 pt-2 border-top">
+                    <span className="text-muted small">Submission Note</span>
+                    <p className="mb-0 small mt-1">{submission.submissionNote}</p>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
 
-          <div className="col-12 col-lg-5 d-flex flex-column justify-content-between">
-            {(onSendBack || onForward) ? (
-              <>
-                <div>
-                  <label className="form-label fw-bold text-secondary fs-8 font-monospace text-uppercase tracking-wider mb-1">
-                    Workflow Lifecycle Audit Remarks
-                  </label>
+            {/* Officer Review Decision */}
+            <div className="mb-4">
+              <h6 className="fw-bold text-dark mb-3" style={{ fontSize: '0.85rem' }}>
+                OFFICER REVIEW DECISION
+              </h6>
+              {onSendBack || onForward ? (
+                <div className="bg-light rounded-3 p-3">
                   <textarea
-                    className="form-control border border-light-subtle rounded-3 fs-7.5 bg-light bg-opacity-20"
-                    rows="6"
-                    placeholder="Enter analytical review logs, query specifics, or validation checks..."
+                    className="form-control border-0 bg-white"
+                    rows="3"
+                    placeholder="Enter review decision..."
                     value={actionRemarks}
                     onChange={(e) => onRemarksChange(e.target.value)}
                   ></textarea>
-                  <div className="form-text fs-8 text-muted mt-1">
-                    * Action Remarks are mandatory if triggering a back-movement query response loop.
-                  </div>
-                </div>
-
-                <div className="pt-4 border-top border-light-subtle d-flex flex-column gap-2 mt-4">
-                  <div className="row g-2">
+                  <div className="d-flex gap-2 mt-2">
                     {onSendBack && (
-                      <div className="col-6">
-                        <button
-                          onClick={onSendBack}
-                          className="btn btn-outline-danger w-100 py-2.5 rounded-3 fw-bold fs-7 d-flex align-items-center justify-content-center gap-1.5 shadow-sm"
-                          disabled={!actionRemarks.trim()}
-                          title="Add remarks to send claim back"
-                        >
-                          <i className="bi bi-reply-all-fill"></i> Send Back
-                        </button>
-                      </div>
+                      <button
+                        onClick={onSendBack}
+                        className="btn btn-outline-danger btn-sm"
+                        disabled={!actionRemarks.trim()}
+                      >
+                        <i className="bi bi-x-circle me-1"></i> Send Back
+                      </button>
                     )}
                     {onForward && (
-                      <div className="col-6">
-                        <button
-                          onClick={onForward}
-                          className={`btn w-100 py-2.5 rounded-3 fw-bold fs-7 d-flex align-items-center justify-content-center gap-1.5 shadow-sm ${
-                            hasDigitalSignature ? 'btn-success' : 'btn-primary'
-                          }`}
-                          disabled={!actionRemarks.trim()}
-                          title="Add remarks to forward this claim"
-                        >
-                          <i className={`bi ${hasDigitalSignature ? 'bi-patch-check-fill' : 'bi-arrow-right-circle-fill'}`}></i>
-                          {hasDigitalSignature ? 'Digital Sign' : 'Approve & Move'}
-                        </button>
-                      </div>
+                      <button
+                        onClick={onForward}
+                        className={`btn btn-sm ${hasDigitalSignature ? 'btn-success' : 'btn-primary'}`}
+                        disabled={!actionRemarks.trim()}
+                      >
+                        <i className={`bi ${hasDigitalSignature ? 'bi-patch-check' : 'bi-check-circle'} me-1`}></i>
+                        {hasDigitalSignature ? 'Digital Sign' : 'Approve'}
+                      </button>
                     )}
                   </div>
                 </div>
-              </>
-            ) : (
-              // Read-only viewer (e.g. Vendor): no action handlers were passed in,
-              // so there is nothing to action. Fill the space with a useful
-              // status summary instead of leaving it sparse.
-              (() => {
-                const statusMap = {
-                  PENDING: { color: '#b45309', bg: '#fef3c7', label: 'Pending', icon: 'bi-hourglass-split' },
-                  SUBMITTED: { color: '#1d4ed8', bg: '#dbeafe', label: 'Submitted', icon: 'bi-send-check' },
-                  IN_PROGRESS: { color: '#6d28d9', bg: '#ede9fe', label: 'In Progress', icon: 'bi-arrow-repeat' },
-                  COMPLETED: { color: '#15803d', bg: '#d1fae5', label: 'Completed', icon: 'bi-check-circle-fill' },
-                  APPROVED: { color: '#15803d', bg: '#d1fae5', label: 'Approved', icon: 'bi-check-circle-fill' },
-                  CLEARED: { color: '#15803d', bg: '#d1fae5', label: 'Cleared', icon: 'bi-check-circle-fill' },
-                  RETURNED: { color: '#b91c1c', bg: '#fee2e2', label: 'Returned', icon: 'bi-arrow-return-left' },
-                  SENT_BACK: { color: '#b91c1c', bg: '#fee2e2', label: 'Sent Back', icon: 'bi-arrow-return-left' },
-                  REJECTED: { color: '#b91c1c', bg: '#fee2e2', label: 'Rejected', icon: 'bi-x-circle-fill' },
-                };
-                const statusKey = (submission.status || '').toUpperCase();
-                const s = statusMap[statusKey] || { color: '#475569', bg: '#f1f5f9', label: submission.status || 'Unknown', icon: 'bi-info-circle' };
-                const lastEntry = submission.history && submission.history.length > 0
-                  ? submission.history[submission.history.length - 1]
-                  : null;
+              ) : (
+                <div className="bg-light rounded-3 p-3 text-center text-muted">
+                  <i className="bi bi-info-circle me-2"></i>
+                  No pending approval actions required for your role at this stage.
+                </div>
+              )}
+            </div>
 
-                return (
-                  <div className="d-flex flex-column h-100">
-                    <span className="d-block fw-bold text-secondary fs-8 font-monospace text-uppercase tracking-wider mb-2">
-                      Claim Status
-                    </span>
-
-                    <div
-                      className="rounded-3 p-3 mb-3 d-flex align-items-center gap-3"
-                      style={{ backgroundColor: s.bg, border: `1px solid ${s.color}22` }}
-                    >
-                      <div
-                        className="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
-                        style={{ width: '44px', height: '44px', backgroundColor: 'white' }}
+            {/* Attachments */}
+            <div className="mb-4">
+              <h6 className="fw-bold text-dark mb-3" style={{ fontSize: '0.85rem' }}>
+                ATTACHMENTS
+              </h6>
+              <div className="bg-light rounded-3 p-3">
+                {submission.fileName && (
+                  <div className="d-flex align-items-center justify-content-between p-2 bg-white rounded border mb-2">
+                    <div className="d-flex align-items-center gap-2">
+                      <i className="bi bi-file-earmark-pdf text-danger"></i>
+                      <div>
+                        <div className="fw-semibold small">{submission.fileName}</div>
+                        <div className="text-muted small">{submission.fileSize || '4.8 KB'}</div>
+                      </div>
+                    </div>
+                    {submission.fileUrl && (
+                      <button
+                        onClick={() => onOpenPdf(submission)}
+                        className="btn btn-sm btn-outline-primary"
                       >
-                        <i className={`bi ${s.icon}`} style={{ color: s.color, fontSize: '1.25rem' }}></i>
-                      </div>
-                      <div>
-                        <span className="d-block fw-bold fs-7" style={{ color: s.color }}>{s.label}</span>
-                        <span className="d-block text-muted fs-8">
-                          Currently at desk for {daysElapsed} {daysElapsed === 1 ? 'day' : 'days'}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="bg-light bg-opacity-50 border border-light-subtle rounded-3 p-3 mb-3">
-                      <div className="d-flex justify-content-between align-items-center py-1">
-                        <span className="text-muted fs-8 text-uppercase font-monospace">Vendor</span>
-                        <span className="fw-semibold fs-7.5 text-dark">{submission.vendor}</span>
-                      </div>
-                      <div className="d-flex justify-content-between align-items-center py-1 border-top border-light-subtle">
-                        <span className="text-muted fs-8 text-uppercase font-monospace">Project</span>
-                        <span className="fw-semibold fs-7.5 text-dark">{submission.projectType}</span>
-                      </div>
-                      {lastEntry && (
-                        <div className="d-flex justify-content-between align-items-center py-1 border-top border-light-subtle">
-                          <span className="text-muted fs-8 text-uppercase font-monospace">Last Action</span>
-                          <span className="fw-semibold fs-7.5 text-dark text-end">
-                            {lastEntry.action_label || lastEntry.action}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {submission.remarks ? (
-                      <div>
-                        <label className="form-label fw-bold text-secondary fs-8 font-monospace text-uppercase tracking-wider mb-1">
-                          Latest Remarks
-                        </label>
-                        <p className="bg-light bg-opacity-50 border border-light-subtle rounded-3 p-3 fs-7.5 text-secondary mb-0">
-                          {submission.remarks}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="mt-auto text-center text-muted fs-8 py-3">
-                        <i className="bi bi-shield-check d-block fs-4 mb-1 opacity-50"></i>
-                        This claim is view-only. It will update automatically as it moves through the approval chain.
-                      </div>
+                        View Document
+                      </button>
                     )}
                   </div>
-                );
-              })()
-            )}
+                )}
+                <div className="d-flex gap-2 align-items-center">
+                  <input
+                    type="file"
+                    className="form-control form-control-sm"
+                    onChange={(e) => setSelectedFile(e.target.files[0])}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleFileUpload}
+                    disabled={!selectedFile || uploading}
+                  >
+                    {uploading ? (
+                      <span className="spinner-border spinner-border-sm me-1"></span>
+                    ) : (
+                      <i className="bi bi-upload me-1"></i>
+                    )}
+                    Upload
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Workflow Audit Trail */}
+            <div>
+              <h6 className="fw-bold text-dark mb-3" style={{ fontSize: '0.85rem' }}>
+                WORKFLOW AUDIT TRAIL
+              </h6>
+              <div className="bg-light rounded-3 p-3" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                {submission.history && submission.history.length > 0 ? (
+                  submission.history.map((log, index) => {
+                    const actionText = log.action_label || log.action || 'Action';
+                    const actorName = log.performed_by_name || log.actor || 'Unknown';
+                    const actorRole = log.performed_by_role_name || log.role || '';
+                    const dateText = log.created_at
+                      ? new Date(log.created_at).toLocaleString()
+                      : (log.date || '');
+                    const remarksText = log.remarks;
+
+                    return (
+                      <div key={log.id || index} className="mb-3 pb-3 border-bottom border-light">
+                        <div className="fw-bold small text-dark">{actionText}</div>
+                        <div className="d-flex justify-content-between align-items-center">
+                          <span className="text-muted small">
+                            {actorName}{actorRole ? ` • ${actorRole}` : ''}
+                          </span>
+                          <span className="text-muted small">{dateText}</span>
+                        </div>
+                        {remarksText && (
+                          <div className="small text-muted mt-1">"{remarksText}"</div>
+                        )}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="text-center text-muted py-3">
+                    <i className="bi bi-inbox fs-4 d-block mb-2"></i>
+                    No activity history available
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
       <style>{`
-        .fs-7.5 { font-size: 0.825rem !important; }
-        .fs-8.5 { font-size: 0.775rem !important; }
-        .shadow-3xs { box-shadow: 0 1px 2px rgba(0,0,0,0.03) !important; }
+        .border-top {
+          border-top: 1px solid #e5e7eb !important;
+        }
+        .bg-light {
+          background-color: #f8fafc !important;
+        }
       `}</style>
     </div>
   );

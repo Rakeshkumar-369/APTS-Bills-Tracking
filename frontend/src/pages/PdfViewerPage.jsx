@@ -10,9 +10,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 const SERVER_ORIGIN = API_BASE.replace(/\/api\/?$/, '');
 
-// Converts any relative path returned by the backend (e.g. "uploads\\claims\\10\\file.pdf")
-// into a full absolute URL against the API server's origin, normalizing Windows-style
-// backslashes to forward slashes along the way.
+// Converts any relative path returned by the backend into a full absolute URL
 function toAbsoluteUrl(path) {
   if (!path) return null;
   if (/^https?:\/\//i.test(path)) return path.replace(/\\/g, '/');
@@ -23,19 +21,14 @@ function toAbsoluteUrl(path) {
   return `${SERVER_ORIGIN}${normalized}`;
 }
 
-export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp } = {}) {
+export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp, embedded = false } = {}) {
   const navigate = useNavigate();
   const { claimId: claimIdFromRoute } = useParams();
 
-  // Works both as a standalone route (/pdf-viewer/:claimId) and as an
-  // inline view embedded directly inside another page (e.g. UnifiedDashboard),
-  // which is what lets "Back" return to that page's own previous view/state
-  // instead of unmounting everything via router navigation.
   const claimId = claimIdProp ?? claimIdFromRoute;
   const handleBack = onBackProp ?? (() => navigate(-1));
 
-  // claim/file metadata, fetched independently by this page (not passed via
-  // router state, which is unreliable across reloads/new tabs/HMR).
+  // claim/file metadata
   const [submission, setSubmission] = useState(null);
   const [metaLoading, setMetaLoading] = useState(true);
   const [metaError, setMetaError] = useState(null);
@@ -43,17 +36,19 @@ export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp
   // PDF.js state
   const [pdfDoc, setPdfDoc] = useState(null);
   const [totalPages, setTotalPages] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
   const [scale, setScale] = useState(1.2);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [pdfSrc, setPdfSrc] = useState(null); // blob URL, used for download
+  const [pdfSrc, setPdfSrc] = useState(null);
   const [pagesRendered, setPagesRendered] = useState(0);
 
   const blobUrlRef = useRef(null);
   const containerRef = useRef(null);
   const renderAbortRef = useRef(false);
+  const pageInputRef = useRef(null);
 
-  // Step 1: fetch claim + file metadata for this claimId
+  // Step 1: fetch claim + file metadata
   useEffect(() => {
     if (!claimId) {
       setMetaError('No claim ID was provided.');
@@ -80,11 +75,6 @@ export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp
           fileName = file.original_name || file.filename || 'document.pdf';
           fileSize = file.file_size ? `${(file.file_size / 1024).toFixed(1)} KB` : 'N/A';
 
-          // Prefer the existing authenticated download endpoint (same one the
-          // "Download" button already uses successfully) over a raw file_path.
-          // file_path points at a static file location the backend doesn't
-          // actually serve over HTTP, so it always 404s — the /api endpoint
-          // is a real, working, authenticated route.
           if (file.id) {
             fileUrl = `${API_BASE}/claims/${claimId}/files/${file.id}/download`;
           } else {
@@ -120,7 +110,7 @@ export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp
     };
   }, [claimId]);
 
-  // Step 2: once we know the fileUrl, fetch the PDF (with auth header) and hand it to pdf.js
+  // Step 2: fetch the PDF
   useEffect(() => {
     if (!submission?.fileUrl) {
       if (!metaLoading) setLoading(false);
@@ -135,12 +125,11 @@ export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp
         setLoading(true);
         setError(null);
         setPagesRendered(0);
+        setCurrentPage(1);
 
         const token = localStorage.getItem('accessToken');
         if (!token) throw new Error('Not authenticated. Please log in again.');
 
-        // Fetching directly (instead of using fileUrl as an <iframe>/<a> src) lets
-        // us attach the Authorization header, which iframes/links cannot send.
         const response = await fetch(submission.fileUrl, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -201,7 +190,7 @@ export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp
     };
   }, [submission?.fileUrl, metaLoading]);
 
-  // Render every page as a canvas, stacked vertically for continuous scroll
+  // Render the current page only (single page view)
   useEffect(() => {
     if (!pdfDoc || !containerRef.current) return;
 
@@ -209,51 +198,85 @@ export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp
     const container = containerRef.current;
     container.innerHTML = '';
 
-    const renderAllPages = async () => {
+    const renderPage = async () => {
       const dpr = window.devicePixelRatio || 1;
+      const page = await pdfDoc.getPage(currentPage);
+      const viewport = page.getViewport({ scale });
 
-      for (let i = 1; i <= pdfDoc.numPages; i++) {
-        if (renderAbortRef.current) return;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
 
-        const page = await pdfDoc.getPage(i);
-        const viewport = page.getViewport({ scale });
+      canvas.width = viewport.width * dpr;
+      canvas.height = viewport.height * dpr;
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
+      canvas.style.display = 'block';
+      canvas.style.margin = '0 auto';
+      canvas.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)';
+      canvas.style.borderRadius = '8px';
+      canvas.style.background = 'white';
+      canvas.style.maxWidth = '100%';
 
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
 
-        canvas.width = viewport.width * dpr;
-        canvas.height = viewport.height * dpr;
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
-        canvas.style.display = 'block';
-        canvas.style.margin = '0 auto 16px auto';
-        canvas.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)';
-        canvas.style.borderRadius = '8px';
-        canvas.style.background = 'white';
-        canvas.style.maxWidth = '100%';
-
-        ctx.scale(dpr, dpr);
-
-        try {
-          await page.render({ canvasContext: ctx, viewport }).promise;
-        } catch (err) {
-          if (err?.name === 'RenderingCancelledException') return;
-        }
-
-        if (renderAbortRef.current) return;
-
-        container.appendChild(canvas);
-        setPagesRendered(i);
+      try {
+        await page.render({ canvasContext: ctx, viewport }).promise;
+      } catch (err) {
+        if (err?.name === 'RenderingCancelledException') return;
+        console.error('Render error:', err);
       }
+
+      if (renderAbortRef.current) return;
+
+      container.appendChild(canvas);
+      setPagesRendered(currentPage);
     };
 
-    renderAllPages();
+    renderPage();
 
     return () => {
       renderAbortRef.current = true;
       container.innerHTML = '';
     };
-  }, [pdfDoc, scale]);
+  }, [pdfDoc, currentPage, scale]);
+
+  // Navigation functions
+  const goToPreviousPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
+  const goToNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  const goToPage = (pageNum) => {
+    const num = parseInt(pageNum);
+    if (num >= 1 && num <= totalPages) {
+      setCurrentPage(num);
+    }
+  };
+
+  const handlePageInputChange = (e) => {
+    const val = parseInt(e.target.value);
+    if (val >= 1 && val <= totalPages) {
+      setCurrentPage(val);
+    }
+  };
+
+  const handlePageInputKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      const val = parseInt(e.target.value);
+      if (val >= 1 && val <= totalPages) {
+        setCurrentPage(val);
+      } else {
+        e.target.value = currentPage;
+      }
+    }
+  };
 
   const handleZoomIn = () => setScale((s) => Math.min(s + 0.2, 3.0));
   const handleZoomOut = () => setScale((s) => Math.max(s - 0.2, 0.5));
@@ -317,6 +340,124 @@ export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp
     );
   }
 
+  // ==============================
+  // Embedded mode (used in split layout)
+  // ==============================
+  if (embedded) {
+    return (
+      <div className="d-flex flex-column h-100">
+        {/* Toolbar with navigation */}
+        <div className="bg-white border-bottom px-3 py-2 d-flex align-items-center justify-content-between" style={{ flexShrink: 0 }}>
+          <div className="d-flex align-items-center gap-1">
+            <button
+              onClick={handleZoomOut}
+              disabled={!pdfDoc}
+              className="btn btn-outline-secondary btn-sm"
+              title="Zoom Out"
+            >
+              <i className="bi bi-zoom-out"></i>
+            </button>
+            <button
+              onClick={handleZoomReset}
+              disabled={!pdfDoc}
+              className="btn btn-outline-secondary btn-sm"
+              style={{ minWidth: '50px' }}
+              title="Reset Zoom"
+            >
+              {Math.round(scale * 100)}%
+            </button>
+            <button
+              onClick={handleZoomIn}
+              disabled={!pdfDoc}
+              className="btn btn-outline-secondary btn-sm"
+              title="Zoom In"
+            >
+              <i className="bi bi-zoom-in"></i>
+            </button>
+            <span className="vr mx-1"></span>
+            <button
+              onClick={goToPreviousPage}
+              disabled={!pdfDoc || currentPage <= 1}
+              className="btn btn-outline-secondary btn-sm"
+              title="Previous Page"
+            >
+              <i className="bi bi-chevron-left"></i>
+            </button>
+            <div className="d-flex align-items-center gap-1">
+              <input
+                ref={pageInputRef}
+                type="number"
+                className="form-control form-control-sm"
+                style={{ width: '50px', textAlign: 'center' }}
+                value={currentPage}
+                onChange={handlePageInputChange}
+                onKeyDown={handlePageInputKeyDown}
+                min={1}
+                max={totalPages || 1}
+                disabled={!pdfDoc}
+              />
+              <span className="text-muted small">/ {totalPages || '?'}</span>
+            </div>
+            <button
+              onClick={goToNextPage}
+              disabled={!pdfDoc || currentPage >= totalPages}
+              className="btn btn-outline-secondary btn-sm"
+              title="Next Page"
+            >
+              <i className="bi bi-chevron-right"></i>
+            </button>
+          </div>
+
+          <button
+            onClick={handleDownload}
+            disabled={!pdfSrc}
+            className="btn btn-primary btn-sm"
+          >
+            <i className="bi bi-download me-1"></i> Download
+          </button>
+        </div>
+
+        {/* PDF Canvas Area */}
+        <div className="flex-grow-1" style={{ overflow: 'auto', backgroundColor: '#e2e8f0' }}>
+          {loading && (
+            <div className="d-flex align-items-center justify-content-center h-100">
+              <div className="text-center py-5">
+                <div className="spinner-border text-primary" role="status">
+                  <span className="visually-hidden">Loading...</span>
+                </div>
+                <p className="mt-3 text-muted small fw-semibold">Loading PDF...</p>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="d-flex align-items-center justify-content-center h-100">
+              <div className="text-center bg-white p-5 rounded-3 shadow-sm border" style={{ maxWidth: '400px' }}>
+                <i className="bi bi-exclamation-triangle fs-1 text-danger mb-3 d-block"></i>
+                <h5 className="text-danger">Failed to load PDF</h5>
+                <p className="text-muted small mb-4">{error}</p>
+              </div>
+            </div>
+          )}
+
+          {!loading && !error && (
+            <div className="py-4 px-3">
+              <div ref={containerRef} />
+              {pdfDoc && (
+                <div className="text-center text-muted small mt-2">
+                  Page {currentPage} of {totalPages}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ==============================
+  // Full page mode (standalone)
+  // ==============================
   return (
     <div className="d-flex flex-column vh-100 bg-light">
       {/* Header */}
@@ -335,15 +476,12 @@ export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp
               {pdfDoc && totalPages > 0 && (
                 <> • {totalPages} page{totalPages > 1 ? 's' : ''}</>
               )}
-              {pdfDoc && pagesRendered > 0 && pagesRendered < totalPages && (
-                <span className="text-warning"> • rendering {pagesRendered}/{totalPages}</span>
-              )}
             </small>
           </div>
         </div>
       </div>
 
-      {/* Toolbar */}
+      {/* Toolbar with navigation */}
       <div className="bg-white border-bottom px-4 py-2 d-flex align-items-center justify-content-between shadow-sm" style={{ flexShrink: 0 }}>
         <div className="d-flex align-items-center gap-1">
           <button
@@ -370,6 +508,38 @@ export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp
             title="Zoom In"
           >
             <i className="bi bi-zoom-in"></i>
+          </button>
+          <span className="vr mx-2"></span>
+          <button
+            onClick={goToPreviousPage}
+            disabled={!pdfDoc || currentPage <= 1}
+            className="btn btn-outline-secondary btn-sm"
+            title="Previous Page"
+          >
+            <i className="bi bi-chevron-left"></i>
+          </button>
+          <div className="d-flex align-items-center gap-1">
+            <input
+              ref={pageInputRef}
+              type="number"
+              className="form-control form-control-sm"
+              style={{ width: '60px', textAlign: 'center' }}
+              value={currentPage}
+              onChange={handlePageInputChange}
+              onKeyDown={handlePageInputKeyDown}
+              min={1}
+              max={totalPages || 1}
+              disabled={!pdfDoc}
+            />
+            <span className="text-muted small">/ {totalPages || '?'}</span>
+          </div>
+          <button
+            onClick={goToNextPage}
+            disabled={!pdfDoc || currentPage >= totalPages}
+            className="btn btn-outline-secondary btn-sm"
+            title="Next Page"
+          >
+            <i className="bi bi-chevron-right"></i>
           </button>
         </div>
 
@@ -411,18 +581,9 @@ export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp
         {!loading && !error && (
           <div className="py-4 px-3">
             <div ref={containerRef} />
-
-            {pdfDoc && pagesRendered > 0 && pagesRendered < totalPages && (
-              <div className="mt-3 text-center">
-                <div className="mx-auto bg-secondary bg-opacity-25 rounded-pill" style={{ maxWidth: '320px', height: '6px', overflow: 'hidden' }}>
-                  <div
-                    className="bg-primary h-100"
-                    style={{ width: `${(pagesRendered / totalPages) * 100}%`, transition: 'width 0.3s ease' }}
-                  />
-                </div>
-                <p className="text-muted small mt-2 fw-semibold">
-                  Rendering page {pagesRendered} of {totalPages}…
-                </p>
+            {pdfDoc && (
+              <div className="text-center text-muted small mt-2">
+                Page {currentPage} of {totalPages}
               </div>
             )}
           </div>
