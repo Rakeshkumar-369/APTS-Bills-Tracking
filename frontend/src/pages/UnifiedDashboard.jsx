@@ -1,7 +1,7 @@
 // src/pages/UnifiedDashboard.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { claimsService, poService } from '../services';
+import { claimsService, poService, projectsService, vendorsService } from '../services';
 import { useAuth } from '../context/AuthContext';
 
 export default function UnifiedDashboard() {
@@ -12,7 +12,13 @@ export default function UnifiedDashboard() {
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterProject, setFilterProject] = useState('');
+  const [filterVendor, setFilterVendor] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Dropdown data for filters
+  const [projects, setProjects] = useState([]);
+  const [vendors, setVendors] = useState([]);
   
   const [inboxStats, setInboxStats] = useState({
     total: 0,
@@ -95,6 +101,23 @@ export default function UnifiedDashboard() {
     }
   }, [user, isAuthenticated]);
 
+  // Fetch projects and vendors for filter dropdowns
+  useEffect(() => {
+    const fetchDropdowns = async () => {
+      try {
+        const [projectsRes, vendorsRes] = await Promise.all([
+          projectsService.list({ is_active: 1 }),
+          vendorsService.list(),
+        ]);
+        setProjects(projectsRes || []);
+        setVendors(vendorsRes || []);
+      } catch (err) {
+        console.error('Failed to load filter dropdowns:', err);
+      }
+    };
+    fetchDropdowns();
+  }, []);
+
   const fetchInboxStats = async () => {
     try {
       const token = localStorage.getItem('accessToken');
@@ -128,6 +151,7 @@ export default function UnifiedDashboard() {
     }
   };
 
+  // Fetch ALL claims regardless of role - no filtering by vendor/stage
   const fetchData = async () => {
     const token = localStorage.getItem('accessToken');
     if (!token) {
@@ -138,22 +162,7 @@ export default function UnifiedDashboard() {
       setLoading(true);
       setError(null);
 
-      let claimsData = [];
-      switch(userRole) {
-        case 'vendor':
-          const vendorId = user?.vendor_id || user?.vendorId || user?.id;
-          claimsData = await claimsService.list({ vendor_id: vendorId });
-          break;
-        case 'pm':
-        case 'tpa':
-        case 'jdinfra':
-        case 'apts':
-          claimsData = await claimsService.list({ current_stage: userRole.toUpperCase() });
-          break;
-        case 'admin':
-        default:
-          claimsData = await claimsService.list({});
-      }
+      const claimsData = await claimsService.list({});
 
       setClaims(claimsData || []);
 
@@ -199,8 +208,18 @@ export default function UnifiedDashboard() {
     const matchesStatus = filterStatus ? 
       (item.status || '').toUpperCase() === filterStatus.toUpperCase() : 
       true;
+
+    const itemProjectId = item.project_id || item.project?.id;
+    const matchesProject = filterProject ? 
+      String(itemProjectId) === String(filterProject) : 
+      true;
+
+    const itemVendorId = item.vendor_id || item.vendor?.id;
+    const matchesVendor = filterVendor ? 
+      String(itemVendorId) === String(filterVendor) : 
+      true;
     
-    return matchesSearch && matchesStatus;
+    return matchesSearch && matchesStatus && matchesProject && matchesVendor;
   });
 
   const StatusBadge = ({ status }) => {
@@ -364,73 +383,22 @@ export default function UnifiedDashboard() {
         </div>
       )}
 
-      {/* Quick Actions */}
-      <div className="row g-3 mb-4">
-        <div className="col-12">
-          <div className="card border-0 shadow-sm" style={{ borderRadius: '12px' }}>
-            <div className="card-body p-3">
-              <div className="d-flex flex-wrap align-items-center gap-3">
-                <h6 className="fw-bold text-dark mb-0 me-2">
-                  <i className="bi bi-lightning-fill text-primary me-1"></i> Quick Actions
-                </h6>
-                <div className="d-flex flex-wrap gap-2">
-                  {userRole === 'vendor' && (
-                    <>
-                      <button className="btn btn-primary btn-sm" onClick={() => navigate('/vendor/claims')}>
-                        <i className="bi bi-box-seam me-1"></i> View All Claims
-                      </button>
-                      <button className="btn btn-outline-primary btn-sm" onClick={() => navigate('/vendor/claims/create')}>
-                        <i className="bi bi-upload me-1"></i> Submit Claim
-                      </button>
-                    </>
-                  )}
-                  {['pm', 'tpa', 'jdinfra', 'apts'].includes(userRole) && (
-                    <>
-                      <button className="btn btn-primary btn-sm" onClick={() => navigate(`/${userRole === 'apts' ? 'manager' : 'officer'}/inbox`)}>
-                        <i className="bi bi-inbox-fill me-1"></i> Inbox
-                      </button>
-                      <button className="btn btn-outline-primary btn-sm" onClick={() => navigate(`/${userRole === 'apts' ? 'manager' : 'officer'}/outbox`)}>
-                        <i className="bi bi-check-circle-fill me-1"></i> Outbox
-                      </button>
-                    </>
-                  )}
-                  {userRole === 'admin' && (
-                    <>
-                      <button className="btn btn-primary btn-sm" onClick={() => navigate('/admin/users')}>
-                        <i className="bi bi-people-fill me-1"></i> Manage Users
-                      </button>
-                      <button className="btn btn-primary btn-sm" onClick={() => navigate('/admin/vendors')}>
-                        <i className="bi bi-building me-1"></i> Manage Vendors
-                      </button>
-                      <button className="btn btn-primary btn-sm" onClick={() => navigate('/admin/workflows')}>
-                        <i className="bi bi-diagram-3-fill me-1"></i> Workflows
-                      </button>
-                      <button className="btn btn-outline-primary btn-sm" onClick={() => navigate('/admin/purchase-orders')}>
-                        <i className="bi bi-receipt me-1"></i> Manage POs
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Search and Filter */}
       <div className="card border-0 shadow-sm mb-4" style={{ borderRadius: '12px' }}>
         <div className="card-body p-3">
-          <div className="row g-2 align-items-center">
-            <div className="col-md-6">
+          <div className="row g-2 align-items-end">
+            <div className="col-md-4">
+              <label className="form-label small fw-semibold text-secondary">Search</label>
               <div className="input-group">
                 <span className="input-group-text bg-white border-0"><i className="bi bi-search text-muted"></i></span>
                 <input type="text" className="form-control border-0" placeholder="Search by code, project, vendor, or PO..." 
                        value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ backgroundColor: '#f8fafc' }} />
               </div>
             </div>
-            <div className="col-md-4">
+            <div className="col-md-2">
+              <label className="form-label small fw-semibold text-secondary">Status</label>
               <select className="form-select" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={{ backgroundColor: '#f8fafc', border: 'none' }}>
-                <option value="">All Statuses</option>
+                <option value="">All </option>
                 <option value="PENDING">Pending</option>
                 <option value="SUBMITTED">Submitted</option>
                 <option value="IN_PROGRESS">In Progress</option>
@@ -442,7 +410,25 @@ export default function UnifiedDashboard() {
               </select>
             </div>
             <div className="col-md-2">
-              <button className="btn btn-outline-secondary w-100" onClick={() => { setSearchTerm(''); setFilterStatus(''); }} style={{ borderRadius: '8px' }}>
+              <label className="form-label small fw-semibold text-secondary">Project</label>
+              <select className="form-select" value={filterProject} onChange={(e) => setFilterProject(e.target.value)} style={{ backgroundColor: '#f8fafc', border: 'none' }}>
+                <option value="">All Projects</option>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.project_name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="col-md-2">
+              <label className="form-label small fw-semibold text-secondary">Vendor</label>
+              <select className="form-select" value={filterVendor} onChange={(e) => setFilterVendor(e.target.value)} style={{ backgroundColor: '#f8fafc', border: 'none' }}>
+                <option value="">All Vendors</option>
+                {vendors.map(v => (
+                  <option key={v.id} value={v.id}>{v.vendor_name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="col-md-2">
+              <button className="btn btn-outline-secondary w-100" onClick={() => { setSearchTerm(''); setFilterStatus(''); setFilterProject(''); setFilterVendor(''); }} style={{ borderRadius: '8px' }}>
                 <i className="bi bi-funnel me-1"></i> Reset
               </button>
             </div>
