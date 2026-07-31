@@ -150,27 +150,15 @@ export default function Inbox() {
                   <td><StatusBadge status={pkg.status} /></td>
                   <td>{pkg.current_step_name || pkg.current_step?.step_name}</td>
                   <td className="text-end">
-                    <div className="d-flex justify-content-end gap-2">
-                      {/* Review & Process Button for Split-Pane Officer View */}
-                      {tab === 'inbox' && (
-                        <button
-                          type="button"
-                          onClick={() => navigate(`${base}/claims/${pkg.id}/review`)}
-                          className="btn btn-sm btn-primary fw-semibold"
-                        >
-                          Review &amp; Process
-                        </button>
-                      )}
-
-                      {/* Standard View Details Button */}
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-primary"
-                        onClick={() => navigate(`${base}/claims/${pkg.id}`)}
-                      >
-                        <i className="bi bi-eye me-1"></i> Open
-                      </button>
-                    </div>
+                  <div className="d-flex justify-content-end gap-2">
+  <button
+    type="button"
+    className="btn btn-sm btn-outline-primary"
+    onClick={() => navigate(`${base}/claims/${pkg.id}`)}
+  >
+    <i className="bi bi-eye me-1"></i> Open
+  </button>
+</div>
                   </td>
                 </tr>
               ))}
