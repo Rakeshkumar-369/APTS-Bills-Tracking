@@ -21,7 +21,19 @@ export default function ClaimDetail() {
   const [selectedOfficerId, setSelectedOfficerId] = useState('');
   const [assignRemarks, setAssignRemarks] = useState('');
   const [assignSubmitting, setAssignSubmitting] = useState(false);
+
+  // Pull-back state
+  const [pullBackRemarks, setPullBackRemarks] = useState('');
   const [pullBackSubmitting, setPullBackSubmitting] = useState(false);
+
+  // Forward (workflow mode) state
+  const [forwardRemarks, setForwardRemarks] = useState('');
+  const [forwardSubmitting, setForwardSubmitting] = useState(false);
+
+  // Send back (both modes) state
+  const [sendBackRemarks, setSendBackRemarks] = useState('');
+  const [sendBackSubmitting, setSendBackSubmitting] = useState(false);
+
   const [actionError, setActionError] = useState('');
 
   const [file, setFile] = useState(null);
@@ -48,7 +60,7 @@ export default function ClaimDetail() {
         } else if (typeof claimData === 'object' && claimData.claim_code) {
           claim = claimData;
         } else if (claimData.data) {
-          claim = claimData.data;
+          claim = Array.isArray(claimData.data) ? claimData.data[0] : claimData.data;
         } else {
           claim = claimData;
         }
@@ -62,20 +74,27 @@ export default function ClaimDetail() {
 
       setPkg(claim);
 
-      try {
-        const historyData = await claimsService.getHistory(id);
-        let historyArray = [];
-        if (Array.isArray(historyData)) {
-          historyArray = historyData;
-        } else if (historyData?.data && Array.isArray(historyData.data)) {
-          historyArray = historyData.data;
-        } else if (historyData && typeof historyData === 'object' && historyData.id) {
-          historyArray = [historyData];
+      // Prefer history embedded directly on the claim payload (as returned by
+      // GET /api/claims/:id?include_details=true); fall back to the
+      // dedicated history endpoint only if it wasn't included.
+      if (Array.isArray(claim.history)) {
+        setHistory(claim.history);
+      } else {
+        try {
+          const historyData = await claimsService.getHistory(id);
+          let historyArray = [];
+          if (Array.isArray(historyData)) {
+            historyArray = historyData;
+          } else if (historyData?.data && Array.isArray(historyData.data)) {
+            historyArray = historyData.data;
+          } else if (historyData && typeof historyData === 'object' && historyData.id) {
+            historyArray = [historyData];
+          }
+          setHistory(historyArray);
+        } catch (historyErr) {
+          console.warn('Could not fetch history:', historyErr);
+          setHistory([]);
         }
-        setHistory(historyArray);
-      } catch (historyErr) {
-        console.warn('Could not fetch history:', historyErr);
-        setHistory([]);
       }
     } catch (err) {
       console.error('❌ ClaimDetail load error:', err);
@@ -116,6 +135,49 @@ export default function ClaimDetail() {
     }
   }, [pkg, loadOfficers]);
 
+  // --- Derived booleans (computed before handlers so handlers can use them) ---
+  const isVendor = user?.role_name === 'Vendor' || user?.role_rank === 10;
+  const isAdmin = user?.role_rank === 100;
+  const canUpload = isVendor || isAdmin;
+  const isCompleted = pkg?.status?.toUpperCase() === 'COMPLETED';
+
+  // A claim is in "workflow mode" if it has a workflow_id; otherwise it uses
+  // manual officer-to-officer assignment.
+  const isWorkflowMode = Boolean(pkg?.workflow_id);
+  const isManual = !isWorkflowMode;
+
+  // WORKFLOW MODE: the claim sits at current_step_role_id. Any user holding
+  // that role can act on it (forward / send back).
+  const isMyWorkflowStep =
+    isWorkflowMode &&
+    !isCompleted &&
+    pkg?.current_step_role_id != null &&
+    user?.role_id != null &&
+    pkg.current_step_role_id === user.role_id;
+
+  // MANUAL MODE: the claim is "with" current_assigned_user_id, or with the
+  // vendor (its creator) if nothing has been assigned yet / it was sent back.
+  const isClaimWithVendorNow = isManual && !pkg?.current_assigned_user_id;
+  const isClaimWithMeManual =
+    isManual &&
+    !isCompleted &&
+    (pkg?.current_assigned_user_id
+      ? pkg.current_assigned_user_id === user?.id
+      : isClaimWithVendorNow && (pkg?.created_by === user?.id || isVendor));
+
+  const canAssign = isClaimWithMeManual;
+  const canSendBackManual = isClaimWithMeManual && !isVendor; // only an officer holding it can send it back to the vendor
+  const canForward = isMyWorkflowStep;
+  const canSendBackWorkflow = isMyWorkflowStep;
+
+  // PULL BACK — both modes, per the "immediate sender only" chain rule:
+  // you can pull back only if you were the one who sent the claim to
+  // wherever it currently sits.
+  const lastHistory = history.length > 0 ? history[history.length - 1] : null;
+  const canPullBack = Boolean(lastHistory && lastHistory.from_user_id === user?.id && !isCompleted);
+
+  const isFinalWorkflowStep = isMyWorkflowStep && user?.role_name === 'APTS Manager';
+
   // --- Action handlers ---
 
   async function handleAssign(e) {
@@ -147,17 +209,17 @@ export default function ClaimDetail() {
 
   async function handlePullBack(e) {
     e.preventDefault();
-    if (!confirm('Pull back this claim from the current officer?')) return;
-    if (assignRemarks.trim().length < 3) {
+    if (pullBackRemarks.trim().length < 3) {
       setActionError('Remarks must be at least 3 characters.');
       return;
     }
+    if (!confirm('Pull back this claim from the current holder?')) return;
     setPullBackSubmitting(true);
     setActionError('');
     try {
-      await claimsService.pullBack(id, assignRemarks.trim());
+      await claimsService.pullBack(id, pullBackRemarks.trim());
       setSuccessMessage('Claim pulled back successfully!');
-      setAssignRemarks('');
+      setPullBackRemarks('');
       await load();
       setTimeout(() => setSuccessMessage(''), 5000);
     } catch (err) {
@@ -165,6 +227,51 @@ export default function ClaimDetail() {
       setActionError(err.message || 'Pull-back failed.');
     } finally {
       setPullBackSubmitting(false);
+    }
+  }
+
+  async function handleForward(e) {
+    e.preventDefault();
+    if (forwardRemarks.trim().length < 3) {
+      setActionError('Remarks must be at least 3 characters.');
+      return;
+    }
+    setForwardSubmitting(true);
+    setActionError('');
+    try {
+      await claimsService.forward(id, forwardRemarks.trim());
+      setSuccessMessage(isFinalWorkflowStep ? 'Claim approved and completed!' : 'Claim forwarded to the next step!');
+      setForwardRemarks('');
+      await load();
+      setTimeout(() => setSuccessMessage(''), 5000);
+    } catch (err) {
+      console.error('Forward error:', err);
+      setActionError(err.message || 'Forward failed.');
+    } finally {
+      setForwardSubmitting(false);
+    }
+  }
+
+  async function handleSendBack(e) {
+    e.preventDefault();
+    if (sendBackRemarks.trim().length < 3) {
+      setActionError('Remarks must be at least 3 characters.');
+      return;
+    }
+    if (!confirm('Send this claim back to the vendor for revision?')) return;
+    setSendBackSubmitting(true);
+    setActionError('');
+    try {
+      await claimsService.sendback(id, sendBackRemarks.trim());
+      setSuccessMessage('Claim sent back to vendor!');
+      setSendBackRemarks('');
+      await load();
+      setTimeout(() => setSuccessMessage(''), 5000);
+    } catch (err) {
+      console.error('Send-back error:', err);
+      setActionError(err.message || 'Send-back failed.');
+    } finally {
+      setSendBackSubmitting(false);
     }
   }
 
@@ -199,15 +306,6 @@ export default function ClaimDetail() {
       setActionError(err.message || 'Could not delete file.');
     }
   }
-
-  // --- Derived booleans ---
-  const isVendor = user?.role_name === 'Vendor' || user?.role_rank === 10;
-  const isAdmin = user?.role_rank === 100;
-  const canUpload = isVendor || isAdmin;
-
-  // Pull-back availability: last history entry's from_user_id === current user
-  const lastHistory = history.length > 0 ? history[history.length - 1] : null;
-  const canPullBack = lastHistory && lastHistory.from_user_id === user?.id;
 
   if (loading) {
     return (
@@ -249,8 +347,6 @@ export default function ClaimDetail() {
   ) || (pkg.files && pkg.files[0]);
 
   const hasDocument = Boolean(pdfFile || pkg.file_url);
-
-  const isManual = !pkg.workflow_id; // used only for display
 
   return (
     <div className="d-flex flex-column vh-100 bg-body-tertiary overflow-hidden">
@@ -362,7 +458,7 @@ export default function ClaimDetail() {
             </div>
           </div>
 
-          {/* Section 2: Officer Review Panel (always shows assignment + pullback) */}
+          {/* Section 2: Officer Review Panel — dynamic per workflow/manual mode & current holder */}
           <div className="card border border-primary-subtle shadow-sm mb-3 bg-body-highlight">
             <div className="card-body p-3">
               <h6 className="card-subtitle text-uppercase text-primary fw-bold mb-3 small d-flex align-items-center">
@@ -370,82 +466,192 @@ export default function ClaimDetail() {
                 Officer Review Decision
               </h6>
 
-              {/* Officer Assignment */}
               <div className="d-flex flex-column gap-3">
-                <div>
-                  <label className="form-label small fw-semibold text-dark mb-1">
-                    Assign to Officer <span className="text-danger">*</span>
-                  </label>
-                  <div className="d-flex gap-2">
-                    <select
-                      className="form-select form-select-sm flex-grow-1"
-                      value={selectedOfficerId}
-                      onChange={(e) => setSelectedOfficerId(e.target.value)}
-                      disabled={assignSubmitting || pullBackSubmitting}
-                    >
-                      <option value="">Select an officer...</option>
-                      {officers.map((off) => (
-                        <option key={off.id} value={off.id}>
-                          {off.name} ({off.email})
-                        </option>
-                      ))}
-                    </select>
+
+                {/* WORKFLOW MODE — Forward */}
+                {canForward && (
+                  <div>
+                    <label className="form-label small fw-semibold text-dark mb-1">
+                      {isFinalWorkflowStep ? 'Approve & Complete' : 'Forward to Next Step'} <span className="text-danger">*</span>
+                    </label>
+                    <textarea
+                      className="form-control form-control-sm mb-2"
+                      rows={2}
+                      placeholder="Forward remarks (min 3 characters)..."
+                      value={forwardRemarks}
+                      onChange={(e) => setForwardRemarks(e.target.value)}
+                      disabled={forwardSubmitting}
+                    />
                     <button
                       type="button"
-                      className="btn btn-sm btn-primary text-nowrap"
-                      onClick={handleAssign}
-                      disabled={!selectedOfficerId || assignSubmitting || pullBackSubmitting}
+                      className="btn btn-sm btn-success w-100"
+                      onClick={handleForward}
+                      disabled={forwardSubmitting}
                     >
-                      {assignSubmitting ? (
+                      {forwardSubmitting ? (
                         <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                       ) : (
-                        'Assign'
+                        <>
+                          <i className="bi bi-check2-circle me-1"></i>
+                          {isFinalWorkflowStep ? 'Approve & Complete' : 'Forward'}
+                        </>
                       )}
                     </button>
                   </div>
-                  <textarea
-                    className="form-control form-control-sm mt-2"
-                    rows={2}
-                    placeholder="Assignment remarks (min 3 characters)..."
-                    value={assignRemarks}
-                    onChange={(e) => setAssignRemarks(e.target.value)}
-                    disabled={assignSubmitting || pullBackSubmitting}
-                  />
-                </div>
+                )}
 
-                {/* Pull Back */}
+                {/* WORKFLOW MODE — Send Back to previous step */}
+                {canSendBackWorkflow && (
+                  <div>
+                    <label className="form-label small fw-semibold text-dark mb-1">
+                      Send Back <span className="text-danger">*</span>
+                    </label>
+                    <textarea
+                      className="form-control form-control-sm mb-2"
+                      rows={2}
+                      placeholder="Send-back remarks (min 3 characters)..."
+                      value={sendBackRemarks}
+                      onChange={(e) => setSendBackRemarks(e.target.value)}
+                      disabled={sendBackSubmitting}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-danger w-100"
+                      onClick={handleSendBack}
+                      disabled={sendBackSubmitting}
+                    >
+                      {sendBackSubmitting ? (
+                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                      ) : (
+                        <>
+                          <i className="bi bi-reply me-1"></i>
+                          Send Back
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* MANUAL MODE — Assign to Officer */}
+                {canAssign && (
+                  <div>
+                    <label className="form-label small fw-semibold text-dark mb-1">
+                      Assign to Officer <span className="text-danger">*</span>
+                    </label>
+                    <div className="d-flex gap-2">
+                      <select
+                        className="form-select form-select-sm flex-grow-1"
+                        value={selectedOfficerId}
+                        onChange={(e) => setSelectedOfficerId(e.target.value)}
+                        disabled={assignSubmitting}
+                      >
+                        <option value="">Select an officer...</option>
+                        {officers.map((off) => (
+                          <option key={off.id} value={off.id}>
+                            {off.name} ({off.role_name})
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-primary text-nowrap"
+                        onClick={handleAssign}
+                        disabled={!selectedOfficerId || assignSubmitting}
+                      >
+                        {assignSubmitting ? (
+                          <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        ) : (
+                          'Assign'
+                        )}
+                      </button>
+                    </div>
+                    <textarea
+                      className="form-control form-control-sm mt-2"
+                      rows={2}
+                      placeholder="Assignment remarks (min 3 characters)..."
+                      value={assignRemarks}
+                      onChange={(e) => setAssignRemarks(e.target.value)}
+                      disabled={assignSubmitting}
+                    />
+                  </div>
+                )}
+
+                {/* MANUAL MODE — Send Back to Vendor (officer holding the claim only) */}
+                {canSendBackManual && (
+                  <div>
+                    <label className="form-label small fw-semibold text-dark mb-1">
+                      Send Back to Vendor <span className="text-danger">*</span>
+                    </label>
+                    <textarea
+                      className="form-control form-control-sm mb-2"
+                      rows={2}
+                      placeholder="Send-back remarks (min 3 characters)..."
+                      value={sendBackRemarks}
+                      onChange={(e) => setSendBackRemarks(e.target.value)}
+                      disabled={sendBackSubmitting}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-danger w-100"
+                      onClick={handleSendBack}
+                      disabled={sendBackSubmitting}
+                    >
+                      {sendBackSubmitting ? (
+                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                      ) : (
+                        <>
+                          <i className="bi bi-reply me-1"></i>
+                          Send Back
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* PULL BACK — both modes, only for the immediate sender */}
                 {canPullBack && (
                   <div>
+                    <textarea
+                      className="form-control form-control-sm mb-2"
+                      rows={2}
+                      placeholder="Pull-back remarks (min 3 characters)..."
+                      value={pullBackRemarks}
+                      onChange={(e) => setPullBackRemarks(e.target.value)}
+                      disabled={pullBackSubmitting}
+                    />
                     <button
                       type="button"
                       className="btn btn-sm btn-outline-secondary w-100"
                       onClick={handlePullBack}
-                      disabled={pullBackSubmitting || assignSubmitting}
+                      disabled={pullBackSubmitting}
                     >
                       {pullBackSubmitting ? (
                         <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                       ) : (
                         <>
                           <i className="bi bi-arrow-return-left me-1"></i>
-                          Pull Back from Current Officer
+                          Pull Back
                         </>
                       )}
                     </button>
                     <p className="small text-muted mt-1 mb-0">
-                      You can pull back if you are the one who assigned this claim to the current officer.
+                      You can pull back because you were the last to send this claim onward.
                     </p>
                   </div>
                 )}
 
-                {!canPullBack && pkg.status?.toUpperCase() !== 'COMPLETED' && (
+                {/* Fallback status messaging when the current user has no available action */}
+                {!canForward && !canSendBackWorkflow && !canAssign && !canSendBackManual && !canPullBack && !isCompleted && (
                   <div className="alert alert-info mb-0 small py-2">
                     <i className="bi bi-info-circle me-1"></i>
-                    {pkg.current_assigned_user_id
-                      ? `Currently assigned to: ${pkg.current_assigned_user_name || 'Officer'}`
-                      : 'No officer assigned yet.'}
+                    {isWorkflowMode
+                      ? `Currently at step: ${pkg.current_step_name || 'Unknown'}. Awaiting action from the responsible role.`
+                      : pkg.current_assigned_user_id
+                        ? `Currently assigned to: ${pkg.assigned_user_name || pkg.current_assigned_user_name || 'Officer'}.`
+                        : 'This claim has not been assigned yet.'}
                   </div>
                 )}
-                {pkg.status?.toUpperCase() === 'COMPLETED' && (
+                {isCompleted && (
                   <div className="alert alert-success mb-0 small py-2">
                     <i className="bi bi-check-circle-fill me-1"></i>
                     This claim is complete.
