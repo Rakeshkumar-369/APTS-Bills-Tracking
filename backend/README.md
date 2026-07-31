@@ -176,7 +176,7 @@ A vendor creates a claim under a PO → the claim is linked to both the PO and t
 
 | Table | Purpose |
 |---|---|
-| `invoice_submissions` | Vendor invoices after package completion |
+| `invoice_submissions` | Vendor invoices after claim completion |
 
 ---
 
@@ -283,7 +283,6 @@ A vendor creates a claim under a PO → the claim is linked to both the PO and t
 | DELETE | `/api/claims/:id/files/:fileId` | `claim.update` | Delete a file |
 | GET | `/api/claims/:id/files/:fileId/download` | `claim.read` | Download/serve a file |
 
-**Backward compatibility:** The old `/api/packages/*` routes still work via an internal alias pointing to the same claim handlers.
 
 ### Purchase Orders (Admin)
 
@@ -381,7 +380,7 @@ python backend/tests/test_api.py
 - **Mandatory remarks** — every workflow transition requires a remark
 - **Hierarchy enforcement** — users can only CRUD users with roles of lower rank
 - **Permissions as JSON** — fully configurable per role
-- **Data isolation** — vendors see only their own packages; officers see packages where their role is in the workflow chain; admins see all packages
+- **Data isolation** — vendors see only their own claims; officers see claims where their role is in the workflow chain; admins see all claims
 - **is_active access control** — list endpoints (`GET /api/:entity`) behave differently by role:
   - **Super Admin**: sees **both active and inactive** records by default (no filter applied). Can still pass `?is_active=0` to see only inactive, or `?is_active=1` for active-only.
   - **Everyone else**: always locked to **active records only** (`is_active = 1`) — they can never retrieve inactive records regardless of the query param.

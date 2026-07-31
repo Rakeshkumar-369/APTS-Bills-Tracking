@@ -18,13 +18,6 @@ const serveClaimFile = async (req, res, next) => {
     const filePath = path.join(__dirname, '../..', file.file_path);
 
     if (!fs.existsSync(filePath)) {
-      // Fallback: check old uploads/packages/ path for migrated records
-      const oldPath = filePath.replace(/uploads[/\\]claims[/\\]/, 'uploads' + path.sep + 'packages' + path.sep);
-      if (fs.existsSync(oldPath)) {
-        res.setHeader('Content-Disposition', 'inline; filename="' + file.original_name + '"');
-        res.setHeader('Content-Type', file.mime_type);
-        return res.sendFile(oldPath);
-      }
       return res.status(404).json(ApiResponse.error('File not found on server', []));
     }
 

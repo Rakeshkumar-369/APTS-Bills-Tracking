@@ -967,15 +967,6 @@ def run_all_tests():
     # ── 13. Cleanup ───────────────────────────────────────────────────────
     print("\n\u2500\u2500\u2500 13. CLEANUP \u2500\u2500\u2500")
 
-    # Backward compat: verify /api/packages alias still works
-    print("\n  → Verifying backward compat: /api/packages alias...")
-    if claim_id:
-        backward = admin.get("/packages", {"limit": 10}, "Backward compat: GET /api/packages (aliased to /api/claims)")
-        if backward and backward.get("success"):
-            ids = [c["id"] for c in backward["data"]]
-            log("Backward compat works", "PASS" if claim_id in ids else "FAIL",
-                f"Claim {claim_id} found via /api/packages")
-
     # Clean up non-workflow claim (already tested, nothing to delete)
     if nwf_claim_id:
         log("Non-workflow claim tested", "PASS", f"ID: {nwf_claim_id}")

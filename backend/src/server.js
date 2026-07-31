@@ -74,10 +74,6 @@ app.use('/api/vendors', vendorRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/claims', claimRoutes);
 
-// Backward compatibility: serve the same claim routes under /api/packages
-// so the frontend continues working until it's updated
-app.use('/api/packages', claimRoutes);
-
 app.use('/api/purchase-orders', poRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/inbox', inboxRoutes);
