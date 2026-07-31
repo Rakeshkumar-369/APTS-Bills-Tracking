@@ -75,7 +75,7 @@ class RoleRepository {
   }
 
   async delete(id) {
-    await pool.query('UPDATE roles SET is_deleted = 1 WHERE id = ?', [id]);
+    await pool.query('UPDATE roles SET is_deleted = 1, deleted_at = NOW() WHERE id = ?', [id]);
   }
 
   async getUserCountByRoleId(roleId) {

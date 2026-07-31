@@ -25,11 +25,13 @@ const getAllWorkflows = async (req, res, next) => {
 const getWorkflowById = async (req, res, next) => {
   try {
     const includeDetails = req.query.include_details === 'true';
+    // Super Admin sees inactive steps/transitions too when configuring a workflow
+    const includeInactive = req.user?.role_name === 'Super Admin';
     const workflow = await workflowService.getById(req.params.id);
 
     if (includeDetails) {
-      workflow.steps = await workflowService.getSteps(req.params.id);
-      workflow.transitions = await workflowService.getTransitions(req.params.id);
+      workflow.steps = await workflowService.getSteps(req.params.id, includeInactive);
+      workflow.transitions = await workflowService.getTransitions(req.params.id, includeInactive);
     }
 
     res.json(ApiResponse.success('Workflow fetched successfully', [workflow]));
@@ -60,7 +62,8 @@ const updateWorkflow = async (req, res, next) => {
 
 const getWorkflowSteps = async (req, res, next) => {
   try {
-    const steps = await workflowService.getSteps(req.params.id);
+    const includeInactive = req.user?.role_name === 'Super Admin';
+    const steps = await workflowService.getSteps(req.params.id, includeInactive);
     res.json(ApiResponse.success('Workflow steps fetched successfully', steps));
   } catch (error) {
     next(error);
@@ -102,7 +105,8 @@ const deleteWorkflowStep = async (req, res, next) => {
 
 const getWorkflowTransitions = async (req, res, next) => {
   try {
-    const transitions = await workflowService.getTransitions(req.params.id);
+    const includeInactive = req.user?.role_name === 'Super Admin';
+    const transitions = await workflowService.getTransitions(req.params.id, includeInactive);
     res.json(ApiResponse.success('Workflow transitions fetched successfully', transitions));
   } catch (error) {
     next(error);

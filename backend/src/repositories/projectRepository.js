@@ -81,7 +81,7 @@ class ProjectRepository {
   }
 
   async delete(id) {
-    await pool.query('UPDATE projects SET is_deleted = 1 WHERE id = ?', [id]);
+    await pool.query('UPDATE projects SET is_deleted = 1, deleted_at = NOW() WHERE id = ?', [id]);
   }
 
   // ── Vendor-Project Assignment ──

@@ -100,7 +100,7 @@ class PORepository {
   }
 
   async softDelete(id) {
-    await pool.query('UPDATE purchase_orders SET is_deleted = 1, status = "CANCELLED" WHERE id = ?', [id]);
+    await pool.query('UPDATE purchase_orders SET is_deleted = 1, status = "CANCELLED", deleted_at = NOW() WHERE id = ?', [id]);
   }
 
   async getLastPONumber() {

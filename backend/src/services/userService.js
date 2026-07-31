@@ -15,8 +15,15 @@ class UserService {
   }
 
   async getById(id, currentUser) {
-    const user = await userRepository.findById(id);
+    // Use management lookup so Super Admin can fetch/edit/reactivate inactive users.
+    // is_deleted = 1 users are still excluded inside the repository.
+    const user = await userRepository.findByIdForManagement(id);
     if (!user) throw new ApiError(404, 'User not found');
+
+    // Inactive (is_active = 0) users are only visible to Super Admin
+    if (!user.is_active && (!currentUser || currentUser.role_name !== 'Super Admin')) {
+      throw new ApiError(404, 'User not found');
+    }
 
     if (currentUser && currentUser.role_rank < 100 && user.role_rank >= currentUser.role_rank) {
       throw new ApiError(403, 'Access denied: You can only view users with roles lower than your own');
@@ -58,12 +65,12 @@ class UserService {
       ip_address: ipAddress
     });
 
-    return this.getById(userId);
+    return this.getById(userId, currentUser);
   }
 
   async update(id, data, performedBy, ipAddress) {
-    const existing = await this.getById(id);
     const currentUser = await this.getById(performedBy);
+    const existing = await this.getById(id, currentUser);
 
     if (currentUser.role_rank < 100 && existing.role_rank >= currentUser.role_rank) {
       throw new ApiError(403,
@@ -97,12 +104,12 @@ class UserService {
       ip_address: ipAddress
     });
 
-    return this.getById(id);
+    return this.getById(id, currentUser);
   }
 
   async delete(id, performedBy, ipAddress) {
-    const existing = await this.getById(id);
     const currentUser = await this.getById(performedBy);
+    const existing = await this.getById(id, currentUser);
 
     if (Number(id) === performedBy) {
       throw new ApiError(400, 'You cannot delete your own account');
@@ -130,7 +137,7 @@ class UserService {
   async getAllRoles() {
     const pool = require('../config/db');
     const [rows] = await pool.query(
-      'SELECT id, role_name, description, role_rank, permissions, is_active FROM roles ORDER BY role_rank DESC'
+      'SELECT id, role_name, description, role_rank, permissions, is_active FROM roles WHERE is_deleted = false ORDER BY role_rank DESC'
     );
     return rows;
   }
@@ -138,7 +145,7 @@ class UserService {
   async getRoleById(roleId) {
     const pool = require('../config/db');
     const [rows] = await pool.query(
-      'SELECT id, role_name, description, role_rank, permissions, is_active FROM roles WHERE id = ?',
+      'SELECT id, role_name, description, role_rank, permissions, is_active FROM roles WHERE id = ? AND is_deleted = false',
       [roleId]
     );
     if (!rows[0]) throw new ApiError(404, 'Role not found');

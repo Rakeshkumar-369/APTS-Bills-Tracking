@@ -34,3 +34,4 @@ error.log
 
 uploads
 nul
+__pycache__

@@ -45,9 +45,11 @@ CREATE TABLE roles (
   permissions JSON NULL COMMENT 'JSON object with module->action->boolean, e.g. {"vendor":{"create":true}}',
   is_active   BOOLEAN DEFAULT TRUE,
   is_deleted  BOOLEAN DEFAULT FALSE,
+  deleted_at  DATETIME NULL COMMENT 'Set to NOW() when soft-deleted; NULL = not deleted',
+  active_role_name VARCHAR(100) GENERATED ALWAYS AS (IF(deleted_at IS NULL, role_name, NULL)) STORED COMMENT 'role_name while active; NULL once deleted so the name can be reused',
   created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_role_name_active (role_name, is_deleted)
+  UNIQUE KEY uq_role_name_active (active_role_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
@@ -63,9 +65,11 @@ CREATE TABLE vendors (
   address        TEXT         NULL,
   is_active      BOOLEAN DEFAULT TRUE,
   is_deleted     BOOLEAN DEFAULT FALSE,
+  deleted_at     DATETIME NULL COMMENT 'Set to NOW() when soft-deleted; NULL = not deleted',
+  active_vendor_code VARCHAR(50) GENERATED ALWAYS AS (IF(deleted_at IS NULL, vendor_code, NULL)) STORED COMMENT 'vendor_code while active; NULL once deleted so the code can be reused',
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_vendor_code_active (vendor_code, is_deleted)
+  UNIQUE KEY uq_vendor_code_active (active_vendor_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
@@ -82,6 +86,8 @@ CREATE TABLE users (
   phone                VARCHAR(20)  NULL,
   is_active            BOOLEAN DEFAULT TRUE,
   is_deleted           BOOLEAN DEFAULT FALSE,
+  deleted_at           DATETIME NULL COMMENT 'Set to NOW() when soft-deleted; NULL = not deleted',
+  active_email         VARCHAR(255) GENERATED ALWAYS AS (IF(deleted_at IS NULL, email, NULL)) STORED COMMENT 'email while active; NULL once deleted so the email can be reused',
   has_digital_signature BOOLEAN DEFAULT FALSE,
   last_login_time      DATETIME NULL,
   last_login_ip        VARCHAR(45) NULL,
@@ -91,7 +97,7 @@ CREATE TABLE users (
 
   FOREIGN KEY (role_id)   REFERENCES roles(id),
   FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE SET NULL,
-  UNIQUE KEY uq_email_active (email, is_deleted)
+  UNIQUE KEY uq_email_active (active_email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
@@ -103,9 +109,11 @@ CREATE TABLE workflow_master (
   description   TEXT NULL,
   is_active     BOOLEAN DEFAULT TRUE,
   is_deleted    BOOLEAN DEFAULT FALSE,
+  deleted_at    DATETIME NULL COMMENT 'Set to NOW() when soft-deleted; NULL = not deleted',
+  active_workflow_name VARCHAR(255) GENERATED ALWAYS AS (IF(deleted_at IS NULL, workflow_name, NULL)) STORED COMMENT 'workflow_name while active; NULL once deleted so the name can be reused',
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_workflow_name_active (workflow_name, is_deleted)
+  UNIQUE KEY uq_workflow_name_active (active_workflow_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
@@ -119,11 +127,13 @@ CREATE TABLE projects (
   workflow_id   INT NULL COMMENT 'NULL = no workflow (manual officer assignment)',
   is_active     BOOLEAN DEFAULT TRUE,
   is_deleted    BOOLEAN DEFAULT FALSE,
+  deleted_at    DATETIME NULL COMMENT 'Set to NOW() when soft-deleted; NULL = not deleted',
+  active_project_code VARCHAR(50) GENERATED ALWAYS AS (IF(deleted_at IS NULL, project_code, NULL)) STORED COMMENT 'project_code while active; NULL once deleted so the code can be reused',
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   FOREIGN KEY (workflow_id) REFERENCES workflow_master(id),
-  UNIQUE KEY uq_project_code_active (project_code, is_deleted)
+  UNIQUE KEY uq_project_code_active (active_project_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
@@ -179,13 +189,15 @@ CREATE TABLE purchase_orders (
   status         ENUM('ACTIVE', 'CLOSED', 'CANCELLED') DEFAULT 'ACTIVE',
   is_active      BOOLEAN DEFAULT TRUE,
   is_deleted     BOOLEAN DEFAULT FALSE,
+  deleted_at     DATETIME NULL COMMENT 'Set to NOW() when soft-deleted; NULL = not deleted',
+  active_po_number VARCHAR(50) GENERATED ALWAYS AS (IF(deleted_at IS NULL, po_number, NULL)) STORED COMMENT 'po_number while active; NULL once deleted so the number can be reused',
   created_by     INT NOT NULL,
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   FOREIGN KEY (project_id) REFERENCES projects(id),
   FOREIGN KEY (created_by) REFERENCES users(id),
-  UNIQUE KEY uq_po_number_active (po_number, is_deleted)
+  UNIQUE KEY uq_po_number_active (active_po_number)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
@@ -239,6 +251,8 @@ CREATE TABLE claims (
   remarks               TEXT NULL,
   is_completed          BOOLEAN DEFAULT FALSE,
   is_deleted            BOOLEAN DEFAULT FALSE,
+  deleted_at            DATETIME NULL COMMENT 'Set to NOW() when soft-deleted; NULL = not deleted',
+  active_claim_code     VARCHAR(50) GENERATED ALWAYS AS (IF(deleted_at IS NULL, claim_code, NULL)) STORED COMMENT 'claim_code while active; NULL once deleted so the code can be reused',
   created_by            INT NOT NULL COMMENT 'Vendor user who created this claim',
   created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -252,7 +266,7 @@ CREATE TABLE claims (
   FOREIGN KEY (current_step_id)         REFERENCES workflow_steps(id) ON DELETE SET NULL,
   FOREIGN KEY (current_assigned_user_id) REFERENCES users(id) ON DELETE SET NULL,
   FOREIGN KEY (created_by)              REFERENCES users(id),
-  UNIQUE KEY uq_claim_code_active (claim_code, is_deleted)
+  UNIQUE KEY uq_claim_code_active (active_claim_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================

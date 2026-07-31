@@ -44,6 +44,29 @@ class UserRepository {
     return rows[0];
   }
 
+  /**
+   * Find a user by id for MANAGEMENT operations (Super Admin editing/
+   * reactivating inactive accounts). Unlike findById(), this does NOT filter
+   * on is_active — inactive users can be fetched, updated and reactivated.
+   * is_deleted = 1 users are still excluded everywhere.
+   */
+  async findByIdForManagement(id) {
+    const [rows] = await pool.query(`
+      SELECT u.*, r.role_name, r.permissions, r.role_rank,
+             v.vendor_name AS vendor_name
+      FROM users u
+      JOIN roles r ON u.role_id = r.id
+      LEFT JOIN vendors v ON u.vendor_id = v.id
+      WHERE u.id = ? AND u.is_deleted = false
+    `, [id]);
+
+    if (rows[0]) {
+      rows[0].permissions = parsePermissions(rows[0].permissions);
+    }
+
+    return rows[0];
+  }
+
   async getBlockedStatus(email) {
     const [rows] = await pool.query(
       'SELECT * FROM blocked_users WHERE email = ?',
@@ -258,7 +281,7 @@ class UserRepository {
   }
 
   async deleteUser(id) {
-    await pool.query('UPDATE users SET is_deleted = 1 WHERE id = ?', [id]);
+    await pool.query('UPDATE users SET is_deleted = 1, deleted_at = NOW() WHERE id = ?', [id]);
   }
 
   async findVendorUsers(vendorId) {

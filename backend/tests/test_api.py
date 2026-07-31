@@ -725,22 +725,28 @@ def run_all_tests():
 
         if pull_resp and pull_resp.get("success"):
             log("PM pulled claim back", "PASS", "")
+        else:
+            log("PM pulled claim back", "FAIL", "PM assigned to TPA but pull-back was rejected")
 
-    # 9e. Verify vendor CANNOT pull back (vendor→PM→TPA, then PM pulled back, so claim is now at PM)
-    # Actually after pull back, claim is at PM. Vendor had sent to PM originally.
-    # Vendor can try to pull back but they need to check if they forwarded to the CURRENT assignee
+    # 9e. Vendor pulls back from PM (chain: Vendor→PM→TPA, PM pulled back, so claim is at PM)
+    # Vendor assigned to PM originally and claim is now at PM → vendor CAN pull back.
     if nwf_claim_id:
         vendor_pull = vendor.post(f"/claims/{nwf_claim_id}/pull-back", {
-            "remarks": "Vendor trying to pull back"
-        }, "Vendor: Try pull back (should fail - claim is at PM now)")
+            "remarks": "Vendor pulling back the claim they assigned to PM"
+        }, "Vendor: Pull back from PM (should succeed)")
 
-        # After PM pulled back, claim is at PM. Vendor forwarded to PM originally,
-        # so vendor CAN pull back since current_assigned_user_id = PM and vendor forwarded to PM
-        if vendor_pull and not vendor_pull.get("success"):
-            log("Vendor pull-back denied as expected", "PASS", "")
-        elif vendor_pull and vendor_pull.get("success"):
-            log("Vendor CAN pull back (claim is at PM who vendor originally sent to)", "PASS",
-                "Vendor can pull back because claim is at PM and vendor sent it to PM originally")
+        if vendor_pull and vendor_pull.get("success"):
+            log("Vendor can pull back the claim they assigned", "PASS", "")
+            # Verify the claim is back with the vendor
+            back_check = admin.get(f"/claims/{nwf_claim_id}", label="Check claim back with vendor")
+            if back_check and back_check.get("success"):
+                back_to = back_check["data"][0].get("current_assigned_user_id")
+                log("Claim returned to vendor after pull-back",
+                    "PASS" if back_to == 2 else "FAIL",
+                    f"current_assigned_user_id={back_to}, expected=2 (vendor user)")
+        else:
+            log("Vendor can pull back the claim they assigned", "FAIL",
+                "Vendor assigned the claim but pull-back was rejected")
 
     # 9f. Try to pull back from different angle: create a new claim and test chain rule
     # Vendor→PM→TPA and vendor tries to pull back (should fail because vendor didn't send to TPA)
@@ -776,6 +782,49 @@ def run_all_tests():
                              "Chain: PM pull-back from TPA (expect success)")
             if pm_try and pm_try.get("success"):
                 log("Chain rule: PM pulled back from TPA", "PASS", "")
+            else:
+                log("Chain rule: PM pulled back from TPA", "FAIL",
+                    "PM assigned to TPA but pull-back was rejected")
+
+    # 9g. FOCUSED REGRESSION TEST: vendor assigns claim to an officer, then pulls it back
+    # (exact scenario that was broken — findLatestForward looked at the wrong column)
+    if test_vendor_id and test_project_nwf_id and po_id_nwf:
+        create_nwf3 = vendor.post("/claims", {
+            "vendor_id": test_vendor_id,
+            "vendor_contact_user_id": 2,
+            "project_id": test_project_nwf_id,
+            "po_id": po_id_nwf,
+            "remarks": "Third non-workflow claim for pull-back regression test"
+        }, "Vendor: Create claim for pull-back regression test")
+        nwf3_id = None
+        if create_nwf3 and create_nwf3.get("success"):
+            nwf3_id = create_nwf3["data"][0]["id"]
+
+            # Vendor → PM (user 3)
+            assign3 = vendor.post(f"/claims/{nwf3_id}/assign",
+                                  {"target_user_id": 3, "remarks": "Vendor assigns to PM"},
+                                  "Regression: Vendor assigns to PM")
+            if assign3 and assign3.get("success"):
+                # Vendor pulls back from PM — must succeed (they forwarded to the current assignee)
+                pull3 = vendor.post(f"/claims/{nwf3_id}/pull-back",
+                                    {"remarks": "Vendor pulls back the claim"},
+                                    "Regression: Vendor pulls back claim they assigned (expect success)")
+                if pull3 and pull3.get("success"):
+                    log("Pull-back works when vendor assigns to officer", "PASS", "")
+                    # Verify history has to_user_id populated for the FORWARD entry
+                    hist3 = admin.get(f"/claims/{nwf3_id}/history", label="Check pull-back claim history")
+                    if hist3 and hist3.get("success"):
+                        fwd3 = next((h for h in hist3["data"] if h.get("action") == "FORWARD"), None)
+                        if fwd3:
+                            to_id = fwd3.get("to_user_id")
+                            log("FORWARD history has to_user_id set",
+                                "PASS" if to_id == 3 else "FAIL",
+                                f"to_user_id={to_id}, expected=3 (PM)")
+                else:
+                    log("Pull-back works when vendor assigns to officer", "FAIL",
+                        "Vendor assigned the claim but pull-back was rejected")
+            else:
+                log("Regression: Vendor assigns to PM", "FAIL", "Assignment failed")
 
     # ── 10. Inbox & Outbox ─────────────────────────────────────────────────
     print("\n\u2500\u2500\u2500 10. INBOX / OUTBOX \u2500\u2500\u2500")
@@ -803,21 +852,49 @@ def run_all_tests():
 
     # ── 10c. is_active Access Control Tests ────────────────────────────────
     print("\n\u2500\u2500\u2500 10c. IS_ACTIVE ACCESS CONTROL \u2500\u2500\u2500")
-    admin_active = admin.get("/projects", {"limit": 1}, "Admin: List projects (default active only)")
-    admin_all = admin.get("/projects", {"limit": 1, "is_active": 0}, "Admin: List projects with is_active=0")
-    pm_active = pm.get("/projects", {"limit": 1}, "PM: List projects (default active only)")
-    pm_inactive = pm.get("/projects", {"limit": 1, "is_active": 0}, "PM: List projects with is_active=0 (forced active)")
 
-    if pm_active and pm_inactive:
-        pm_active_ids = {p["id"] for p in pm_active["data"]}
-        pm_inactive_ids = {p["id"] for p in pm_inactive["data"]}
-        log("PM is_active=0 forced to active only",
-            "PASS" if pm_inactive_ids.issubset(pm_active_ids) or len(pm_inactive["data"]) == len(pm_active["data"]) else "FAIL",
-            f"PM active: {len(pm_active['data'])}, PM inactive-requested: {len(pm_inactive['data'])}")
+    # Deactivate the non-workflow project to verify active/inactive visibility rules
+    # NOTE: is_active must be sent as a JSON boolean (validator uses .isBoolean())
+    if test_project_nwf_id:
+        admin.put(f"/projects/{test_project_nwf_id}", {"is_active": False},
+                  "Admin: Deactivate non-workflow project for visibility test")
 
-    if admin_active and admin_all and len(admin_active["data"]) > 0 and len(admin_all["data"]) > 0:
-        log("Admin can override is_active filter", "PASS",
-            f"Admin active: {len(admin_active['data'])}, Admin is_active=0: {len(admin_all['data'])}")
+        # Super Admin default list includes BOTH active AND inactive records
+        admin_default = admin.get("/projects", {"limit": 50}, "Admin: List projects (default = active + inactive)")
+        if admin_default and admin_default.get("success"):
+            admin_default_ids = {p["id"] for p in admin_default["data"]}
+            log("Super Admin sees inactive project by default",
+                "PASS" if test_project_nwf_id in admin_default_ids else "FAIL",
+                f"Inactive project {test_project_nwf_id} in admin default list: {test_project_nwf_id in admin_default_ids}")
+
+        # Super Admin with is_active=0 sees ONLY inactive records
+        admin_inactive = admin.get("/projects", {"limit": 50, "is_active": 0}, "Admin: List projects with is_active=0")
+        if admin_inactive and admin_inactive.get("success"):
+            admin_inactive_ids = {p["id"] for p in admin_inactive["data"]}
+            all_inactive = all(p.get("is_active") == 0 for p in admin_inactive["data"])
+            log("Super Admin is_active=0 returns inactive only",
+                "PASS" if all_inactive and test_project_nwf_id in admin_inactive_ids else "FAIL",
+                f"Found {len(admin_inactive_ids)} inactive project(s)")
+
+        # PM default list is ACTIVE only
+        pm_default = pm.get("/projects", {"limit": 50}, "PM: List projects (default active only)")
+        if pm_default and pm_default.get("success"):
+            pm_default_ids = {p["id"] for p in pm_default["data"]}
+            log("PM does NOT see inactive project by default",
+                "PASS" if test_project_nwf_id not in pm_default_ids else "FAIL", "")
+
+        # PM requesting is_active=0 is FORCED to active-only (never sees inactive)
+        pm_inactive = pm.get("/projects", {"limit": 50, "is_active": 0}, "PM: List projects with is_active=0 (forced active)")
+        if pm_inactive and pm_inactive.get("success"):
+            pm_inactive_ids = {p["id"] for p in pm_inactive["data"]}
+            pm_all_active = all(p.get("is_active") == 1 for p in pm_inactive["data"]) if pm_inactive["data"] else True
+            log("PM is_active=0 forced to active only",
+                "PASS" if pm_all_active and test_project_nwf_id not in pm_inactive_ids else "FAIL",
+                f"PM saw {len(pm_inactive['data'])} project(s) with is_active=0 request")
+
+        # Reactivate for later steps / cleanup
+        admin.put(f"/projects/{test_project_nwf_id}", {"is_active": True},
+                  "Admin: Reactivate non-workflow project")
 
     vendor.get("/vendors", {"is_active": 0}, label="Vendor: cannot list vendors (permission)")
     wf_pm = pm.get("/workflows", {"limit": 1}, "PM: List workflows (default active only)")

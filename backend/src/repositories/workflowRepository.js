@@ -68,12 +68,13 @@ class WorkflowRepository {
   // WORKFLOW STEPS
   // =============================================================
 
-  async getSteps(workflowId) {
+  async getSteps(workflowId, includeInactive = false) {
     const [rows] = await pool.query(
       `SELECT ws.*, r.role_name AS required_role_name
        FROM workflow_steps ws
        LEFT JOIN roles r ON ws.required_role_id = r.id AND r.is_deleted = false
-       WHERE ws.workflow_id = ? AND ws.is_active = 1 AND ws.is_deleted = false
+       WHERE ws.workflow_id = ? AND ws.is_deleted = false
+         ${includeInactive ? '' : 'AND ws.is_active = 1'}
        ORDER BY ws.step_order ASC`,
       [workflowId]
     );
@@ -155,7 +156,7 @@ class WorkflowRepository {
   // WORKFLOW STEP TRANSITIONS
   // =============================================================
 
-  async getTransitions(workflowId) {
+  async getTransitions(workflowId, includeInactive = false) {
     const [rows] = await pool.query(
       `SELECT wst.*,
               fs.step_name AS from_step_name,
@@ -165,7 +166,8 @@ class WorkflowRepository {
        LEFT JOIN workflow_steps fs ON wst.from_step_id = fs.id AND fs.is_deleted = false
        LEFT JOIN workflow_steps ts ON wst.to_step_id = ts.id AND ts.is_deleted = false
        LEFT JOIN roles r ON wst.allowed_role_id = r.id AND r.is_deleted = false
-       WHERE wst.workflow_id = ? AND wst.is_active = 1 AND wst.is_deleted = false
+       WHERE wst.workflow_id = ? AND wst.is_deleted = false
+         ${includeInactive ? '' : 'AND wst.is_active = 1'}
        ORDER BY wst.transition_type, wst.id ASC`,
       [workflowId]
     );

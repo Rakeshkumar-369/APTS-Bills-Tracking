@@ -190,19 +190,25 @@ class ClaimRepository {
   /**
    * Find the latest forward history entry where a user forwarded to the current assignee.
    * Used by pull-back to verify the current user can pull back.
+   *
+   * Matches on the canonical `to_user_id` column (the officer who received the
+   * assignment). Falls back to the deprecated `forwarded_to_user_id` for legacy
+   * rows where `to_user_id` was never populated — so pull-back works for both
+   * new and historical assign flows.
    */
   async findLatestForward(claimId, fromUserId, toUserId) {
     const [rows] = await pool.query(`
-      SELECT ch.*, fu.name AS target_user_name
+      SELECT ch.*, COALESCE(tu.name, fw.name) AS target_user_name
       FROM claim_history ch
-      LEFT JOIN users fu ON ch.forwarded_to_user_id = fu.id AND fu.is_deleted = false
+      LEFT JOIN users tu ON ch.to_user_id = tu.id AND tu.is_deleted = false
+      LEFT JOIN users fw ON ch.forwarded_to_user_id = fw.id AND fw.is_deleted = false
       WHERE ch.claim_id = ?
         AND ch.action = 'FORWARD'
         AND ch.performed_by = ?
-        AND ch.forwarded_to_user_id = ?
+        AND (ch.to_user_id = ? OR (ch.to_user_id IS NULL AND ch.forwarded_to_user_id = ?))
       ORDER BY ch.created_at DESC
       LIMIT 1
-    `, [claimId, fromUserId, toUserId]);
+    `, [claimId, fromUserId, toUserId, toUserId]);
     return rows[0];
   }
 

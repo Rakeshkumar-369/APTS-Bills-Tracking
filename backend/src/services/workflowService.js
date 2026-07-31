@@ -68,8 +68,8 @@ class WorkflowService {
   }
 
   // Steps
-  async getSteps(workflowId) {
-    return workflowRepository.getSteps(workflowId);
+  async getSteps(workflowId, includeInactive = false) {
+    return workflowRepository.getSteps(workflowId, includeInactive);
   }
 
   async getStepById(id) {
@@ -132,9 +132,9 @@ class WorkflowService {
 
   // ── Transitions ──
 
-  async getTransitions(workflowId) {
+  async getTransitions(workflowId, includeInactive = false) {
     await this.getById(workflowId);
-    return workflowRepository.getTransitions(workflowId);
+    return workflowRepository.getTransitions(workflowId, includeInactive);
   }
 
   async getTransitionById(id) {
