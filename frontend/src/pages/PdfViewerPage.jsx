@@ -37,7 +37,7 @@ export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp
   const [pdfDoc, setPdfDoc] = useState(null);
   const [totalPages, setTotalPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [scale, setScale] = useState(1.2);
+  const [scale, setScale] = useState(1.0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pdfSrc, setPdfSrc] = useState(null);
@@ -280,7 +280,7 @@ export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp
 
   const handleZoomIn = () => setScale((s) => Math.min(s + 0.2, 3.0));
   const handleZoomOut = () => setScale((s) => Math.max(s - 0.2, 0.5));
-  const handleZoomReset = () => setScale(1.2);
+  const handleZoomReset = () => setScale(1.0);
 
   const handleDownload = () => {
     if (!pdfSrc) return;

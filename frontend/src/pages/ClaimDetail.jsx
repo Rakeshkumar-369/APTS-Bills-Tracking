@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { claimsService, usersService } from '../services';
 import { useAuth } from '../context/AuthContext';
 import { StatusBadge } from './Inbox';
+import PdfViewerPage from './PdfViewerPage';
 
 export default function ClaimDetail() {
   const { id } = useParams();
@@ -238,14 +239,16 @@ export default function ClaimDetail() {
     );
   }
 
-  // Find attached PDF file
+  // Find attached PDF file (used only to know whether a document exists and
+  // for the "Expand Document" link — actual loading/rendering is delegated
+  // to PdfViewerPage, which fetches with the proper auth header and
+  // converts to a blob URL instead of pointing an <iframe> at a protected
+  // API endpoint directly).
   const pdfFile = (pkg.files || []).find((f) =>
     f.original_name?.toLowerCase().endsWith('.pdf') || f.file_type?.includes('pdf')
   ) || (pkg.files && pkg.files[0]);
 
-  const pdfUrl = pdfFile
-    ? `/api/claims/${id}/files/${pdfFile.id}/download`
-    : pkg.file_url || null;
+  const hasDocument = Boolean(pdfFile || pkg.file_url);
 
   const isManual = !pkg.workflow_id; // used only for display
 
@@ -269,16 +272,15 @@ export default function ClaimDetail() {
           </span>
         </div>
 
-        {pdfUrl && (
-          <a
-            href={pdfUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+        {hasDocument && (
+          <button
+            type="button"
+            onClick={() => window.open(`/pdf-viewer/${id}`, '_blank', 'noopener,noreferrer')}
             className="btn btn-sm btn-outline-primary fw-semibold d-flex align-items-center"
           >
             <span>Expand Document</span>
             <i className="bi bi-box-arrow-up-right ms-2"></i>
-          </a>
+          </button>
         )}
       </header>
 
@@ -287,12 +289,8 @@ export default function ClaimDetail() {
 
         {/* Left Pane: Embedded PDF Viewer (60% width) */}
         <div className="border-end bg-secondary-subtle d-flex flex-column h-100" style={{ flex: '0 0 60%', width: '60%' }}>
-          {pdfUrl ? (
-            <iframe
-              src={pdfUrl}
-              title="Bill PDF Preview"
-              className="w-100 h-100 border-0"
-            />
+          {hasDocument ? (
+            <PdfViewerPage claimId={id} embedded={true} />
           ) : (
             <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted p-5 text-center">
               <div className="bg-white p-4 rounded-circle shadow-sm mb-3">
@@ -352,7 +350,7 @@ export default function ClaimDetail() {
                 </div>
                 <div className="col-6">
                   <span className="text-muted d-block small" style={{ fontSize: '0.75rem' }}>Workflow</span>
-                  <span className="text-dark fw-medium text-truncate d-block">{pkg.workflow_name || pkg.workflow?.workflow_name || (isManual ? 'Manual Assignment' : 'N/A')}</span>
+                  <span className="text-dark fw-medium d-block" style={{ wordBreak: 'break-word' }}>{pkg.workflow_name || pkg.workflow?.workflow_name || (isManual ? 'Manual Assignment' : 'N/A')}</span>
                 </div>
                 {pkg.remarks && (
                   <div className="col-12 border-top pt-2 mt-1">
