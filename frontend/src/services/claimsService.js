@@ -5,20 +5,20 @@ import buildQuery from './queryString';
 const BASE = '/claims';
 
 export const claimsService = {
- list: async (params = {}) => {
-  const query = buildQuery(params);
-  const response = await apiClient.get(`${BASE}${query}`);
-  return response;
-},
+  list: async (params = {}) => {
+    const query = buildQuery(params);
+    const response = await apiClient.get(`${BASE}${query}`);
+    return response;
+  },
 
- get: async (id, options = {}) => {
-  const query = options.includeDetails ? '?include_details=true' : '';
-  const response = await apiClient.get(`${BASE}/${id}${query}`);
-  if (Array.isArray(response) && response.length === 1) {
-    return response[0];
-  }
-  return response;
-},
+  get: async (id, options = {}) => {
+    const query = options.includeDetails ? '?include_details=true' : '';
+    const response = await apiClient.get(`${BASE}/${id}${query}`);
+    if (Array.isArray(response) && response.length === 1) {
+      return response[0];
+    }
+    return response;
+  },
 
   create: async (data, files = []) => {
     const formData = new FormData();
@@ -39,6 +39,18 @@ export const claimsService = {
 
   forward: async (claimId, remarks) => {
     const response = await apiClient.post(`${BASE}/${claimId}/forward`, { remarks });
+    return response;
+  },
+
+  // NEW: APTS Manager final approval – marks claim COMPLETED in both manual and workflow modes.
+  approve: async (claimId, remarks) => {
+    const response = await apiClient.post(`${BASE}/${claimId}/approve`, { remarks });
+    return response;
+  },
+
+  // Manual-mode completion (alternative to approve – kept for backward compatibility, but not used in new flow)
+  complete: async (claimId, remarks) => {
+    const response = await apiClient.post(`${BASE}/${claimId}/complete`, { remarks });
     return response;
   },
 

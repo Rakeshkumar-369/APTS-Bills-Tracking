@@ -26,7 +26,7 @@ export default function ClaimDetail() {
   const [pullBackRemarks, setPullBackRemarks] = useState('');
   const [pullBackSubmitting, setPullBackSubmitting] = useState(false);
 
-  // Forward (workflow mode) state
+  // Forward (workflow mode) state – now used only for non-APTS forward actions
   const [forwardRemarks, setForwardRemarks] = useState('');
   const [forwardSubmitting, setForwardSubmitting] = useState(false);
 
@@ -74,9 +74,7 @@ export default function ClaimDetail() {
 
       setPkg(claim);
 
-      // Prefer history embedded directly on the claim payload (as returned by
-      // GET /api/claims/:id?include_details=true); fall back to the
-      // dedicated history endpoint only if it wasn't included.
+      // Prefer history embedded directly on the claim payload
       if (Array.isArray(claim.history)) {
         setHistory(claim.history);
       } else {
@@ -128,26 +126,22 @@ export default function ClaimDetail() {
     }
   }, [id, load]);
 
-  // Load officers as soon as claim is loaded
   useEffect(() => {
     if (pkg) {
       loadOfficers();
     }
   }, [pkg, loadOfficers]);
 
-  // --- Derived booleans (computed before handlers so handlers can use them) ---
+  // --- Derived booleans ---
   const isVendor = user?.role_name === 'Vendor' || user?.role_rank === 10;
   const isAdmin = user?.role_rank === 100;
+  const isAptsManager = user?.role_name === 'APTS Manager';
   const canUpload = isVendor || isAdmin;
   const isCompleted = pkg?.status?.toUpperCase() === 'COMPLETED';
 
-  // A claim is in "workflow mode" if it has a workflow_id; otherwise it uses
-  // manual officer-to-officer assignment.
   const isWorkflowMode = Boolean(pkg?.workflow_id);
   const isManual = !isWorkflowMode;
 
-  // WORKFLOW MODE: the claim sits at current_step_role_id. Any user holding
-  // that role can act on it (forward / send back).
   const isMyWorkflowStep =
     isWorkflowMode &&
     !isCompleted &&
@@ -155,8 +149,6 @@ export default function ClaimDetail() {
     user?.role_id != null &&
     pkg.current_step_role_id === user.role_id;
 
-  // MANUAL MODE: the claim is "with" current_assigned_user_id, or with the
-  // vendor (its creator) if nothing has been assigned yet / it was sent back.
   const isClaimWithVendorNow = isManual && !pkg?.current_assigned_user_id;
   const isClaimWithMeManual =
     isManual &&
@@ -165,18 +157,31 @@ export default function ClaimDetail() {
       ? pkg.current_assigned_user_id === user?.id
       : isClaimWithVendorNow && (pkg?.created_by === user?.id || isVendor));
 
+  const isOfficerTurn = isMyWorkflowStep || (isClaimWithMeManual && !isVendor);
+
+  // APTS MANAGER – always uses /approve endpoint
+  const canApproveComplete = isOfficerTurn && isAptsManager;
+
+  // Non-APTS officers in workflow mode – forward to next step
+  const canForward = isMyWorkflowStep && !isAptsManager;
+
+  // Manual mode assign – vendor or APTS Manager can assign to an officer
   const canAssign = isClaimWithMeManual;
-  const canSendBackManual = isClaimWithMeManual && !isVendor; // only an officer holding it can send it back to the vendor
-  const canForward = isMyWorkflowStep;
-  const canSendBackWorkflow = isMyWorkflowStep;
 
-  // PULL BACK — both modes, per the "immediate sender only" chain rule:
-  // you can pull back only if you were the one who sent the claim to
-  // wherever it currently sits.
+  // Manual mode send-back-to-vendor – in-between officers only (exclude APTS Manager)
+  const canSendBackManual = isClaimWithMeManual && !isVendor && !isAptsManager;
+  const canSendBackWorkflow = isMyWorkflowStep; // workflow sendback (APTS Manager included if step allows)
+
   const lastHistory = history.length > 0 ? history[history.length - 1] : null;
-  const canPullBack = Boolean(lastHistory && lastHistory.from_user_id === user?.id && !isCompleted);
-
-  const isFinalWorkflowStep = isMyWorkflowStep && user?.role_name === 'APTS Manager';
+  const claimCurrentlyWithVendor = isManual
+    ? isClaimWithVendorNow
+    : !pkg?.current_step_id;
+  const canPullBack =
+    isVendor &&
+    !isCompleted &&
+    !claimCurrentlyWithVendor &&
+    Boolean(lastHistory) &&
+    lastHistory.from_user_id === user?.id;
 
   // --- Action handlers ---
 
@@ -230,6 +235,30 @@ export default function ClaimDetail() {
     }
   }
 
+  // UNIFIED APPROVE & COMPLETE – uses /approve endpoint for both modes
+  async function handleApprove(e) {
+    e.preventDefault();
+    if (forwardRemarks.trim().length < 3) {
+      setActionError('Remarks must be at least 3 characters.');
+      return;
+    }
+    setForwardSubmitting(true);
+    setActionError('');
+    try {
+      // Call the new approve endpoint – works for both manual and workflow
+      await claimsService.approve(id, forwardRemarks.trim());
+      setSuccessMessage('Claim approved and completed!');
+      setForwardRemarks('');
+      await load();
+      setTimeout(() => setSuccessMessage(''), 5000);
+    } catch (err) {
+      console.error('Approve & Complete error:', err);
+      setActionError(err.message || 'Approve & Complete failed.');
+    } finally {
+      setForwardSubmitting(false);
+    }
+  }
+
   async function handleForward(e) {
     e.preventDefault();
     if (forwardRemarks.trim().length < 3) {
@@ -240,7 +269,7 @@ export default function ClaimDetail() {
     setActionError('');
     try {
       await claimsService.forward(id, forwardRemarks.trim());
-      setSuccessMessage(isFinalWorkflowStep ? 'Claim approved and completed!' : 'Claim forwarded to the next step!');
+      setSuccessMessage('Claim forwarded to the next step!');
       setForwardRemarks('');
       await load();
       setTimeout(() => setSuccessMessage(''), 5000);
@@ -337,11 +366,6 @@ export default function ClaimDetail() {
     );
   }
 
-  // Find attached PDF file (used only to know whether a document exists and
-  // for the "Expand Document" link — actual loading/rendering is delegated
-  // to PdfViewerPage, which fetches with the proper auth header and
-  // converts to a blob URL instead of pointing an <iframe> at a protected
-  // API endpoint directly).
   const pdfFile = (pkg.files || []).find((f) =>
     f.original_name?.toLowerCase().endsWith('.pdf') || f.file_type?.includes('pdf')
   ) || (pkg.files && pkg.files[0]);
@@ -351,7 +375,6 @@ export default function ClaimDetail() {
   return (
     <div className="d-flex flex-column vh-100 bg-body-tertiary overflow-hidden">
 
-      {/* Workspace Navigation Header */}
       <header className="bg-white border-bottom px-4 py-2.5 d-flex justify-content-between align-items-center shadow-sm z-2">
         <div className="d-flex align-items-center gap-3">
           <button className="btn btn-sm btn-outline-secondary font-semibold d-flex align-items-center" onClick={() => navigate(-1)}>
@@ -380,10 +403,8 @@ export default function ClaimDetail() {
         )}
       </header>
 
-      {/* Workspace Main Grid Layout */}
       <div className="d-flex flex-grow-1 overflow-hidden">
 
-        {/* Left Pane: Embedded PDF Viewer (60% width) */}
         <div className="border-end bg-secondary-subtle d-flex flex-column h-100" style={{ flex: '0 0 60%', width: '60%' }}>
           {hasDocument ? (
             <PdfViewerPage claimId={id} embedded={true} />
@@ -398,7 +419,6 @@ export default function ClaimDetail() {
           )}
         </div>
 
-        {/* Right Pane: Summary, Officer Actions & History (40% width) */}
         <div className="bg-white d-flex flex-column h-100 overflow-y-auto p-4" style={{ flex: '0 0 40%', width: '40%' }}>
 
           {successMessage && (
@@ -417,7 +437,6 @@ export default function ClaimDetail() {
             </div>
           )}
 
-          {/* Section 1: Claim Information Card */}
           <div className="card border shadow-sm mb-3">
             <div className="card-body p-3">
               <div className="d-flex justify-content-between align-items-center mb-2.5 border-bottom pb-2">
@@ -458,7 +477,6 @@ export default function ClaimDetail() {
             </div>
           </div>
 
-          {/* Section 2: Officer Review Panel — dynamic per workflow/manual mode & current holder */}
           <div className="card border border-primary-subtle shadow-sm mb-3 bg-body-highlight">
             <div className="card-body p-3">
               <h6 className="card-subtitle text-uppercase text-primary fw-bold mb-3 small d-flex align-items-center">
@@ -468,11 +486,43 @@ export default function ClaimDetail() {
 
               <div className="d-flex flex-column gap-3">
 
-                {/* WORKFLOW MODE — Forward */}
+                {/* APTS MANAGER — Approve & Complete (uses /approve endpoint) */}
+                {canApproveComplete && (
+                  <div>
+                    <label className="form-label small fw-semibold text-dark mb-1">
+                      Approve & Complete <span className="text-danger">*</span>
+                    </label>
+                    <textarea
+                      className="form-control form-control-sm mb-2"
+                      rows={2}
+                      placeholder="Approval remarks (min 3 characters)..."
+                      value={forwardRemarks}
+                      onChange={(e) => setForwardRemarks(e.target.value)}
+                      disabled={forwardSubmitting}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-success w-100"
+                      onClick={handleApprove}
+                      disabled={forwardSubmitting}
+                    >
+                      {forwardSubmitting ? (
+                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                      ) : (
+                        <>
+                          <i className="bi bi-check2-circle me-1"></i>
+                          Approve & Complete
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* WORKFLOW MODE — Forward (non-APTS officers only) */}
                 {canForward && (
                   <div>
                     <label className="form-label small fw-semibold text-dark mb-1">
-                      {isFinalWorkflowStep ? 'Approve & Complete' : 'Forward to Next Step'} <span className="text-danger">*</span>
+                      Forward to Next Step <span className="text-danger">*</span>
                     </label>
                     <textarea
                       className="form-control form-control-sm mb-2"
@@ -493,14 +543,14 @@ export default function ClaimDetail() {
                       ) : (
                         <>
                           <i className="bi bi-check2-circle me-1"></i>
-                          {isFinalWorkflowStep ? 'Approve & Complete' : 'Forward'}
+                          Forward
                         </>
                       )}
                     </button>
                   </div>
                 )}
 
-                {/* WORKFLOW MODE — Send Back to previous step */}
+                {/* WORKFLOW MODE — Send Back */}
                 {canSendBackWorkflow && (
                   <div>
                     <label className="form-label small fw-semibold text-dark mb-1">
@@ -576,7 +626,7 @@ export default function ClaimDetail() {
                   </div>
                 )}
 
-                {/* MANUAL MODE — Send Back to Vendor (officer holding the claim only) */}
+                {/* MANUAL MODE — Send Back to Vendor (officer holding the claim, excluding APTS Manager) */}
                 {canSendBackManual && (
                   <div>
                     <label className="form-label small fw-semibold text-dark mb-1">
@@ -608,7 +658,7 @@ export default function ClaimDetail() {
                   </div>
                 )}
 
-                {/* PULL BACK — both modes, only for the immediate sender */}
+                {/* PULL BACK — both modes */}
                 {canPullBack && (
                   <div>
                     <textarea
@@ -635,13 +685,12 @@ export default function ClaimDetail() {
                       )}
                     </button>
                     <p className="small text-muted mt-1 mb-0">
-                      You can pull back because you were the last to send this claim onward.
+                      You can pull back this claim because you sent it onward last.
                     </p>
                   </div>
                 )}
 
-                {/* Fallback status messaging when the current user has no available action */}
-                {!canForward && !canSendBackWorkflow && !canAssign && !canSendBackManual && !canPullBack && !isCompleted && (
+                {!canApproveComplete && !canForward && !canSendBackWorkflow && !canAssign && !canSendBackManual && !canPullBack && !isCompleted && (
                   <div className="alert alert-info mb-0 small py-2">
                     <i className="bi bi-info-circle me-1"></i>
                     {isWorkflowMode
@@ -661,7 +710,6 @@ export default function ClaimDetail() {
             </div>
           </div>
 
-          {/* Section 3: Document Attachments (unchanged) */}
           <div className="card border shadow-sm mb-3">
             <div className="card-body p-3">
               <h6 className="card-subtitle text-uppercase text-secondary fw-bold mb-2.5 small">
@@ -715,7 +763,6 @@ export default function ClaimDetail() {
             </div>
           </div>
 
-          {/* Section 4: Audit & Action History (unchanged) */}
           <div className="card border shadow-sm">
             <div className="card-body p-3">
               <h6 className="card-subtitle text-uppercase text-secondary fw-bold mb-3 small">

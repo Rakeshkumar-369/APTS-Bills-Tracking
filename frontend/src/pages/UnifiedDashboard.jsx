@@ -487,7 +487,7 @@ export default function UnifiedDashboard() {
                     const projectName = item?.project_name || item?.project?.project_name || 'N/A';
                     const vendorName = item?.vendor_name || item?.vendor || item?.vendor_id || 'N/A';
                     const poNumber = item?.po_number || item?.po?.po_number || 'N/A';
-                    const currentStep = item?.current_step?.step_name || item?.current_step_name || 'Not Started';
+                    const currentStep = item?.current_step?.step_name || item?.current_step_name || item?.status ||'Not Started';
                     const createdDate = item?.created_at ? new Date(item.created_at).toLocaleDateString() : 'N/A';
                     
                     return (

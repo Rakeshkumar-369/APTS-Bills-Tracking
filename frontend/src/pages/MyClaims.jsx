@@ -387,7 +387,7 @@ export default function MyClaims() {
                         <td className="py-3"><StatusBadge status={pkg.status} /></td>
                         <td className="py-3">
                           <span className="badge bg-info bg-opacity-10 text-info" style={{ fontSize: '0.9rem' }}>
-                            {pkg.current_step_name || pkg.current_step?.step_name || 'Not Started'}
+                            {pkg?.current_step?.step_name || pkg?.current_step_name || pkg?.status ||'Not Started'}
                           </span>
                         </td>
                         <td className="py-3" style={{ fontSize: '0.9rem' }}>
