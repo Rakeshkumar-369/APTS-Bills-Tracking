@@ -556,6 +556,16 @@ def run_all_tests():
 
         admin.get(f"/claims/{claim_id}?include_details=true", label="Get claim with files & history")
         admin.get(f"/claims/{claim_id}/history", label="Get claim history")
+
+        # APTS Manager CANNOT approve a claim that is not at their desk (claim is at step 1 = PM)
+        mgr_early = apts_mgr.post(f"/claims/{claim_id}/approve",
+                                  {"remarks": "Manager tries to approve too early"},
+                                  "Approve: Manager cannot approve claim at PM step (expect fail)")
+        if mgr_early and not mgr_early.get("success"):
+            log("Manager cannot approve claim not at their desk", "PASS", "")
+        else:
+            log("Manager cannot approve claim not at their desk", "FAIL",
+                "Manager approved a claim that was not at their step")
     else:
         log("Trying JSON fallback (no files)", "PASS", "")
         create_claim = vendor.post("/claims", {
@@ -613,12 +623,21 @@ def run_all_tests():
                 "PASS" if pd.get('current_step_id') == 4 else "FAIL",
                 f"step_id={pd.get('current_step_id')} ({pd.get('current_step_name')})")
 
-    # 8h. APTS Manager completes
+    # 8h. APTS Manager approves & completes via the dedicated /approve endpoint
     if claim_id:
         time.sleep(0.1)
-        apts_mgr.post(f"/claims/{claim_id}/forward",
+        # In-between officers (PM) can NEVER approve & complete
+        pm_appr = pm.post(f"/claims/{claim_id}/approve",
+                          {"remarks": "PM should not be able to approve"},
+                          "PM: Approve claim (expect FAIL — no claim.approve permission)")
+        if pm_appr and not pm_appr.get("success"):
+            log("PM cannot approve claims", "PASS", "PM approval rejected as expected")
+        else:
+            log("PM cannot approve claims", "FAIL", "PM approval was unexpectedly accepted")
+
+        apts_mgr.post(f"/claims/{claim_id}/approve",
                       {"remarks": "Final clearance approved. Claim completed."},
-                      "APTS Manager: Complete claim")
+                      "APTS Manager: Approve & complete claim")
 
     # 8i. Verify final state
     if claim_id:
@@ -717,74 +736,62 @@ def run_all_tests():
         if assign2 and assign2.get("success"):
             log("PM assigned to TPA", "PASS", "")
 
-    # 9d. PM pulls back from TPA (PM sent it to TPA, so PM can pull back)
+    # 9d. Officers CANNOT pull back — only the vendor can (new business rule)
     if nwf_claim_id:
         pull_resp = pm.post(f"/claims/{nwf_claim_id}/pull-back", {
-            "remarks": "Need to review again, pulling back"
-        }, "PM: Pull back from TPA")
+            "remarks": "PM should not be able to pull back"
+        }, "PM: Pull back from TPA (expect FAIL — officers cannot pull back)")
 
-        if pull_resp and pull_resp.get("success"):
-            log("PM pulled claim back", "PASS", "")
+        if pull_resp and not pull_resp.get("success"):
+            log("Officer cannot pull back claim", "PASS", "PM pull-back rejected as expected")
         else:
-            log("PM pulled claim back", "FAIL", "PM assigned to TPA but pull-back was rejected")
+            log("Officer cannot pull back claim", "FAIL", "PM pulled back — officers should not be able to pull back")
 
-    # 9e. Vendor pulls back from PM (chain: Vendor→PM→TPA, PM pulled back, so claim is at PM)
-    # Vendor assigned to PM originally and claim is now at PM → vendor CAN pull back.
+    # 9e. Vendor CANNOT pull back from TPA (chain rule: vendor only pulled back one step
+    # from the officer they directly forwarded to — which was PM, not TPA).
     if nwf_claim_id:
         vendor_pull = vendor.post(f"/claims/{nwf_claim_id}/pull-back", {
-            "remarks": "Vendor pulling back the claim they assigned to PM"
-        }, "Vendor: Pull back from PM (should succeed)")
+            "remarks": "Vendor should not be able to pull back from TPA"
+        }, "Vendor: Pull back from TPA (expect FAIL — chain rule)")
 
-        if vendor_pull and vendor_pull.get("success"):
-            log("Vendor can pull back the claim they assigned", "PASS", "")
-            # Verify the claim is back with the vendor
-            back_check = admin.get(f"/claims/{nwf_claim_id}", label="Check claim back with vendor")
-            if back_check and back_check.get("success"):
-                back_to = back_check["data"][0].get("current_assigned_user_id")
-                log("Claim returned to vendor after pull-back",
-                    "PASS" if back_to == 2 else "FAIL",
-                    f"current_assigned_user_id={back_to}, expected=2 (vendor user)")
+        if vendor_pull and not vendor_pull.get("success"):
+            log("Vendor cannot pull back from TPA (chain rule)", "PASS", "")
         else:
-            log("Vendor can pull back the claim they assigned", "FAIL",
-                "Vendor assigned the claim but pull-back was rejected")
+            log("Vendor cannot pull back from TPA (chain rule)", "FAIL",
+                "Vendor pulled back from TPA but they never forwarded to TPA")
 
-    # 9f. Try to pull back from different angle: create a new claim and test chain rule
-    # Vendor→PM→TPA and vendor tries to pull back (should fail because vendor didn't send to TPA)
+    # 9f. Vendor CAN pull back from the officer they directly forwarded to (one step)
     if test_vendor_id and test_project_nwf_id and po_id_nwf:
         create_nwf2 = vendor.post("/claims", {
             "vendor_id": test_vendor_id,
             "vendor_contact_user_id": 2,
             "project_id": test_project_nwf_id,
             "po_id": po_id_nwf,
-            "remarks": "Second non-workflow claim for chain test"
-        }, "Vendor: Create another non-workflow claim")
+            "remarks": "Second non-workflow claim for pull-back success test"
+        }, "Vendor: Create claim for pull-back success test")
         nwf2_id = None
         if create_nwf2 and create_nwf2.get("success"):
             nwf2_id = create_nwf2["data"][0]["id"]
 
             # Vendor→PM
-            vendor.post(f"/claims/{nwf2_id}/assign", {"target_user_id": 3, "remarks": "Vendor to PM"},
-                        "Chain: Vendor \u2192 PM")
-            # PM→TPA
-            pm.post(f"/claims/{nwf2_id}/assign", {"target_user_id": 4, "remarks": "PM to TPA"},
-                    "Chain: PM \u2192 TPA")
-
-            # Now vendor tries pull-back (should fail - vendor never sent to TPA)
-            vendor_try = vendor.post(f"/claims/{nwf2_id}/pull-back",
-                                     {"remarks": "Vendor should not be able to pull back"},
-                                     "Chain: Vendor pull-back from TPA (expect fail)")
-            if vendor_try and not vendor_try.get("success"):
-                log("Chain rule enforced: Vendor cannot pull back from TPA", "PASS", "")
-
-            # PM can pull back from TPA
-            pm_try = pm.post(f"/claims/{nwf2_id}/pull-back",
-                             {"remarks": "PM should be able to pull back"},
-                             "Chain: PM pull-back from TPA (expect success)")
-            if pm_try and pm_try.get("success"):
-                log("Chain rule: PM pulled back from TPA", "PASS", "")
-            else:
-                log("Chain rule: PM pulled back from TPA", "FAIL",
-                    "PM assigned to TPA but pull-back was rejected")
+            assign_f = vendor.post(f"/claims/{nwf2_id}/assign", {"target_user_id": 3, "remarks": "Vendor to PM"},
+                                   "Pull-back: Vendor \u2192 PM")
+            if assign_f and assign_f.get("success"):
+                # Vendor pulls back from PM → must succeed (they forwarded to the current assignee)
+                vendor_f = vendor.post(f"/claims/{nwf2_id}/pull-back",
+                                       {"remarks": "Vendor pulls back from PM"},
+                                       "Pull-back: Vendor pulls back from PM (expect success)")
+                if vendor_f and vendor_f.get("success"):
+                    log("Vendor can pull back from the officer they forwarded to", "PASS", "")
+                    back_f = admin.get(f"/claims/{nwf2_id}", label="Check claim back with vendor")
+                    if back_f and back_f.get("success"):
+                        back_to = back_f["data"][0].get("current_assigned_user_id")
+                        log("Claim returned to vendor after pull-back",
+                            "PASS" if back_to == 2 else "FAIL",
+                            f"current_assigned_user_id={back_to}, expected=2 (vendor user)")
+                else:
+                    log("Vendor can pull back from the officer they forwarded to", "FAIL",
+                        "Vendor forwarded to PM but pull-back was rejected")
 
     # 9g. FOCUSED REGRESSION TEST: vendor assigns claim to an officer, then pulls it back
     # (exact scenario that was broken — findLatestForward looked at the wrong column)
@@ -825,6 +832,48 @@ def run_all_tests():
                         "Vendor assigned the claim but pull-back was rejected")
             else:
                 log("Regression: Vendor assigns to PM", "FAIL", "Assignment failed")
+
+    # 9h. APPROVE & COMPLETE — APTS Manager only (non-workflow mode)
+    if test_vendor_id and test_project_nwf_id and po_id_nwf:
+        create_nwf4 = vendor.post("/claims", {
+            "vendor_id": test_vendor_id,
+            "vendor_contact_user_id": 2,
+            "project_id": test_project_nwf_id,
+            "po_id": po_id_nwf,
+            "remarks": "Fourth non-workflow claim for approve test"
+        }, "Vendor: Create claim for approve test")
+        nwf4_id = None
+        if create_nwf4 and create_nwf4.get("success"):
+            nwf4_id = create_nwf4["data"][0]["id"]
+
+            # Assign the claim to the APTS Manager (user id=6)
+            assign_mgr = vendor.post(f"/claims/{nwf4_id}/assign",
+                                     {"target_user_id": 6, "remarks": "Vendor assigns to APTS Manager"},
+                                     "Approve: Vendor assigns claim to APTS Manager")
+            if assign_mgr and assign_mgr.get("success"):
+                # PM cannot approve (no claim.approve permission)
+                pm_approve = pm.post(f"/claims/{nwf4_id}/approve",
+                                     {"remarks": "PM should not be able to approve"},
+                                     "Approve: PM cannot approve (expect fail)")
+                if pm_approve and not pm_approve.get("success"):
+                    log("PM cannot approve claims", "PASS", "PM approval rejected as expected")
+                else:
+                    log("PM cannot approve claims", "FAIL", "PM approval was unexpectedly accepted")
+
+                # APTS Manager approves & completes the claim
+                mgr_approve = apts_mgr.post(f"/claims/{nwf4_id}/approve",
+                                            {"remarks": "Final clearance approved"},
+                                            "Approve: APTS Manager approves & completes")
+                if mgr_approve and mgr_approve.get("success"):
+                    st = mgr_approve["data"][0].get("status")
+                    comp = mgr_approve["data"][0].get("is_completed")
+                    log("APTS Manager approve & complete",
+                        "PASS" if st == "COMPLETED" and comp else "FAIL",
+                        f"status={st}, is_completed={comp}")
+                else:
+                    log("APTS Manager approve & complete", "FAIL", "Manager approval was rejected")
+            else:
+                log("Approve: Vendor assigns claim to APTS Manager", "FAIL", "Assignment failed")
 
     # ── 10. Inbox & Outbox ─────────────────────────────────────────────────
     print("\n\u2500\u2500\u2500 10. INBOX / OUTBOX \u2500\u2500\u2500")
@@ -914,7 +963,9 @@ def run_all_tests():
     vendor.post("/vendors", {"vendor_name": "Hack Attempt"}, "Vendor cannot create vendor (permission)")
     pm.post("/users", {"name": "Hack", "email": "hack@test.com", "password": "Test@1234", "role_id": 2},
             "PM cannot create users (permission)")
-    vendor.post("/claims/99999/forward", {"remarks": "Hack"}, "Vendor cannot forward non-existent claim (permission)")
+    # Vendor has claim.forward=true (needed for non-workflow assign), so this reaches the
+    # service and gets a 404 "Claim not found" rather than a 403 permission denial.
+    vendor.post("/claims/99999/forward", {"remarks": "Hack"}, "Vendor: forward non-existent claim (expect 404)")
 
     if test_vendor_id and test_project_wf_id:
         vendor.post(f"/vendors/{test_vendor_id}/projects",

@@ -20,10 +20,13 @@ router.post('/:id/forward', requirePermission('claim', 'forward'), validateId(),
 
 // Non-workflow actions
 router.post('/:id/assign', requirePermission('claim', 'forward'), validateId(), assignClaimValidation, claimController.assignClaim);
-router.post('/:id/pull-back', requirePermission('claim', 'forward'), validateId(), actionValidation, claimController.pullBackClaim);
+// Pull-back is VENDOR ONLY (claim.pull_back permission lives only on the Vendor role)
+router.post('/:id/pull-back', requirePermission('claim', 'pull_back'), validateId(), actionValidation, claimController.pullBackClaim);
 
 // Common actions
 router.post('/:id/sendback', requirePermission('claim', 'sendback'), validateId(), actionValidation, claimController.sendbackClaim);
+// Approve & Complete — APTS Manager only (claim.approve permission)
+router.post('/:id/approve', requirePermission('claim', 'approve'), validateId(), actionValidation, claimController.approveClaim);
 router.post('/:id/resubmit', validateId(), actionValidation, claimController.resubmitClaim);
 
 // History

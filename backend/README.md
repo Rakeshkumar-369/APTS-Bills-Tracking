@@ -46,7 +46,7 @@ Example invalid names: `JD-Infra` (hyphen), `PM_Verify` (underscore), `  Lead ` 
 | PM | 30 | First verification desk |
 | TPA | 40 | Audit & verification desk |
 | JD-Infra | 50 | Digital signature authority |
-| APTS Manager | 60 | Final clearance authority |
+| APTS Manager | 60 | Final clearance authority — the ONLY role that can **approve & complete** claims (`claim.approve`) |
 
 Roles are stored in the `roles` table with a JSON `permissions` column. Super Admin can create/edit roles and their permissions dynamically.
 
@@ -64,21 +64,25 @@ A **workflow** is a named sequence of ordered **steps**. Each step is handled by
 
 **Key rules:**
 - Steps cannot be skipped — only valid transitions from the current step are allowed
-- Every FORWARD/SENDBACK action requires **mandatory remarks**
+- Every FORWARD/SENDBACK/APPROVE action requires **mandatory remarks**
 - SENDBACK with `to_step_id = NULL` sends the claim back to the vendor
 - Vendor re-submits → claim goes back to the step that sent it back
+- **Approve & Complete is reserved for the APTS Manager** — in-between officers can only send remarks + FORWARD/ASSIGN or SENDBACK. They can NEVER complete a claim, even if a workflow transition is misconfigured to point at NULL.
 
 ### Non-Workflow (Manual Assignment)
 
 If a project has **no workflow assigned** (`workflow_id = NULL`), claims under that project use **manual officer assignment**:
 
 1. **Vendor creates the claim** under a Purchase Order — it stays with the vendor
-2. **Vendor assigns** the claim to any officer via `POST /api/claims/:id/assign`
-3. **Officer can forward** to any other officer (except Super Admin, Admin, or the creating vendor)
-4. **Pull-back** (both modes): The sender can pull back from the current step/officer via `POST /api/claims/:id/pull-back`. Chain rule: only the immediate sender can pull back.
-   - **Non-workflow:** Vendor→A → Vendor can pull back. Vendor→A→B → A can pull back (from B), Vendor cannot.
-   - **Workflow:** The forwarding officer can pull back from the next step to the previous step.
-   - Frontend check: `claim.history[last].from_user_id === currentUserId` determines whether to show the pull-back button.
+2. **Vendor assigns** the claim to any officer via `POST /api/claims/:id/assign` (Vendor role has `claim.forward: true` — required to dispatch the claim to the first officer)
+3. **Officer can forward** to any other officer (except Super Admin, Admin, or the creating vendor) — or **send back** to the vendor
+4. **Pull-back — VENDOR ONLY** (both modes): Only the vendor who owns the claim can pull it back, via `POST /api/claims/:id/pull-back` (requires the `claim.pull_back` permission, which only the Vendor role has). Officers can never pull back. Chain rule: the vendor can only pull back ONE step — from the officer/step they directly dispatched to.
+   - **Non-workflow:** Vendor→A → Vendor can pull back from A. Vendor→A→B → Vendor cannot pull back from B.
+   - **Workflow:** Vendor can pull back only while the claim is still at the first step (before any officer processes it). Pulling back returns the claim to the vendor's hands.
+   - Frontend check: `claim.history[last].from_user_id === currentUserId` determines whether to show the pull-back button (only relevant for the vendor).
+5. **Approve & Complete — APTS Manager only** (both modes): The claim becomes **COMPLETED** when the APTS Manager calls `POST /api/claims/:id/approve` with `{remarks}` (requires the `claim.approve` permission, which only APTS Manager and Super Admin have). The manager can only approve when the claim is **at their desk**:
+   - **Workflow mode:** the claim is at a step whose `required_role_id` is the manager's role (e.g. step 4 "APTS Clearance").
+   - **Manual mode:** the claim is **assigned to the manager** — an officer (or the vendor) assigns it to the APTS Manager via `POST /api/claims/:id/assign` with `{target_user_id: <manager id>}`, and then the manager approves it.
 
 ## Purchase Orders
 
@@ -275,7 +279,8 @@ A vendor creates a claim under a PO → the claim is linked to both the PO and t
 | POST | `/api/claims` | `claim.create` | **Create claim** (multipart/form-data). Fields: `vendor_id`, `vendor_contact_user_id?`, `project_id`, `po_id`, `remarks?` + file field: `files[]` (optional, multiple). **workflow_id is auto-derived from the project** |
 | POST | `/api/claims/:id/forward` | `claim.forward` | **Forward to next step** (workflow mode only). Body: `{remarks}` |
 | POST | `/api/claims/:id/assign` | `claim.forward` | **Assign to officer** (non-workflow mode). Body: `{target_user_id, remarks}` |
-| POST | `/api/claims/:id/pull-back` | `claim.forward` | **Pull back from current officer** (non-workflow mode). Body: `{remarks}` |
+| POST | `/api/claims/:id/pull-back` | `claim.pull_back` (Vendor only) | **Vendor pulls the claim back one step** (both modes). Body: `{remarks}` |
+| POST | `/api/claims/:id/approve` | `claim.approve` (APTS Manager only) | **Approve & Complete** — only when the claim is at the manager's desk (their step in workflow mode, or assigned to them in manual mode). Body: `{remarks}` |
 | POST | `/api/claims/:id/sendback` | `claim.sendback` | **Send back to vendor** (both modes). Body: `{remarks}` |
 | POST | `/api/claims/:id/resubmit` | — | **Vendor re-submits** after revision. Body: `{remarks}` |
 | GET | `/api/claims/:id/history` | `claim.read` | Get full timeline of the claim |

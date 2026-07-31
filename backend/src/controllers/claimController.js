@@ -101,6 +101,16 @@ const sendbackClaim = async (req, res, next) => {
   }
 };
 
+const approveClaim = async (req, res, next) => {
+  try {
+    const { remarks } = req.body;
+    const claim = await claimService.approve(req.params.id, remarks, req.user, req.ip);
+    res.json(ApiResponse.success('Claim approved and completed successfully', [claim]));
+  } catch (error) {
+    next(error);
+  }
+};
+
 const resubmitClaim = async (req, res, next) => {
   try {
     const { remarks } = req.body;
@@ -144,6 +154,6 @@ const deleteFile = async (req, res, next) => {
 module.exports = {
   getAllClaims, getClaimById, createClaim,
   forwardClaim, assignClaim, pullBackClaim,
-  sendbackClaim, resubmitClaim,
+  sendbackClaim, approveClaim, resubmitClaim,
   getClaimHistory, uploadFile, deleteFile
 };

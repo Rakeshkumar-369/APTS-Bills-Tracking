@@ -5,6 +5,7 @@ const poRepository = require('../repositories/poRepository');
 const workflowService = require('./workflowService');
 const auditService = require('./auditService');
 const ApiError = require('../utils/ApiError');
+const { hasPermission } = require('../utils/permissionHelper');
 
 const path = require('path');
 const fs = require('fs');
@@ -231,6 +232,14 @@ class ClaimService {
     let actionLabel = '';
 
     if (!nextStep) {
+      // Completion is reserved for roles with claim.approve (APTS Manager / Super Admin).
+      // In-between officers can NEVER complete a claim, even if a workflow transition
+      // is misconfigured to point at NULL.
+      if (!hasPermission(currentUser.permissions, 'claim', 'approve')) {
+        throw new ApiError(403,
+          'You are not authorised to complete this claim. Only the APTS Manager can approve & complete.'
+        );
+      }
       newStatus = 'COMPLETED';
       isCompleted = true;
       completedAt = new Date();
@@ -459,7 +468,7 @@ class ClaimService {
     return this.getWithDetails(claim.id);
   }
 
-  // ── Pull Back (undo the last forward — works for both workflow and non-workflow) ──
+  // ── Pull Back (VENDOR ONLY — one step back; officers can never pull back) ──
 
   async pullBack(claimId, remarks, currentUser, ipAddress) {
     const claim = await this.getById(claimId);
@@ -472,46 +481,52 @@ class ClaimService {
       throw new ApiError(400, 'Remarks are mandatory when pulling back a claim');
     }
 
-    // For workflow mode: find the latest forward from currentUser to find the previous step
+    // NEW RULE: only the vendor can pull back — in BOTH workflow and manual modes.
+    if (currentUser.role_name !== 'Vendor') {
+      throw new ApiError(403, 'Only the vendor who submitted the claim can pull it back');
+    }
+    if (claim.vendor_id !== currentUser.vendor_id) {
+      throw new ApiError(403, 'You can only pull back claims from your own vendor');
+    }
+
     if (claim.workflow_id) {
-      // Find the latest history entry where currentUser forwarded this claim
-      const history = await claimRepository.getHistory(claimId);
-
-      // Find the most recent FORWARD action performed by this user
-      const latestForward = [...history].reverse().find(
-        h => h.action === 'FORWARD' && h.performed_by === currentUser.user_id
-      );
-
-      if (!latestForward) {
+      // Workflow mode: the vendor only ever dispatched the claim (CREATE). They can pull
+      // it back ONE step — i.e. while it is still at the first step and no officer has
+      // processed it yet. Pulling back returns the claim to the vendor's hands.
+      const firstStep = await workflowService.getFirstStep(claim.workflow_id);
+      if (!firstStep || claim.current_step_id !== firstStep.id) {
         throw new ApiError(400,
-          'You cannot pull back this claim. Only the person who forwarded it can pull it back.'
+          'You can only pull back a claim that has not been processed yet'
         );
       }
 
-      // The claim was forwarded FROM latestForward.from_step_id TO latestForward.to_step_id
-      // To pull back, we need to go back to from_step_id (the previous step)
-      if (!latestForward.from_step_id) {
-        throw new ApiError(400, 'Cannot pull back — this claim was forwarded from the start');
+      const history = await claimRepository.getHistory(claimId);
+      const officerProcessed = history.some(
+        h => h.action === 'FORWARD' && h.performed_by !== currentUser.user_id
+      );
+      if (officerProcessed) {
+        throw new ApiError(400,
+          'You can only pull back a claim that has not been processed yet'
+        );
       }
 
-      // Update claim: go back to the previous step
+      // Return the claim to the vendor's hands (no step, assigned to the vendor)
       await claimRepository.updateCurrentStep(claim.id, {
-        current_step_id: latestForward.from_step_id,
+        current_step_id: null,
+        current_step_order: 0,
         status: 'IN_PROGRESS'
       });
+      await claimRepository.updateCurrentAssignee(claim.id, currentUser.user_id);
 
-      // Record history
-      // from_user_id = who pulled it back (the current user)
-      // to_user_id = null — goes back to a step, not a specific user
       await claimRepository.createHistory({
         claim_id: claim.id,
-        from_step_id: latestForward.to_step_id,
-        to_step_id: latestForward.from_step_id,
+        from_step_id: claim.current_step_id,
+        to_step_id: null,
         from_user_id: currentUser.user_id,
-        to_user_id: null,
+        to_user_id: currentUser.user_id,
         forwarded_to_user_id: null,
         action: 'PULL_BACK',
-        action_label: `Pulled back to previous step`,
+        action_label: 'Pulled back to vendor',
         performed_by: currentUser.user_id,
         performed_by_role_id: currentUser.role_id,
         remarks: remarks
@@ -521,7 +536,7 @@ class ClaimService {
         table_name: 'claims',
         record_id: claim.id,
         action: 'PULL_BACK',
-        new_value: { from_step: latestForward.to_step_id, to_step: latestForward.from_step_id },
+        new_value: { pulled_back_to_vendor: true },
         performed_by: currentUser.user_id,
         ip_address: ipAddress
       });
@@ -529,7 +544,8 @@ class ClaimService {
       return this.getWithDetails(claim.id);
     }
 
-    // Non-workflow pull-back: find the latest forward entry where currentUser forwarded to the current assignee
+    // Non-workflow pull-back: vendor pulls back from the officer they forwarded to.
+    // One step only — findLatestForward ensures the vendor sent it to the CURRENT assignee.
     const latestForward = await claimRepository.findLatestForward(
       claim.id,
       currentUser.user_id,
@@ -538,16 +554,13 @@ class ClaimService {
 
     if (!latestForward) {
       throw new ApiError(400,
-        'You cannot pull back this claim. Only the person who forwarded it can pull it back.'
+        'You can only pull back a claim you forwarded to the current officer'
       );
     }
 
-    // Update claim: assign back to currentUser
+    // Update claim: assign back to the vendor
     await claimRepository.updateCurrentAssignee(claim.id, currentUser.user_id);
 
-    // Record history
-    // from_user_id = who pulled it back
-    // to_user_id = the user they pulled it FROM (the previous assignee)
     await claimRepository.createHistory({
       claim_id: claim.id,
       from_step_id: null,
@@ -567,6 +580,71 @@ class ClaimService {
       record_id: claim.id,
       action: 'PULL_BACK',
       new_value: { pulled_from_user_id: claim.current_assigned_user_id },
+      performed_by: currentUser.user_id,
+      ip_address: ipAddress
+    });
+
+    return this.getWithDetails(claim.id);
+  }
+
+  // ── Approve & Complete (APTS Manager ONLY — claim must be at the manager's desk) ──
+
+  async approve(claimId, remarks, currentUser, ipAddress) {
+    const claim = await this.getById(claimId);
+
+    if (claim.is_completed) {
+      throw new ApiError(400, 'Claim is already completed');
+    }
+
+    if (!remarks || !remarks.trim()) {
+      throw new ApiError(400, 'Remarks are mandatory when approving a claim');
+    }
+
+    // The claim must be AT the manager's desk:
+    if (claim.workflow_id) {
+      // Workflow mode: the current step must require the manager's role
+      if (!claim.current_step_id || claim.current_step_role_id !== currentUser.role_id) {
+        throw new ApiError(403,
+          'This claim is not at your step. Only the APTS Manager can approve & complete a claim at their step.'
+        );
+      }
+    } else {
+      // Non-workflow mode: the claim must be assigned to the manager
+      if (claim.current_assigned_user_id !== currentUser.user_id) {
+        throw new ApiError(403,
+          'This claim is not assigned to you. Only the APTS Manager can approve & complete a claim assigned to them.'
+        );
+      }
+    }
+
+    await claimRepository.updateCurrentStep(claim.id, {
+      current_step_id: null,
+      current_step_order: 0,
+      status: 'COMPLETED',
+      is_completed: true,
+      completed_at: new Date()
+    });
+    await claimRepository.updateCurrentAssignee(claim.id, null);
+
+    await claimRepository.createHistory({
+      claim_id: claim.id,
+      from_step_id: claim.current_step_id,
+      to_step_id: null,
+      from_user_id: currentUser.user_id,
+      to_user_id: null,
+      forwarded_to_user_id: null,
+      action: 'COMPLETE',
+      action_label: 'Claim approved and completed by APTS Manager',
+      performed_by: currentUser.user_id,
+      performed_by_role_id: currentUser.role_id,
+      remarks: remarks
+    });
+
+    await auditService.log({
+      table_name: 'claims',
+      record_id: claim.id,
+      action: 'COMPLETE',
+      new_value: { status: 'COMPLETED', completed_by: currentUser.user_id },
       performed_by: currentUser.user_id,
       ip_address: ipAddress
     });
