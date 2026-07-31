@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { claimsService, projectsService, poService, usersService } from '../services';
 import { useAuth } from '../context/AuthContext';
+
+const MAX_FILE_SIZE_MB = 10;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 export default function ClaimCreate() {
   const { user } = useAuth();
@@ -19,6 +22,7 @@ export default function ClaimCreate() {
   const [projects, setProjects] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [officers, setOfficers] = useState([]);
+  const [officersLoading, setOfficersLoading] = useState(false);
   const [selectedOfficer, setSelectedOfficer] = useState(null);
   const [formData, setFormData] = useState({
     project_id: queryProjectId || '',
@@ -39,7 +43,8 @@ export default function ClaimCreate() {
           return;
         }
 
-        // Fetch projects
+        // Fetch projects (includes workflow_id / workflow_name via backend JOIN —
+        // this is what tells us whether a project is workflow-routed or manual-assignment)
         try {
           const projectList = await projectsService.list({ vendor_id: vendorId });
           const list = Array.isArray(projectList?.data?.items)
@@ -64,26 +69,11 @@ export default function ClaimCreate() {
           console.error('Error fetching POs:', poError);
           setPurchaseOrders([]);
         }
-
-        // Fetch officers using the dedicated endpoint
-        try {
-          const officersList = await usersService.getOfficers();
-          const oList = Array.isArray(officersList?.data)
-            ? officersList.data
-            : Array.isArray(officersList)
-            ? officersList
-            : [];
-          setOfficers(oList);
-        } catch (officerError) {
-          console.warn('Could not fetch officers:', officerError.message);
-          setOfficers([]);
-        }
       } catch (err) {
         console.error('Error fetching data:', err);
         setError('Failed to load required data. Please try again.');
         setProjects([]);
         setPurchaseOrders([]);
-        setOfficers([]);
       } finally {
         setLoading(false);
       }
@@ -102,6 +92,49 @@ export default function ClaimCreate() {
     );
   };
 
+  const selectedProject = projects.find((p) => String(p.id) === String(formData.project_id));
+
+  // ---------------------------------------------------------------------
+  // DYNAMIC MODE: derived from the selected project's workflow_id, per README:
+  // "If a project has no workflow assigned (workflow_id = NULL), claims under
+  // that project use manual officer assignment. Workflow is auto-derived
+  // from the project." Vendors never choose the mode — it's a property of
+  // the project itself.
+  // ---------------------------------------------------------------------
+  const isWorkflowMode = Boolean(selectedProject?.workflow_id);
+  const workflowName = selectedProject?.workflow_name;
+
+  // Only fetch officers when we actually land in manual-assignment mode —
+  // there's no need to hit /api/users/officers for a workflow-routed project.
+  useEffect(() => {
+    if (!formData.project_id || !selectedProject) return;
+    if (isWorkflowMode) {
+      setOfficers([]);
+      setSelectedOfficer(null);
+      return;
+    }
+
+    const fetchOfficers = async () => {
+      try {
+        setOfficersLoading(true);
+        const officersList = await usersService.getOfficers();
+        const oList = Array.isArray(officersList?.data)
+          ? officersList.data
+          : Array.isArray(officersList)
+          ? officersList
+          : [];
+        setOfficers(oList);
+      } catch (officerError) {
+        console.warn('Could not fetch officers:', officerError.message);
+        setOfficers([]);
+      } finally {
+        setOfficersLoading(false);
+      }
+    };
+
+    fetchOfficers();
+  }, [formData.project_id, isWorkflowMode, selectedProject]);
+
   const handleProjectCardClick = (projectId) => {
     // Navigates to PO listing for this project
     navigate(`/vendor/claims/project/${projectId}`);
@@ -114,6 +147,16 @@ export default function ClaimCreate() {
 
   const handleOfficerSelect = (officerId) => {
     setSelectedOfficer(officerId);
+  };
+
+  const validateFiles = (files) => {
+    const oversized = files.filter((f) => f.size > MAX_FILE_SIZE_BYTES);
+    if (oversized.length > 0) {
+      return `File(s) exceed the ${MAX_FILE_SIZE_MB}MB limit: ${oversized
+        .map((f) => f.name)
+        .join(', ')}`;
+    }
+    return null;
   };
 
   const handleSubmit = async (e) => {
@@ -132,8 +175,17 @@ export default function ClaimCreate() {
       return;
     }
 
-    if (officers.length > 0 && !selectedOfficer) {
+    // Officer selection is only required in manual-assignment mode
+    // (i.e. the project has no workflow_id). Workflow-routed projects
+    // auto-route to Step 1 on the backend, so there's nothing to pick here.
+    if (!isWorkflowMode && officers.length > 0 && !selectedOfficer) {
       setError('Please select an officer for claim review');
+      return;
+    }
+
+    const fileError = validateFiles(formData.files);
+    if (fileError) {
+      setError(fileError);
       return;
     }
 
@@ -147,6 +199,8 @@ export default function ClaimCreate() {
 
       if (!vendorId) throw new Error('No vendor ID found. Please contact administrator.');
 
+      // Matches POST /api/claims fields exactly — workflow_id is intentionally
+      // omitted, it's auto-derived server-side from project_id.
       const claimData = {
         vendor_id: parseInt(vendorId),
         project_id: parseInt(formData.project_id),
@@ -158,16 +212,34 @@ export default function ClaimCreate() {
         claimData.vendor_contact_user_id = parseInt(userId);
       }
 
-      const createdClaim = await claimsService.create(claimData, formData.files);
+      const rawResponse = await claimsService.create(claimData, formData.files);
+      // claimsService.create() returns the raw API response — normalize the
+      // same way claimsService.get() does, in case a single created record
+      // comes back array-wrapped (e.g. { data: [claim] }).
+      const createdClaim =
+        Array.isArray(rawResponse) && rawResponse.length === 1 ? rawResponse[0] : rawResponse;
 
-      if (createdClaim && createdClaim.id && selectedOfficer) {
-        await claimsService.assign(
-          createdClaim.id,
-          selectedOfficer,
-          `Claim assigned to officer for review`
+      if (!isWorkflowMode && createdClaim?.id && selectedOfficer) {
+        // Manual-assignment mode only: POST /api/claims/:id/assign
+        try {
+          await claimsService.assign(
+            createdClaim.id,
+            selectedOfficer,
+            `Claim assigned to officer for review`
+          );
+          setSuccess('Claim created successfully and assigned to the selected officer for review!');
+        } catch (assignError) {
+          console.error('Claim created but assignment failed:', assignError);
+          setSuccess(
+            'Claim created successfully, but assigning the officer failed. You can assign it from the claims list.'
+          );
+        }
+      } else if (isWorkflowMode) {
+        setSuccess(
+          `Claim created successfully! It has been automatically routed into the "${
+            workflowName || 'project'
+          }" workflow for review.`
         );
-
-        setSuccess('Claim created successfully and assigned to the selected officer for review!');
       } else {
         setSuccess('Claim created successfully! You can assign officers later from the claims list.');
       }
@@ -183,6 +255,12 @@ export default function ClaimCreate() {
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
+    const fileError = validateFiles(files);
+    if (fileError) {
+      setError(fileError);
+    } else {
+      setError(null);
+    }
     setFormData((prev) => ({ ...prev, files }));
   };
 
@@ -192,7 +270,6 @@ export default function ClaimCreate() {
     setFormData((prev) => ({ ...prev, files: newFiles }));
   };
 
-  const selectedProject = projects.find((p) => String(p.id) === String(formData.project_id));
   const projectPOs = getProjectPOs();
   const selectedOfficerDetails = officers.find((o) => o.id === selectedOfficer);
 
@@ -279,6 +356,20 @@ export default function ClaimCreate() {
                           {project.location}
                         </div>
                       )}
+                      {/* Dynamic mode indicator, driven by project.workflow_id */}
+                      <div className="small">
+                        {project.workflow_id ? (
+                          <span className="badge bg-info bg-opacity-10 text-info">
+                            <i className="bi bi-diagram-3 me-1"></i>
+                            {project.workflow_name || 'Workflow'} approval
+                          </span>
+                        ) : (
+                          <span className="badge bg-secondary bg-opacity-10 text-secondary">
+                            <i className="bi bi-person-lines-fill me-1"></i>
+                            Manual assignment
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="pt-3 border-top d-flex justify-content-between align-items-center text-primary fw-semibold small">
@@ -351,7 +442,21 @@ export default function ClaimCreate() {
         {/* Project & PO Summary Info Card */}
         <div className="card border-0 shadow-sm mb-4">
           <div className="card-body">
-            <h6 className="fw-bold mb-3">Selected Project & Purchase Order</h6>
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <h6 className="fw-bold mb-0">Selected Project & Purchase Order</h6>
+              {formData.project_id &&
+                (isWorkflowMode ? (
+                  <span className="badge bg-info bg-opacity-10 text-info px-3 py-2">
+                    <i className="bi bi-diagram-3 me-1"></i>
+                    {workflowName || 'Workflow'} approval
+                  </span>
+                ) : (
+                  <span className="badge bg-secondary bg-opacity-10 text-secondary px-3 py-2">
+                    <i className="bi bi-person-lines-fill me-1"></i>
+                    Manual assignment
+                  </span>
+                ))}
+            </div>
             <div className="row g-3">
               <div className="col-md-6">
                 <label className="form-label small text-muted">Project</label>
@@ -386,46 +491,54 @@ export default function ClaimCreate() {
           </div>
         </div>
 
-        {/* Step 3: Select Officer */}
-        <div className="mb-4">
-          <div className="card border-0 shadow-sm">
-            <div className="card-body">
-              <div className="d-flex align-items-center mb-3">
-                <div className="bg-primary bg-opacity-10 p-2 rounded me-2">
-                  <i className="bi bi-person-check text-primary fs-4"></i>
+        {/* Step 3: Officer selection — manual-assignment mode only. Workflow-mode
+            projects skip this entirely, since routing is automatic. */}
+        {!isWorkflowMode && (
+          <div className="mb-4">
+            <div className="card border-0 shadow-sm">
+              <div className="card-body">
+                <div className="d-flex align-items-center mb-3">
+                  <div className="bg-primary bg-opacity-10 p-2 rounded me-2">
+                    <i className="bi bi-person-check text-primary fs-4"></i>
+                  </div>
+                  <div>
+                    <h6 className="mb-0 fw-bold">Select Officer for Review</h6>
+                    <small className="text-muted">Choose the officer who will review this claim</small>
+                  </div>
                 </div>
-                <div>
-                  <h6 className="mb-0 fw-bold">Select Officer for Review</h6>
-                  <small className="text-muted">Choose the officer who will review this claim</small>
-                </div>
-              </div>
 
-              {Array.isArray(officers) && officers.length > 0 ? (
-                <select
-                  className="form-select form-select-lg mb-3"
-                  onChange={(e) => {
-                    const officerId = e.target.value ? parseInt(e.target.value) : null;
-                    handleOfficerSelect(officerId);
-                  }}
-                  value={selectedOfficer || ''}
-                >
-                  <option value="">Select an officer...</option>
-                  {officers.map((officer) => (
-                    <option key={officer.id} value={officer.id}>
-                      {officer.name || officer.username}{' '}
-                      {officer.role_name && `(${officer.role_name})`}
-                      {officer.designation && ` - ${officer.designation}`}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="text-center py-3 bg-light rounded">
-                  <p className="text-muted mb-0 small">No officers available. Proceeding without pre-assignment.</p>
-                </div>
-              )}
+                {officersLoading ? (
+                  <div className="text-center py-3">
+                    <span className="spinner-border spinner-border-sm text-primary me-2"></span>
+                    <span className="text-muted small">Loading officers...</span>
+                  </div>
+                ) : Array.isArray(officers) && officers.length > 0 ? (
+                  <select
+                    className="form-select form-select-lg mb-3"
+                    onChange={(e) => {
+                      const officerId = e.target.value ? parseInt(e.target.value) : null;
+                      handleOfficerSelect(officerId);
+                    }}
+                    value={selectedOfficer || ''}
+                  >
+                    <option value="">Select an officer...</option>
+                    {officers.map((officer) => (
+                      <option key={officer.id} value={officer.id}>
+                        {officer.name || officer.username}{' '}
+                        {officer.role_name && `(${officer.role_name})`}
+                        {officer.designation && ` - ${officer.designation}`}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="text-center py-3 bg-light rounded">
+                    <p className="text-muted mb-0 small">No officers available. Proceeding without pre-assignment.</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Step 4: Remarks & Documents */}
         <div className="row g-4 mb-4">
@@ -458,7 +571,7 @@ export default function ClaimCreate() {
                   onChange={handleFileChange}
                 />
                 <small className="text-muted d-block mt-2">
-                  PDF, Word, Excel, Images (Max 10MB)
+                  PDF, Word, Excel, Images (Max {MAX_FILE_SIZE_MB}MB)
                 </small>
 
                 {formData.files.length > 0 && (
@@ -469,7 +582,10 @@ export default function ClaimCreate() {
                         className="d-flex justify-content-between align-items-center bg-light p-2 rounded mb-1"
                       >
                         <span className="small text-truncate" style={{ maxWidth: '180px' }}>
-                          {file.name}
+                          {file.name}{' '}
+                          <span className="text-muted">
+                            ({(file.size / (1024 * 1024)).toFixed(2)}MB)
+                          </span>
                         </span>
                         <button
                           type="button"
