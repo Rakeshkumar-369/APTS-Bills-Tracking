@@ -84,6 +84,8 @@ If a project has **no workflow assigned** (`workflow_id = NULL`), claims under t
    - **Workflow mode:** the claim is at a step whose `required_role_id` is the manager's role (e.g. step 4 "APTS Clearance").
    - **Manual mode:** the claim is **assigned to the manager** — an officer (or the vendor) assigns it to the APTS Manager via `POST /api/claims/:id/assign` with `{target_user_id: <manager id>}`, and then the manager approves it.
 
+**Where is the claim right now? (both modes):** Every claim list/detail/inbox response includes `current_step_name`. For **workflow claims** it is the current step name (e.g. "PM Verification"). For **non-workflow claims** there are no steps, so it **falls back to the current assignee's name** (`COALESCE(step_name, assigned_user_name)`) — so you can always see which officer's desk the claim is sitting on. `current_step_code`/`current_step_role_id` remain `null` for non-workflow claims.
+
 ## Purchase Orders
 
 Purchase Orders (POs) are managed by the **Admin** role (rank 80). Each PO is linked to a project and assigned to a vendor.

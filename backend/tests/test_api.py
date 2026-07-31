@@ -557,6 +557,19 @@ def run_all_tests():
         admin.get(f"/claims/{claim_id}?include_details=true", label="Get claim with files & history")
         admin.get(f"/claims/{claim_id}/history", label="Get claim history")
 
+        # Verify the LIST endpoint ALSO returns current_step_name for workflow claims
+        # (the list query joins workflow_steps -- same as the detail view)
+        list_check = admin.get("/claims", {"limit": 50}, "Admin: List claims (verify current_step_name)")
+        if list_check and list_check.get("success"):
+            claim_row = next((c for c in list_check["data"] if c.get("id") == claim_id), None)
+            if claim_row:
+                step_name = claim_row.get("current_step_name")
+                log("List endpoint returns current_step_name",
+                    "PASS" if step_name == "PM Verification" else "FAIL",
+                    f"current_step_name={step_name!r} (expected 'PM Verification')")
+            else:
+                log("List endpoint returns current_step_name", "FAIL", "Claim not found in list")
+
         # APTS Manager CANNOT approve a claim that is not at their desk (claim is at step 1 = PM)
         mgr_early = apts_mgr.post(f"/claims/{claim_id}/approve",
                                   {"remarks": "Manager tries to approve too early"},
@@ -725,6 +738,20 @@ def run_all_tests():
                 assigned_to = check["data"][0].get("assigned_user_name", "")
                 log(f"Claim at PM desk", "PASS" if "Srinivasa" in assigned_to or "PM" in str(check["data"][0].get("current_assigned_user_id")) else "FAIL",
                     f"Assigned to: {assigned_to}")
+
+            # Verify the LIST endpoint falls back to the assigned officer's name for
+            # non-workflow claims (COALESCE(step_name, assigned_user_name)) so the
+            # frontend can show which officer's desk the claim is on.
+            nwf_list = admin.get("/claims", {"limit": 50}, "Admin: List claims (verify non-workflow desk fallback)")
+            if nwf_list and nwf_list.get("success"):
+                nwf_row = next((c for c in nwf_list["data"] if c.get("id") == nwf_claim_id), None)
+                if nwf_row:
+                    nwf_desk = nwf_row.get("current_step_name") or ""
+                    log("Non-workflow claim shows officer desk in list",
+                        "PASS" if "Srinivasa" in nwf_desk else "FAIL",
+                        f"current_step_name={nwf_desk!r} (expected PM's name)")
+                else:
+                    log("Non-workflow claim shows officer desk in list", "FAIL", "Claim not found in list")
 
     # 9c. PM assigns to TPA (user id=4)
     if nwf_claim_id:

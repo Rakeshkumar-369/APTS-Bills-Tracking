@@ -31,7 +31,7 @@ class ClaimRepository {
 
     const [rows] = await pool.query(`
       SELECT c.*, v.vendor_name, pr.project_name, wm.workflow_name,
-             ws.step_name AS current_step_name, ws.step_code AS current_step_code,
+             COALESCE(ws.step_name, au.name) AS current_step_name, ws.step_code AS current_step_code,
              ws.required_role_id AS current_step_role_id,
              u.name AS created_by_name,
              cu.name AS contact_name,
@@ -64,7 +64,7 @@ class ClaimRepository {
   async getById(id) {
     const [rows] = await pool.query(`
       SELECT c.*, v.vendor_name, pr.project_name, wm.workflow_name,
-             ws.step_name AS current_step_name, ws.step_code AS current_step_code,
+             COALESCE(ws.step_name, au.name) AS current_step_name, ws.step_code AS current_step_code,
              ws.required_role_id AS current_step_role_id,
              u.name AS created_by_name,
              cu.name AS contact_name, cu.email AS contact_email,
@@ -217,7 +217,7 @@ class ClaimRepository {
   async getInbox(roleId, userId, { limit = 50, offset = 0 } = {}) {
     const [rows] = await pool.query(`
       SELECT c.*, v.vendor_name, pr.project_name, wm.workflow_name,
-             ws.step_name AS current_step_name, ws.step_code AS current_step_code,
+             COALESCE(ws.step_name, au.name) AS current_step_name, ws.step_code AS current_step_code,
              cu.name AS contact_name,
              au.name AS assigned_user_name,
              po.po_number,
@@ -260,7 +260,7 @@ class ClaimRepository {
   async getOutbox(userId, { limit = 50, offset = 0 } = {}) {
     const [rows] = await pool.query(`
       SELECT c.*, v.vendor_name, pr.project_name, wm.workflow_name,
-             ws.step_name AS current_step_name,
+             COALESCE(ws.step_name, au.name) AS current_step_name,
              (SELECT ch2.action_label FROM claim_history ch2
               WHERE ch2.claim_id = c.id AND ch2.performed_by = ?
               ORDER BY ch2.created_at DESC LIMIT 1) AS last_action
@@ -269,6 +269,7 @@ class ClaimRepository {
       JOIN projects pr ON c.project_id = pr.id
       LEFT JOIN workflow_master wm ON c.workflow_id = wm.id AND wm.is_deleted = false
       LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id AND ws.is_deleted = false
+      LEFT JOIN users au ON c.current_assigned_user_id = au.id AND au.is_deleted = false
       WHERE c.id IN (
         SELECT claim_id FROM claim_history WHERE performed_by = ?
       )
