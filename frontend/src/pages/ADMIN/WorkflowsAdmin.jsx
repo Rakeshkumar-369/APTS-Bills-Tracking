@@ -162,7 +162,6 @@ export default function WorkflowsAdmin() {
                 <tr>
                   <th>Workflow Name</th>
                   <th>Description</th>
-                  <th>Steps</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -177,11 +176,6 @@ export default function WorkflowsAdmin() {
                     <tr key={workflow.id}>
                       <td><strong>{workflow.workflow_name}</strong></td>
                       <td>{workflow.description || 'N/A'}</td>
-                      <td>
-                        <span className="badge bg-info">
-                          {workflow.steps?.length || 0} steps
-                        </span>
-                      </td>
                       <td>
                         <span className={`badge ${workflow.is_active ? 'bg-success' : 'bg-danger'}`}>
                           {workflow.is_active ? 'Active' : 'Inactive'}
