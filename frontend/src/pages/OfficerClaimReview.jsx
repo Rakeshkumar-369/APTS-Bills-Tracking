@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import apiClient from '../services/apiClient';
+import { useAuth } from '../context/AuthContext';
 
 export default function OfficerClaimReview() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  // PM sits at the FIRST step of the workflow — PM never gets a Send Back action
+  const isPm = user?.role_name === 'PM';
 
   const [claim, setClaim] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -173,9 +177,9 @@ export default function OfficerClaimReview() {
                 Officer Review Action
               </h6>
 
-              {/* Action Selection */}
+              {/* Action Selection — Send Back is not available to the PM (first desk) */}
               <div className="row g-2">
-                <div className="col-6">
+                <div className={isPm ? 'col-12' : 'col-6'}>
                   <button
                     type="button"
                     onClick={() => setActionType('FORWARD')}
@@ -189,19 +193,21 @@ export default function OfficerClaimReview() {
                   </button>
                 </div>
 
-                <div className="col-6">
-                  <button
-                    type="button"
-                    onClick={() => setActionType('SEND_BACK')}
-                    className={`btn w-100 py-2 btn-sm font-bold ${
-                      actionType === 'SEND_BACK'
-                        ? 'btn-danger shadow-sm'
-                        : 'btn-outline-secondary'
-                    }`}
-                  >
-                    2. Send Back
-                  </button>
-                </div>
+                {!isPm && (
+                  <div className="col-6">
+                    <button
+                      type="button"
+                      onClick={() => setActionType('SEND_BACK')}
+                      className={`btn w-100 py-2 btn-sm font-bold ${
+                        actionType === 'SEND_BACK'
+                          ? 'btn-danger shadow-sm'
+                          : 'btn-outline-secondary'
+                      }`}
+                    >
+                      2. Send Back
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Remarks Box */}

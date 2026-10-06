@@ -402,6 +402,7 @@ python backend/tests/test_api.py
 
 ## Future Enhancements
 
+- Should create a page in frontend to assign a workflow for a project
 - Invoice submission & reconciliation (table already exists: `invoice_submissions`)
 - Email notifications on workflow transitions
 - Dashboard analytics with charts

@@ -136,6 +136,8 @@ export default function ClaimDetail() {
   const isVendor = user?.role_name === 'Vendor' || user?.role_rank === 10;
   const isAdmin = user?.role_rank === 100;
   const isAptsManager = user?.role_name === 'APTS Manager';
+  // PM sits at the FIRST step of the workflow — PM never gets a Send Back action
+  const isPm = user?.role_name === 'PM';
   const canUpload = isVendor || isAdmin;
   const isCompleted = pkg?.status?.toUpperCase() === 'COMPLETED';
 
@@ -168,9 +170,10 @@ export default function ClaimDetail() {
   // Manual mode assign – vendor or APTS Manager can assign to an officer
   const canAssign = isClaimWithMeManual;
 
-  // Manual mode send-back-to-vendor – in-between officers only (exclude APTS Manager)
-  const canSendBackManual = isClaimWithMeManual && !isVendor && !isAptsManager;
-  const canSendBackWorkflow = isMyWorkflowStep; // workflow sendback (APTS Manager included if step allows)
+  // Manual mode send-back-to-vendor – in-between officers only (exclude APTS Manager & PM)
+  const canSendBackManual = isClaimWithMeManual && !isVendor && !isAptsManager && !isPm;
+  // Workflow sendback — hidden for PM (first desk in the chain); APTS Manager included if step allows
+  const canSendBackWorkflow = isMyWorkflowStep && !isPm;
 
   const lastHistory = history.length > 0 ? history[history.length - 1] : null;
   const claimCurrentlyWithVendor = isManual
