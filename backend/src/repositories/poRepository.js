@@ -71,22 +71,25 @@ class PORepository {
     return rows;
   }
 
-  async create({ po_number, project_id, description, amount, created_by }) {
+  async create({ po_number, project_id, description, amount, delivery_start_date, delivery_end_date, delivered_on, created_by }) {
     const [result] = await pool.query(
-      `INSERT INTO purchase_orders (po_number, project_id, description, amount, created_by)
-       VALUES (?, ?, ?, ?, ?)`,
-      [po_number, project_id, description || null, amount || null, created_by]
+      `INSERT INTO purchase_orders (po_number, project_id, description, amount, delivery_start_date, delivery_end_date, delivered_on, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [po_number, project_id, description || null, amount || null, delivery_start_date || null, delivery_end_date || null, delivered_on || null, created_by]
     );
     return result.insertId;
   }
 
-  async update(id, { project_id, description, amount, status, is_active }) {
+  async update(id, { project_id, description, amount, delivery_start_date, delivery_end_date, delivered_on, status, is_active }) {
     const updates = [];
     const params = [];
 
     if (project_id !== undefined) { updates.push('project_id = ?'); params.push(project_id); }
     if (description !== undefined) { updates.push('description = ?'); params.push(description); }
     if (amount !== undefined) { updates.push('amount = ?'); params.push(amount); }
+    if (delivery_start_date !== undefined) { updates.push('delivery_start_date = ?'); params.push(delivery_start_date || null); }
+    if (delivery_end_date !== undefined) { updates.push('delivery_end_date = ?'); params.push(delivery_end_date || null); }
+    if (delivered_on !== undefined) { updates.push('delivered_on = ?'); params.push(delivered_on || null); }
     if (status !== undefined) { updates.push('status = ?'); params.push(status); }
     if (is_active !== undefined) { updates.push('is_active = ?'); params.push(is_active); }
 

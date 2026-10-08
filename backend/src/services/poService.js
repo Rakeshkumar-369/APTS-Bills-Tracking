@@ -36,7 +36,8 @@ class POService {
   }
 
   async create(data, files, performedBy, ipAddress) {
-    const { project_id, vendor_ids, description, amount } = data;
+    const { project_id, vendor_ids, description, amount, delivery_start_date, delivery_end_date, delivered_on } = data;
+    this.validateDeliveryDates(delivery_start_date, delivery_end_date);
 
     // Parse vendor_ids — could be a single value, array, or comma-separated string
     let vendorIdList = [];
@@ -72,6 +73,9 @@ class POService {
       project_id,
       description: description || null,
       amount: amount || null,
+      delivery_start_date: delivery_start_date || null,
+      delivery_end_date: delivery_end_date || null,
+      delivered_on: delivered_on || null,
       created_by: performedBy
     });
 
@@ -82,7 +86,7 @@ class POService {
       table_name: 'purchase_orders',
       record_id: poId,
       action: 'CREATE',
-      new_value: { po_number: poNumber, project_id, vendor_ids: vendorIdList, amount },
+      new_value: { po_number: poNumber, project_id, vendor_ids: vendorIdList, amount, delivery_start_date, delivery_end_date },
       performed_by: performedBy,
       ip_address: ipAddress
     });
@@ -118,6 +122,13 @@ class POService {
   async update(id, data, performedBy, ipAddress) {
     const existing = await this.getById(id);
 
+    // Validate delivery timeline using merged (new || existing) values
+    const toYmd = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : d);
+    this.validateDeliveryDates(
+      data.delivery_start_date !== undefined ? data.delivery_start_date : toYmd(existing.delivery_start_date),
+      data.delivery_end_date !== undefined ? data.delivery_end_date : toYmd(existing.delivery_end_date)
+    );
+
     // Handle vendor_ids sync if provided
     if (data.vendor_ids !== undefined) {
       let vendorIdList = [];
@@ -151,6 +162,9 @@ class POService {
       project_id: data.project_id,
       description: data.description,
       amount: data.amount,
+      delivery_start_date: data.delivery_start_date,
+      delivery_end_date: data.delivery_end_date,
+      delivered_on: data.delivered_on,
       status: data.status,
       is_active: data.is_active
     });
@@ -181,6 +195,12 @@ class POService {
       performed_by: performedBy,
       ip_address: ipAddress
     });
+  }
+
+  validateDeliveryDates(start, end) {
+    if (start && end && new Date(end) < new Date(start)) {
+      throw new ApiError(400, 'Delivery end date cannot be before the delivery start date');
+    }
   }
 
   async generatePONumber() {

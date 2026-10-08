@@ -26,6 +26,9 @@ export default function PurchaseOrdersAdmin() {
     vendor_ids: [], // Changed to array for multiple vendors
     description: '',
     amount: '',
+    delivery_start_date: '',
+    delivery_end_date: '',
+    delivered_on: '',
     status: 'ACTIVE',
   });
   const [formErrors, setFormErrors] = useState({});
@@ -101,6 +104,9 @@ export default function PurchaseOrdersAdmin() {
       vendor_ids: [], // Changed to empty array
       description: '',
       amount: '',
+      delivery_start_date: '',
+      delivery_end_date: '',
+      delivered_on: '',
       status: 'ACTIVE',
     });
     setFormErrors({});
@@ -115,6 +121,9 @@ export default function PurchaseOrdersAdmin() {
       vendor_ids: po.vendor_ids || [], // Changed to array
       description: po.description || '',
       amount: po.amount || '',
+      delivery_start_date: toDateInput(po.delivery_start_date),
+      delivery_end_date: toDateInput(po.delivery_end_date),
+      delivered_on: toDateInput(po.delivered_on),
       status: po.status || 'ACTIVE',
     });
     setFormErrors({});
@@ -142,6 +151,10 @@ export default function PurchaseOrdersAdmin() {
     }
     if (!formData.amount) errors.amount = 'Amount is required';
     if (isNaN(parseFloat(formData.amount))) errors.amount = 'Amount must be a number';
+    if (formData.delivery_start_date && formData.delivery_end_date &&
+        formData.delivery_end_date < formData.delivery_start_date) {
+      errors.delivery_end_date = 'Delivery end date cannot be before start date';
+    }
     
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
@@ -241,6 +254,54 @@ export default function PurchaseOrdersAdmin() {
   const closeDetail = () => {
     setShowDetailModal(false);
     setSelectedPo(null);
+  };
+
+  // 'YYYY-MM-DD' (or ISO string) -> value for <input type="date">
+  function toDateInput(value) {
+    return value ? String(value).slice(0, 10) : '';
+  }
+
+  const formatDate = (value) => {
+    const v = toDateInput(value);
+    if (!v) return '—';
+    const [y, m, d] = v.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  // Compute delivery timeline status from dates
+  const getDeliveryInfo = (po) => {
+    const end = toDateInput(po.delivery_end_date);
+    const delivered = toDateInput(po.delivered_on);
+    if (!end && !delivered) return { key: 'NOT_SET', label: 'Not set', color: '#6b7280', bg: '#f3f4f6' };
+
+    if (delivered) {
+      if (end && delivered > end) {
+        return { key: 'DELIVERED_LATE', label: 'Delivered late', color: '#b45309', bg: '#fef3c7' };
+      }
+      return { key: 'DELIVERED', label: 'Delivered', color: '#047857', bg: '#d1fae5' };
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const [y, m, d] = end.split('-').map(Number);
+    const daysLeft = Math.round((new Date(y, m - 1, d) - today) / 86400000);
+
+    if (daysLeft < 0) {
+      return { key: 'OVERDUE', label: `Overdue by ${Math.abs(daysLeft)}d`, color: '#b91c1c', bg: '#fee2e2' };
+    }
+    if (daysLeft <= 7) {
+      return { key: 'DUE_SOON', label: daysLeft === 0 ? 'Due today' : `Due in ${daysLeft}d`, color: '#b45309', bg: '#fef3c7' };
+    }
+    return { key: 'ON_TRACK', label: `On track (${daysLeft}d left)`, color: '#1d4ed8', bg: '#dbeafe' };
+  };
+
+  const DeliveryBadge = ({ po }) => {
+    const info = getDeliveryInfo(po);
+    return (
+      <span className="px-2 py-1 rounded-pill fw-semibold" style={{ backgroundColor: info.bg, color: info.color, fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+        {info.label}
+      </span>
+    );
   };
 
   const formatCurrency = (amount) => {
@@ -366,6 +427,7 @@ export default function PurchaseOrdersAdmin() {
                   <th className="py-3">Vendor</th>
                   <th className="py-3">Amount</th>
                   <th className="py-3">Status</th>
+                  <th className="py-3">Delivery Timeline</th>
                   <th className="py-3">Created</th>
                   <th className="px-4 py-3 text-end">Actions</th>
                 </tr>
@@ -373,7 +435,7 @@ export default function PurchaseOrdersAdmin() {
               <tbody>
                 {pos.length === 0 ? (
                   <tr>
-                    <td colSpan="7" className="text-center py-5 text-muted">
+                    <td colSpan="8" className="text-center py-5 text-muted">
                       No Purchase Orders found.
                     </td>
                   </tr>
@@ -385,6 +447,12 @@ export default function PurchaseOrdersAdmin() {
                       <td className="py-2">{po.vendor_name || 'N/A'}</td>
                       <td className="py-2">{formatCurrency(po.amount)}</td>
                       <td className="py-2"><StatusBadge status={po.status} /></td>
+                      <td className="py-2">
+                        <div className="small text-nowrap mb-1">
+                          {formatDate(po.delivery_start_date)} <span className="text-muted">→</span> {formatDate(po.delivery_end_date)}
+                        </div>
+                        <DeliveryBadge po={po} />
+                      </td>
                       <td className="py-2">{new Date(po.created_at).toLocaleDateString()}</td>
                       <td className="px-4 py-2 text-end">
                         <div className="d-flex gap-1 justify-content-end flex-wrap">
@@ -541,6 +609,40 @@ export default function PurchaseOrdersAdmin() {
                     />
                     {formErrors.amount && <div className="invalid-feedback">{formErrors.amount}</div>}
                   </div>
+                  <div className="row g-2 mb-3">
+                    <div className="col-md-6">
+                      <label className="form-label fw-semibold">Delivery Start Date</label>
+                      <input
+                        type="date"
+                        className="form-control"
+                        value={formData.delivery_start_date}
+                        onChange={(e) => setFormData({ ...formData, delivery_start_date: e.target.value })}
+                      />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label fw-semibold">Delivery End Date (Deadline)</label>
+                      <input
+                        type="date"
+                        className={`form-control ${formErrors.delivery_end_date ? 'is-invalid' : ''}`}
+                        min={formData.delivery_start_date || undefined}
+                        value={formData.delivery_end_date}
+                        onChange={(e) => setFormData({ ...formData, delivery_end_date: e.target.value })}
+                      />
+                      {formErrors.delivery_end_date && <div className="invalid-feedback">{formErrors.delivery_end_date}</div>}
+                    </div>
+                    {editingId && (
+                      <div className="col-12">
+                        <label className="form-label fw-semibold">Actual Delivered On</label>
+                        <input
+                          type="date"
+                          className="form-control"
+                          value={formData.delivered_on}
+                          onChange={(e) => setFormData({ ...formData, delivered_on: e.target.value })}
+                        />
+                        <small className="text-muted">Fill this once the delivery is completed.</small>
+                      </div>
+                    )}
+                  </div>
                   <div className="mb-3">
                     <label className="form-label fw-semibold">Status</label>
                     <select
@@ -627,6 +729,29 @@ export default function PurchaseOrdersAdmin() {
                         <div className="bg-light p-3 rounded-3">
                           <label className="text-muted small fw-semibold">Status</label>
                           <p className="mb-0"><StatusBadge status={selectedPo.status} /></p>
+                        </div>
+                      </div>
+                      <div className="col-12">
+                        <div className="bg-light p-3 rounded-3">
+                          <label className="text-muted small fw-semibold">Delivery Timeline</label>
+                          <div className="row g-2 mt-1">
+                            <div className="col-md-3">
+                              <div className="small text-muted">Start</div>
+                              <div className="fw-bold">{formatDate(selectedPo.delivery_start_date)}</div>
+                            </div>
+                            <div className="col-md-3">
+                              <div className="small text-muted">Deadline</div>
+                              <div className="fw-bold">{formatDate(selectedPo.delivery_end_date)}</div>
+                            </div>
+                            <div className="col-md-3">
+                              <div className="small text-muted">Delivered On</div>
+                              <div className="fw-bold">{formatDate(selectedPo.delivered_on)}</div>
+                            </div>
+                            <div className="col-md-3">
+                              <div className="small text-muted">Status</div>
+                              <DeliveryBadge po={selectedPo} />
+                            </div>
+                          </div>
                         </div>
                       </div>
                       <div className="col-12">

@@ -16,6 +16,15 @@ const createPOValidation = [
     .optional({ nullable: true })
     .isFloat({ min: 0 }).withMessage('Amount must be a positive number')
     .toFloat(),
+  body('delivery_start_date')
+    .optional({ values: 'falsy' })
+    .isISO8601().withMessage('Delivery start date must be a valid date (YYYY-MM-DD)'),
+  body('delivery_end_date')
+    .optional({ values: 'falsy' })
+    .isISO8601().withMessage('Delivery end date must be a valid date (YYYY-MM-DD)'),
+  body('delivered_on')
+    .optional({ values: 'falsy' })
+    .isISO8601().withMessage('Delivered-on date must be a valid date (YYYY-MM-DD)'),
   handleValidationErrors
 ];
 
@@ -40,6 +49,15 @@ const updatePOValidation = [
   body('is_active')
     .optional()
     .isBoolean().withMessage('is_active must be a boolean'),
+  body('delivery_start_date')
+    .optional({ values: 'falsy' })
+    .isISO8601().withMessage('Delivery start date must be a valid date (YYYY-MM-DD)'),
+  body('delivery_end_date')
+    .optional({ values: 'falsy' })
+    .isISO8601().withMessage('Delivery end date must be a valid date (YYYY-MM-DD)'),
+  body('delivered_on')
+    .optional({ values: 'falsy' })
+    .isISO8601().withMessage('Delivered-on date must be a valid date (YYYY-MM-DD)'),
   handleValidationErrors
 ];
 

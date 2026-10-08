@@ -23,6 +23,7 @@ const config = {
         waitForConnections: true,
         connectionLimit: 10,
         queueLimit: 0,
+        dateStrings: ['DATE'], // return DATE columns as 'YYYY-MM-DD' (no timezone shift)
         ssl: useSSL
             ? {
                   ca: fs.readFileSync(process.env.DB_SSL_CA_PATH),
