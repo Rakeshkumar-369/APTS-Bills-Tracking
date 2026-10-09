@@ -16,11 +16,19 @@ class PORepository {
 
     const whereClause = 'WHERE ' + conditions.join(' AND ');
 
+    // When filtering by vendor, also return that vendor's own manually-entered dates
+    const myDatesSelect = vendor_id
+      ? `, (SELECT mv.vendor_delivery_date FROM po_vendors mv WHERE mv.po_id = po.id AND mv.vendor_id = ?) AS my_delivery_date,
+           (SELECT mv.installation_date FROM po_vendors mv WHERE mv.po_id = po.id AND mv.vendor_id = ?) AS my_installation_date`
+      : '';
+    const myDatesParams = vendor_id ? [vendor_id, vendor_id] : [];
+
     const [rows] = await pool.query(`
       SELECT po.*, pr.project_name,
              GROUP_CONCAT(DISTINCT v.vendor_name SEPARATOR ', ') AS vendor_names,
              GROUP_CONCAT(DISTINCT v.id SEPARATOR ',') AS vendor_ids,
              u.name AS created_by_name
+             ${myDatesSelect}
       FROM purchase_orders po
       JOIN projects pr ON po.project_id = pr.id
       LEFT JOIN po_vendors pv ON po.id = pv.po_id
@@ -30,7 +38,7 @@ class PORepository {
       GROUP BY po.id, pr.project_name, u.name
       ORDER BY po.created_at DESC
       LIMIT ? OFFSET ?
-    `, [...params, limit, offset]);
+    `, [...myDatesParams, ...params, limit, offset]);
 
     const [countResult] = await pool.query(
       `SELECT COUNT(DISTINCT po.id) as total FROM purchase_orders po
@@ -138,15 +146,43 @@ class PORepository {
   }
 
   async syncVendors(poId, vendorIds) {
-    // Remove all existing, then insert new
-    await pool.query('DELETE FROM po_vendors WHERE po_id = ?', [poId]);
+    // Diff-sync so vendor-entered dates on unchanged vendors are preserved
     if (vendorIds && vendorIds.length > 0) {
+      await pool.query('DELETE FROM po_vendors WHERE po_id = ? AND vendor_id NOT IN (?)', [poId, vendorIds]);
       const values = vendorIds.map(vId => [poId, vId]);
-      await pool.query(
-        'INSERT INTO po_vendors (po_id, vendor_id) VALUES ?',
-        [values]
-      );
+      await pool.query('INSERT IGNORE INTO po_vendors (po_id, vendor_id) VALUES ?', [values]);
+    } else {
+      await pool.query('DELETE FROM po_vendors WHERE po_id = ?', [poId]);
     }
+  }
+
+  // ── Vendor-entered dates ──
+
+  async getVendorDates(poId) {
+    const [rows] = await pool.query(`
+      SELECT pv.vendor_id, v.vendor_name, pv.vendor_delivery_date, pv.installation_date,
+             pv.dates_updated_at, u.name AS dates_updated_by_name
+      FROM po_vendors pv
+      JOIN vendors v ON pv.vendor_id = v.id
+      LEFT JOIN users u ON pv.dates_updated_by = u.id
+      WHERE pv.po_id = ?
+      ORDER BY v.vendor_name
+    `, [poId]);
+    return rows;
+  }
+
+  async isVendorAssigned(poId, vendorId) {
+    const [rows] = await pool.query('SELECT 1 FROM po_vendors WHERE po_id = ? AND vendor_id = ?', [poId, vendorId]);
+    return rows.length > 0;
+  }
+
+  async updateVendorDates(poId, vendorId, { vendor_delivery_date, installation_date }, userId) {
+    await pool.query(
+      `UPDATE po_vendors
+       SET vendor_delivery_date = ?, installation_date = ?, dates_updated_at = NOW(), dates_updated_by = ?
+       WHERE po_id = ? AND vendor_id = ?`,
+      [vendor_delivery_date || null, installation_date || null, userId, poId, vendorId]
+    );
   }
 
   // ── PO Files ──

@@ -730,6 +730,11 @@ export default function ClaimDetail() {
                       <span className="fw-medium text-dark text-truncate" style={{ maxWidth: '180px' }}>
                         {f.original_name}
                       </span>
+                      {f.document_type === 'CERTIFICATION' && (
+                        <span className="badge bg-info bg-opacity-10 text-info ms-2" style={{ fontSize: '0.65rem' }}>
+                          Certification
+                        </span>
+                      )}
                       <span className="text-muted ms-2 small" style={{ fontSize: '0.7rem' }}>
                         ({(f.file_size ? (f.file_size / 1024).toFixed(1) : '0')} KB)
                       </span>

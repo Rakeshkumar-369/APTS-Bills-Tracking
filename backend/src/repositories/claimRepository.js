@@ -135,11 +135,11 @@ class ClaimRepository {
     return rows;
   }
 
-  async createFile({ claim_id, original_name, stored_name, file_path, file_size, mime_type, uploaded_by }) {
+  async createFile({ claim_id, original_name, stored_name, file_path, file_size, mime_type, document_type = 'INVOICE', uploaded_by }) {
     const [result] = await pool.query(
-      `INSERT INTO claim_files (claim_id, original_name, stored_name, file_path, file_size, mime_type, uploaded_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [claim_id, original_name, stored_name, file_path, file_size, mime_type, uploaded_by]
+      `INSERT INTO claim_files (claim_id, original_name, stored_name, file_path, file_size, mime_type, document_type, uploaded_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [claim_id, original_name, stored_name, file_path, file_size, mime_type, document_type, uploaded_by]
     );
     return result.insertId;
   }

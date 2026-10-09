@@ -20,7 +20,7 @@ export const claimsService = {
     return response;
   },
 
-  create: async (data, files = []) => {
+  create: async (data, files = [], certificationFiles = []) => {
     const formData = new FormData();
     formData.append('vendor_id', data.vendor_id);
     formData.append('project_id', data.project_id);
@@ -32,6 +32,7 @@ export const claimsService = {
       formData.append('remarks', data.remarks);
     }
     files.forEach(file => formData.append('files', file));
+    certificationFiles.forEach(file => formData.append('certification_files', file));
 
     const response = await apiClient.postForm(BASE, formData);
     return response;

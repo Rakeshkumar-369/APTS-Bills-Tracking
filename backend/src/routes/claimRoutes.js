@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/authMiddleware');
 const { requirePermission } = require('../middleware/permissionMiddleware');
-const { uploadSingleFile, uploadMultipleFiles, handleMulterError } = require('../middleware/fileUploadMiddleware');
+const { uploadSingleFile, uploadMultipleFiles, uploadClaimFiles, handleMulterError } = require('../middleware/fileUploadMiddleware');
 const claimController = require('../controllers/claimController');
 const fileController = require('../controllers/fileController');
 const { createClaimValidation, actionValidation, assignClaimValidation } = require('../validators/claimValidator');
@@ -13,7 +13,7 @@ router.use(authMiddleware);
 // Claim CRUD
 router.get('/', requirePermission('claim', 'read'), validatePagination, claimController.getAllClaims);
 router.get('/:id', requirePermission('claim', 'read'), validateId(), claimController.getClaimById);
-router.post('/', requirePermission('claim', 'create'), uploadMultipleFiles, handleMulterError, createClaimValidation, claimController.createClaim);
+router.post('/', requirePermission('claim', 'create'), uploadClaimFiles, handleMulterError, createClaimValidation, claimController.createClaim);
 
 // Workflow actions (workflow mode)
 router.post('/:id/forward', requirePermission('claim', 'forward'), validateId(), actionValidation, claimController.forwardClaim);

@@ -24,6 +24,7 @@ class POService {
   async getWithFiles(id) {
     const po = await this.getById(id);
     po.files = await poRepository.getFiles(id);
+    po.vendor_dates = await poRepository.getVendorDates(id);
     return po;
   }
 
@@ -195,6 +196,38 @@ class POService {
       performed_by: performedBy,
       ip_address: ipAddress
     });
+  }
+
+  async updateVendorDates(poId, user, data, ipAddress) {
+    if (user.role_name !== 'Vendor' || !user.vendor_id) {
+      throw new ApiError(403, 'Only vendor users can set delivery and installation dates');
+    }
+    const po = await this.getById(poId);
+    if (!(await poRepository.isVendorAssigned(poId, user.vendor_id))) {
+      throw new ApiError(403, 'This Purchase Order is not assigned to your vendor');
+    }
+
+    const delivery = data.vendor_delivery_date || null;
+    const installation = data.installation_date || null;
+    if (delivery && installation && installation < delivery) {
+      throw new ApiError(400, 'Installation date cannot be before the delivery date');
+    }
+
+    const old = (await poRepository.getVendorDates(poId)).find(r => r.vendor_id === user.vendor_id);
+    await poRepository.updateVendorDates(poId, user.vendor_id,
+      { vendor_delivery_date: delivery, installation_date: installation }, user.user_id);
+
+    await auditService.log({
+      table_name: 'po_vendors',
+      record_id: poId,
+      action: 'UPDATE',
+      old_value: { vendor_id: user.vendor_id, vendor_delivery_date: old?.vendor_delivery_date, installation_date: old?.installation_date },
+      new_value: { vendor_id: user.vendor_id, vendor_delivery_date: delivery, installation_date: installation },
+      performed_by: user.user_id,
+      ip_address: ipAddress
+    });
+
+    return (await poRepository.getVendorDates(poId)).find(r => r.vendor_id === user.vendor_id);
   }
 
   validateDeliveryDates(start, end) {

@@ -54,7 +54,10 @@ const getClaimById = async (req, res, next) => {
 
 const createClaim = async (req, res, next) => {
   try {
-    const claim = await claimService.create(req.body, req.files, req.user, req.ip);
+    // req.files is an object: { files: [...invoices], certification_files: [...certs] }
+    const invoiceFiles = ((req.files && req.files.files) || []).map((f) => { f.document_type = 'INVOICE'; return f; });
+    const certFiles = ((req.files && req.files.certification_files) || []).map((f) => { f.document_type = 'CERTIFICATION'; return f; });
+    const claim = await claimService.create(req.body, [...invoiceFiles, ...certFiles], req.user, req.ip);
     res.status(201).json(ApiResponse.success('Claim created successfully', [claim]));
   } catch (error) {
     next(error);

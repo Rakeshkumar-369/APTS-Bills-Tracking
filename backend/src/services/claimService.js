@@ -183,6 +183,7 @@ class ClaimService {
           file_path: path.join('uploads/claims', String(claimId), storedName),
           file_size: file.size,
           mime_type: file.mimetype || 'application/octet-stream',
+          document_type: file.document_type || 'INVOICE',
           uploaded_by: currentUser.user_id
         });
       }

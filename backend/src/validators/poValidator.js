@@ -61,4 +61,14 @@ const updatePOValidation = [
   handleValidationErrors
 ];
 
-module.exports = { createPOValidation, updatePOValidation };
+const vendorDatesValidation = [
+  body('vendor_delivery_date')
+    .optional({ values: 'falsy' })
+    .isISO8601().withMessage('Delivery date must be a valid date (YYYY-MM-DD)'),
+  body('installation_date')
+    .optional({ values: 'falsy' })
+    .isISO8601().withMessage('Installation date must be a valid date (YYYY-MM-DD)'),
+  handleValidationErrors
+];
+
+module.exports = { createPOValidation, updatePOValidation, vendorDatesValidation };

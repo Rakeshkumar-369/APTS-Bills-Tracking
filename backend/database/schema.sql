@@ -40,7 +40,7 @@ CREATE TABLE `audit_logs` (
   KEY `idx_action` (`action`),
   KEY `idx_performed_by` (`performed_by`),
   KEY `idx_created_at` (`created_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=46 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -59,7 +59,7 @@ CREATE TABLE `blocked_users` (
   `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_email` (`email`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -77,6 +77,7 @@ CREATE TABLE `claim_files` (
   `file_path` varchar(1000) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Relative path from uploads root',
   `file_size` bigint NOT NULL COMMENT 'Size in bytes',
   `mime_type` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'application/pdf',
+  `document_type` enum('INVOICE','CERTIFICATION') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'INVOICE' COMMENT 'INVOICE = bill/invoice documents, CERTIFICATION = optional certification documents',
   `uploaded_by` int NOT NULL,
   `is_deleted` tinyint(1) DEFAULT '0',
   `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
@@ -126,7 +127,7 @@ CREATE TABLE `claim_history` (
   CONSTRAINT `claim_history_ibfk_6` FOREIGN KEY (`forwarded_to_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `claim_history_ibfk_7` FOREIGN KEY (`performed_by`) REFERENCES `users` (`id`),
   CONSTRAINT `claim_history_ibfk_8` FOREIGN KEY (`performed_by_role_id`) REFERENCES `roles` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -175,7 +176,7 @@ CREATE TABLE `claims` (
   CONSTRAINT `claims_ibfk_6` FOREIGN KEY (`current_step_id`) REFERENCES `workflow_steps` (`id`) ON DELETE SET NULL,
   CONSTRAINT `claims_ibfk_7` FOREIGN KEY (`current_assigned_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `claims_ibfk_8` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -243,6 +244,10 @@ DROP TABLE IF EXISTS `po_vendors`;
 CREATE TABLE `po_vendors` (
   `po_id` int NOT NULL,
   `vendor_id` int NOT NULL,
+  `vendor_delivery_date` date DEFAULT NULL COMMENT 'Delivery date entered manually by the vendor',
+  `installation_date` date DEFAULT NULL COMMENT 'Installation date entered manually by the vendor',
+  `dates_updated_at` datetime DEFAULT NULL,
+  `dates_updated_by` int DEFAULT NULL,
   `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`po_id`,`vendor_id`),
   KEY `vendor_id` (`vendor_id`),
@@ -307,7 +312,7 @@ CREATE TABLE `purchase_orders` (
   KEY `created_by` (`created_by`),
   CONSTRAINT `purchase_orders_ibfk_1` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`),
   CONSTRAINT `purchase_orders_ibfk_2` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -328,7 +333,7 @@ CREATE TABLE `refresh_tokens` (
   KEY `idx_token` (`token`),
   KEY `idx_expires` (`expires_at`),
   CONSTRAINT `refresh_tokens_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=30 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -530,4 +535,4 @@ CREATE TABLE `workflow_steps` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-10-08 15:42:16
+-- Dump completed on 2026-10-09 14:48:08

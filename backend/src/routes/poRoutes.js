@@ -5,7 +5,7 @@ const { requirePermission } = require('../middleware/permissionMiddleware');
 const { uploadSingleFile, uploadMultipleFiles, handleMulterError } = require('../middleware/fileUploadMiddleware');
 const poController = require('../controllers/poController');
 const fileController = require('../controllers/fileController');
-const { createPOValidation, updatePOValidation } = require('../validators/poValidator');
+const { createPOValidation, updatePOValidation, vendorDatesValidation } = require('../validators/poValidator');
 const { validatePagination, validateId } = require('../validators/common');
 
 router.use(authMiddleware);
@@ -14,6 +14,8 @@ router.get('/', requirePermission('po', 'read'), validatePagination, poControlle
 router.get('/:id', requirePermission('po', 'read'), validateId(), poController.getPOById);
 router.post('/', requirePermission('po', 'create'), uploadMultipleFiles, handleMulterError, createPOValidation, poController.createPO);
 router.put('/:id', requirePermission('po', 'update'), validateId(), updatePOValidation, poController.updatePO);
+// Vendor sets their own delivery / installation dates (role + assignment checked in service)
+router.put('/:id/vendor-dates', requirePermission('po', 'read'), validateId(), vendorDatesValidation, poController.updateVendorDates);
 router.delete('/:id', requirePermission('po', 'delete'), validateId(), poController.deletePO);
 
 // PO Files

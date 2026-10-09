@@ -128,6 +128,11 @@ export const poService = {
     return await api.put(`${BASE}/${id}`, data);
   },
 
+  // Vendor sets their own delivery / installation dates for a PO
+  updateVendorDates: async (id, data) => {
+    return await api.put(`${BASE}/${id}/vendor-dates`, data);
+  },
+
   delete: async (id) => {
     return await api.delete(`${BASE}/${id}`);
   },

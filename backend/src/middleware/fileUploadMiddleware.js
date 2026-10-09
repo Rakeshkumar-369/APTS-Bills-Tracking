@@ -24,6 +24,11 @@ const upload = multer({
 
 const uploadSingleFile = upload.single('file');
 const uploadMultipleFiles = upload.array('files', 50);
+// Claim creation: invoice documents ('files') + optional certification documents ('certification_files')
+const uploadClaimFiles = upload.fields([
+  { name: 'files', maxCount: 50 },
+  { name: 'certification_files', maxCount: 20 }
+]);
 
 const handleMulterError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
@@ -61,5 +66,6 @@ const handleMulterError = (err, req, res, next) => {
 module.exports = {
   uploadSingleFile,
   uploadMultipleFiles,
+  uploadClaimFiles,
   handleMulterError
 };

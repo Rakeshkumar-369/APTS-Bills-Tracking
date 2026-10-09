@@ -754,6 +754,39 @@ export default function PurchaseOrdersAdmin() {
                           </div>
                         </div>
                       </div>
+                      {selectedPo.vendor_dates && selectedPo.vendor_dates.length > 0 && (
+                        <div className="col-12">
+                          <div className="bg-light p-3 rounded-3">
+                            <label className="text-muted small fw-semibold">Vendor Delivery &amp; Installation Dates</label>
+                            <div className="table-responsive mt-1">
+                              <table className="table table-sm mb-0 align-middle">
+                                <thead>
+                                  <tr className="small text-muted">
+                                    <th>Vendor</th>
+                                    <th>Delivery Date</th>
+                                    <th>Installation Date</th>
+                                    <th>Last Updated</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {selectedPo.vendor_dates.map((vd) => (
+                                    <tr key={vd.vendor_id}>
+                                      <td className="fw-semibold">{vd.vendor_name}</td>
+                                      <td>{formatDate(vd.vendor_delivery_date)}</td>
+                                      <td>{formatDate(vd.installation_date)}</td>
+                                      <td className="small text-muted">
+                                        {vd.dates_updated_at
+                                          ? `${new Date(vd.dates_updated_at).toLocaleDateString('en-IN')}${vd.dates_updated_by_name ? ' by ' + vd.dates_updated_by_name : ''}`
+                                          : '—'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                       <div className="col-12">
                         <div className="bg-light p-3 rounded-3">
                           <label className="text-muted small fw-semibold">Description</label>

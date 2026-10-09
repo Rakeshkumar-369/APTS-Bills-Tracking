@@ -12,6 +12,59 @@ export default function VendorProjectPOs() {
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  // Date modal state
+  const [datePo, setDatePo] = useState(null);
+  const [dateForm, setDateForm] = useState({ vendor_delivery_date: '', installation_date: '' });
+  const [dateError, setDateError] = useState('');
+  const [savingDates, setSavingDates] = useState(false);
+
+  const toDateInput = (v) => (v ? String(v).slice(0, 10) : '');
+  const formatDate = (v) => {
+    const s = toDateInput(v);
+    if (!s) return 'Not set';
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  const openDateModal = (po) => {
+    setDatePo(po);
+    setDateError('');
+    setDateForm({
+      vendor_delivery_date: toDateInput(po.my_delivery_date),
+      installation_date: toDateInput(po.my_installation_date),
+    });
+  };
+
+  const handleSaveDates = async () => {
+    if (
+      dateForm.vendor_delivery_date && dateForm.installation_date &&
+      dateForm.installation_date < dateForm.vendor_delivery_date
+    ) {
+      setDateError('Installation date cannot be before the delivery date');
+      return;
+    }
+    try {
+      setSavingDates(true);
+      setDateError('');
+      await poService.updateVendorDates(datePo.id, dateForm);
+      setPurchaseOrders((prev) =>
+        prev.map((p) =>
+          p.id === datePo.id
+            ? { ...p, my_delivery_date: dateForm.vendor_delivery_date || null, my_installation_date: dateForm.installation_date || null }
+            : p
+        )
+      );
+      setDatePo(null);
+      setSuccess(`Dates saved for PO #${datePo.po_number}`);
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err) {
+      setDateError(err?.response?.data?.message || err?.message || 'Failed to save dates');
+    } finally {
+      setSavingDates(false);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -115,6 +168,14 @@ export default function VendorProjectPOs() {
         </div>
       )}
 
+      {success && (
+        <div className="alert alert-success alert-dismissible fade show">
+          <i className="bi bi-check-circle-fill me-2"></i>
+          {success}
+          <button type="button" className="btn-close" onClick={() => setSuccess('')}></button>
+        </div>
+      )}
+
       {/* Purchase Orders Cards Grid */}
       {purchaseOrders.length === 0 ? (
         <div className="text-center py-5 bg-white rounded border">
@@ -170,6 +231,25 @@ export default function VendorProjectPOs() {
                       </span>
                     </div>
 
+                    <div className="bg-light rounded-3 p-2 mb-2 small">
+                      <div className="d-flex justify-content-between">
+                        <span className="text-muted">Delivery Date:</span>
+                        <span className="fw-semibold">{formatDate(po.my_delivery_date)}</span>
+                      </div>
+                      <div className="d-flex justify-content-between">
+                        <span className="text-muted">Installation Date:</span>
+                        <span className="fw-semibold">{formatDate(po.my_installation_date)}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-primary w-100 mt-2"
+                        onClick={(e) => { e.stopPropagation(); openDateModal(po); }}
+                      >
+                        <i className="bi bi-calendar-event me-1"></i>
+                        {po.my_delivery_date || po.my_installation_date ? 'Edit Dates' : 'Set Dates'}
+                      </button>
+                    </div>
+
                     <div className="d-flex justify-content-between align-items-center text-primary fw-semibold small mt-2">
                       <span>View Claim History</span>
                       <i className="bi bi-arrow-right"></i>
@@ -179,6 +259,50 @@ export default function VendorProjectPOs() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Set Dates Modal */}
+      {datePo && (
+        <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={() => setDatePo(null)}>
+          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content border-0 shadow">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold">Delivery &amp; Installation Dates</h5>
+                <button type="button" className="btn-close" onClick={() => setDatePo(null)}></button>
+              </div>
+              <div className="modal-body">
+                <p className="text-muted small mb-3">PO #{datePo.po_number}</p>
+                {dateError && <div className="alert alert-danger py-2 small">{dateError}</div>}
+                <div className="mb-3">
+                  <label className="form-label fw-semibold">Delivery Date</label>
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={dateForm.vendor_delivery_date}
+                    onChange={(e) => setDateForm({ ...dateForm, vendor_delivery_date: e.target.value })}
+                  />
+                </div>
+                <div className="mb-2">
+                  <label className="form-label fw-semibold">Installation Date</label>
+                  <input
+                    type="date"
+                    className="form-control"
+                    min={dateForm.vendor_delivery_date || undefined}
+                    value={dateForm.installation_date}
+                    onChange={(e) => setDateForm({ ...dateForm, installation_date: e.target.value })}
+                  />
+                </div>
+                <small className="text-muted">Leave a field empty to clear it.</small>
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-light" onClick={() => setDatePo(null)} disabled={savingDates}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleSaveDates} disabled={savingDates}>
+                  {savingDates ? 'Saving...' : 'Save Dates'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

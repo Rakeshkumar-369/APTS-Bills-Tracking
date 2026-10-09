@@ -29,6 +29,7 @@ export default function ClaimCreate() {
     po_id: queryPoId || '',
     remarks: '',
     files: [],
+    certification_files: [], // optional
   });
 
   // Fetch vendor's projects and purchase orders on mount
@@ -183,7 +184,7 @@ export default function ClaimCreate() {
       return;
     }
 
-    const fileError = validateFiles(formData.files);
+    const fileError = validateFiles(formData.files) || validateFiles(formData.certification_files);
     if (fileError) {
       setError(fileError);
       return;
@@ -212,7 +213,11 @@ export default function ClaimCreate() {
         claimData.vendor_contact_user_id = parseInt(userId);
       }
 
-      const rawResponse = await claimsService.create(claimData, formData.files);
+      const rawResponse = await claimsService.create(
+        claimData,
+        formData.files,
+        formData.certification_files
+      );
       // claimsService.create() returns the raw API response — normalize the
       // same way claimsService.get() does, in case a single created record
       // comes back array-wrapped (e.g. { data: [claim] }).
@@ -262,6 +267,23 @@ export default function ClaimCreate() {
       setError(null);
     }
     setFormData((prev) => ({ ...prev, files }));
+  };
+
+  const handleCertFileChange = (e) => {
+    const files = Array.from(e.target.files);
+    const fileError = validateFiles(files);
+    if (fileError) {
+      setError(fileError);
+    } else {
+      setError(null);
+    }
+    setFormData((prev) => ({ ...prev, certification_files: files }));
+  };
+
+  const removeCertFile = (index) => {
+    const newFiles = [...formData.certification_files];
+    newFiles.splice(index, 1);
+    setFormData((prev) => ({ ...prev, certification_files: newFiles }));
   };
 
   const removeFile = (index) => {
@@ -600,6 +622,52 @@ export default function ClaimCreate() {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Certification Documents (optional) */}
+        <div className="card border-0 shadow-sm mb-4">
+          <div className="card-body">
+            <h6 className="fw-bold mb-1">
+              Attach Certification Documents{' '}
+              
+            </h6>
+            <small className="text-muted d-block mb-3">
+              Upload certification documents if applicable. This field is not mandatory.
+            </small>
+            <input
+              type="file"
+              className="form-control"
+              multiple
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+              onChange={handleCertFileChange}
+            />
+            <small className="text-muted d-block mt-2">
+              PDF, Word, Excel, Images (Max {MAX_FILE_SIZE_MB}MB)
+            </small>
+
+            {formData.certification_files.length > 0 && (
+              <div className="mt-3">
+                {formData.certification_files.map((file, index) => (
+                  <div
+                    key={index}
+                    className="d-flex justify-content-between align-items-center bg-light p-2 rounded mb-1"
+                  >
+                    <span className="small text-truncate" style={{ maxWidth: '300px' }}>
+                      {file.name}{' '}
+                      <span className="text-muted">({(file.size / (1024 * 1024)).toFixed(2)}MB)</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-danger border-0"
+                      onClick={() => removeCertFile(index)}
+                    >
+                      <i className="bi bi-x"></i>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

@@ -56,6 +56,15 @@ const updatePO = async (req, res, next) => {
   }
 };
 
+const updateVendorDates = async (req, res, next) => {
+  try {
+    const result = await poService.updateVendorDates(req.params.id, req.user, req.body, req.ip);
+    res.json(ApiResponse.success('Dates updated successfully', [result]));
+  } catch (error) {
+    next(error);
+  }
+};
+
 const deletePO = async (req, res, next) => {
   try {
     await poService.delete(req.params.id, req.user.user_id, req.ip);
@@ -88,4 +97,4 @@ const deletePOFile = async (req, res, next) => {
   }
 };
 
-module.exports = { getAllPOs, getPOById, createPO, updatePO, deletePO, uploadPOFile, deletePOFile };
+module.exports = { getAllPOs, getPOById, createPO, updatePO, updateVendorDates, deletePO, uploadPOFile, deletePOFile };
