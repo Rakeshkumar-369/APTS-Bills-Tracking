@@ -28,6 +28,15 @@ const getAllVendors = async (req, res, next) => {
   }
 };
 
+const generateVendorCode = async (req, res, next) => {
+  try {
+    const vendor_code = await vendorService.generateCode(req.query.name || '');
+    res.json(ApiResponse.success('Vendor code generated', [{ vendor_code }]));
+  } catch (error) {
+    next(error);
+  }
+};
+
 const getVendorById = async (req, res, next) => {
   try {
     assertCanViewVendor(req.params.id, req.user);
@@ -112,6 +121,6 @@ const removeVendorProject = async (req, res, next) => {
 };
 
 module.exports = {
-  getAllVendors, getVendorById, createVendor, updateVendor, deleteVendor,
+  getAllVendors, generateVendorCode, getVendorById, createVendor, updateVendor, deleteVendor,
   getVendorProjects, assignVendorProject, removeVendorProject
 };

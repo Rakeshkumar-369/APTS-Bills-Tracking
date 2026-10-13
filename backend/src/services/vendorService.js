@@ -27,7 +27,34 @@ class VendorService {
     return vendor;
   }
 
+  // Build a code prefix from the vendor name:
+  //  - multi-word names -> initials (up to 4 words), e.g. "Acme Power Systems" -> APS
+  //  - single-word names -> first 3 letters/digits, e.g. "Siemens" -> SIE
+  buildCodePrefix(name = '') {
+    const words = String(name).toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+    if (words.length === 0) return 'VND';
+    if (words.length === 1) return words[0].slice(0, 3);
+    return words.slice(0, 4).map(w => w[0]).join('');
+  }
+
+  // Unique code = prefix + 3-digit running number, e.g. APS001, APS002 ...
+  async generateCode(name) {
+    const prefix = this.buildCodePrefix(name);
+    const existing = await vendorRepository.findCodesByPrefix(prefix);
+    const pattern = new RegExp(`^${prefix}(\\d+)$`);
+    let max = 0;
+    existing.forEach(code => {
+      const m = pattern.exec(code || '');
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return `${prefix}${String(max + 1).padStart(3, '0')}`;
+  }
+
   async create(data, performedBy, ipAddress) {
+    // Safety net: auto-generate the code if none was supplied
+    if (!data.vendor_code) {
+      data = { ...data, vendor_code: await this.generateCode(data.vendor_name) };
+    }
     const id = await vendorRepository.create(data);
 
     await auditService.log({

@@ -24,6 +24,13 @@ export const vendorsService = {
     return response || null;
   },
 
+  // Ask the backend for a unique, auto-generated vendor code based on the name
+  async generateCode(name) {
+    const response = await api.get(`/vendors/generate-code${toQueryString({ name })}`);
+    const item = Array.isArray(response) ? response[0] : response;
+    return item?.vendor_code || '';
+  },
+
   async create({ vendor_name, vendor_code, contact_person, email, phone, address }) {
     return api.post('/vendors', { vendor_name, vendor_code, contact_person, email, phone, address });
   },

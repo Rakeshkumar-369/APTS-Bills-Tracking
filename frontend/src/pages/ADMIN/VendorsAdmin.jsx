@@ -79,6 +79,27 @@ export default function VendorsAdmin() {
     }
   };
 
+  // Auto-generate the vendor code while typing the name (create mode only)
+  useEffect(() => {
+    if (!showModal || editingVendor) return;
+    const name = formData.vendor_name.trim();
+    if (!name) {
+      setFormData(prev => (prev.vendor_code ? { ...prev, vendor_code: '' } : prev));
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const code = await vendorsService.generateCode(name);
+        if (!cancelled && code) setFormData(prev => ({ ...prev, vendor_code: code }));
+      } catch (err) {
+        // Non-fatal: the backend generates a code on save if this is empty
+        console.error('Failed to generate vendor code', err);
+      }
+    }, 400);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [formData.vendor_name, showModal, editingVendor]);
+
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({
@@ -344,7 +365,11 @@ export default function VendorsAdmin() {
                         name="vendor_code"
                         value={formData.vendor_code}
                         onChange={handleInputChange}
+                        readOnly={!editingVendor}
+                        
+                        style={!editingVendor ? { backgroundColor: '#f8f9fa' } : undefined}
                       />
+                     
                     </div>
                     <div className="col-md-6 mb-3">
                       <label className="form-label">Contact Person</label>

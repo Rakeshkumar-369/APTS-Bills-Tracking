@@ -10,6 +10,7 @@ router.use(authMiddleware);
 
 // Vendor CRUD
 router.get('/', requirePermission('vendor', 'read'), validatePagination, vendorController.getAllVendors);
+router.get('/generate-code', requirePermission('vendor', 'create'), vendorController.generateVendorCode);
 router.get('/:id', requirePermission('vendor', 'read'), validateId(), vendorController.getVendorById);
 router.post('/', requirePermission('vendor', 'create'), createVendorValidation, vendorController.createVendor);
 router.put('/:id', requirePermission('vendor', 'update'), validateId(), updateVendorValidation, vendorController.updateVendor);

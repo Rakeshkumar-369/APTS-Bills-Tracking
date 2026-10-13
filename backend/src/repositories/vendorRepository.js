@@ -29,6 +29,15 @@ class VendorRepository {
     return { rows, total: countResult[0].total };
   }
 
+  // Active (non-deleted) vendor codes that start with the given prefix
+  async findCodesByPrefix(prefix) {
+    const [rows] = await pool.query(
+      'SELECT vendor_code FROM vendors WHERE deleted_at IS NULL AND vendor_code LIKE ?',
+      [`${prefix}%`]
+    );
+    return rows.map(r => r.vendor_code);
+  }
+
   async getById(id) {
     const [rows] = await pool.query('SELECT * FROM vendors WHERE id = ? AND is_deleted = false', [id]);
     return rows[0];
