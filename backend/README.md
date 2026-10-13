@@ -38,6 +38,8 @@ Example invalid names: `JD-Infra` (hyphen), `PM_Verify` (underscore), `  Lead ` 
 
 ### 1. User Types & Roles (configurable by Super Admin)
 
+Built-in roles (below) can have their permissions edited but cannot be renamed, deactivated or deleted — the code relies on their names.
+
 | Role | Rank | Description |
 |---|---|---|
 | Super Admin | 100 | System configuration (vendors, users, roles, workflows, projects, POs) — does NOT create claims |
@@ -278,7 +280,7 @@ A vendor creates a claim under a PO → the claim is linked to both the PO and t
 |---|---|---|---|
 | GET | `/api/claims` | `claim.read` | List claims (scoped by role — vendors see their own, officers see involved, admin sees all). Query: `?status=&project_id=&po_id=&search=&limit=&offset=` |
 | GET | `/api/claims/:id` | `claim.read` | Get claim with files + history. Query: `?include_details=true/false` |
-| POST | `/api/claims` | `claim.create` | **Create claim** (multipart/form-data). Fields: `vendor_id`, `vendor_contact_user_id?`, `project_id`, `po_id`, `remarks?` + file field: `files[]` (optional, multiple). **workflow_id is auto-derived from the project** |
+| POST | `/api/claims` | `claim.create` | **Create claim** (multipart/form-data). Fields: `vendor_id`, `vendor_contact_user_id?`, `project_id`, `po_id`, `remarks?`, `claimed_amount?`, `invoice_number?`, `invoice_date?` (YYYY-MM-DD, not in the future) + file fields `files[]` (invoices, max 15) and `certification_files[]` (max 5). **workflow_id is auto-derived from the project.** The sum of `claimed_amount` over all claims on a PO cannot exceed the PO amount. |
 | POST | `/api/claims/:id/forward` | `claim.forward` | **Forward to next step** (workflow mode only). Body: `{remarks}` |
 | POST | `/api/claims/:id/assign` | `claim.forward` | **Assign to officer** (non-workflow mode). Body: `{target_user_id, remarks}` |
 | POST | `/api/claims/:id/pull-back` | `claim.pull_back` (Vendor only) | **Vendor pulls the claim back one step** (both modes). Body: `{remarks}` |
@@ -286,9 +288,13 @@ A vendor creates a claim under a PO → the claim is linked to both the PO and t
 | POST | `/api/claims/:id/sendback` | `claim.sendback` | **Send back to vendor** (both modes). Body: `{remarks}` |
 | POST | `/api/claims/:id/resubmit` | — | **Vendor re-submits** after revision. Body: `{remarks}` |
 | GET | `/api/claims/:id/history` | `claim.read` | Get full timeline of the claim |
-| POST | `/api/claims/:id/files` | `claim.update` | Upload file to existing claim (multipart, field: `file`). |
-| DELETE | `/api/claims/:id/files/:fileId` | `claim.update` | Delete a file |
+| POST | `/api/claims/:id/files` | `claim.update` **or** owning vendor | Upload file to existing claim (multipart, fields: `file`, `document_type` = `INVOICE`/`CERTIFICATION`). Vendors may change documents only while the claim is with them (before dispatch or after it was returned). Never on completed claims. |
+| DELETE | `/api/claims/:id/files/:fileId` | `claim.update` **or** owning vendor | Soft-delete a file (same rule as upload) |
 | GET | `/api/claims/:id/files/:fileId/download` | `claim.read` | Download/serve a file |
+
+**Object-level access (all `/api/claims/:id…` routes):** Super Admin / Admin see every claim; a vendor sees only its own company's claims; an officer sees claims whose workflow includes their role, claims they acted on or received, and claims currently assigned to them. Anything else returns 404.
+
+**Returned claims (`SENT_BACK`):** while a claim is with the vendor, officers cannot forward / send back / approve it. In workflow mode a vendor pull-back also returns the claim (status `SENT_BACK`); re-submitting dispatches it to the first step again (or, after a send-back, to the step that returned it).
 
 
 ### Purchase Orders (Admin)
@@ -322,16 +328,19 @@ A vendor creates a claim under a PO → the claim is linked to both the PO and t
 
 ## Setup Instructions
 
+Step-by-step local setup (database user, `.env`, frontend) is in the [root README](../README.md).
+
 ### Prerequisites
-- Node.js 18+
+- Node.js 20.6+
 - MySQL 8+
 - Python 3.8+ (for API testing)
 
 ### 1. Create Database & Schema
 ```bash
-mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS apts_bills"
-mysql -u root -p apts_bills < backend/database/schema.sql
+# schema.sql creates the `apts_bills_tracking` database (it already contains migrations v1–v8)
+mysql -u root -p < backend/database/schema.sql
 ```
+Existing databases: apply only the `migration_v*.sql` files you have not run yet, in order.
 
 ### 2. Configure Environment
 ```bash
@@ -341,7 +350,7 @@ cp backend/.env.example backend/.env
 
 ### 3. Seed Data
 ```bash
-mysql -u root -p apts_bills < backend/database/seed.sql
+mysql -u root -p < backend/database/seed.sql
 ```
 
 ### 4. Install & Run
@@ -356,8 +365,12 @@ npm run dev    # or: npm start
 # Install Python dependencies
 pip install requests fpdf2
 
-# Run the test suite (update API_BASE_URL if needed)
-python backend/tests/test_api.py
+# Start the API with a higher login rate limit so the suite can be re-run
+RATE_LIMIT_AUTH_MAX=1000 npm run dev
+
+# In another terminal: 132 end-to-end checks (full workflow + manual lifecycles,
+# access control, upload validation, hardening). Creates its own uniquely named data.
+python tests/test_api.py            # or: python tests/test_api.py --base http://host:5000/api
 ```
 
 ---
@@ -378,6 +391,14 @@ python backend/tests/test_api.py
 
 ## Security
 
+See [`SECURITY_AUDIT.md`](../SECURITY_AUDIT.md) for the full pre-audit review and deployment checklist.
+
+- **Object-level authorisation** — claims, POs, vendor records and files are checked against the caller (`src/utils/accessControl.js`)
+- **Upload validation** — PDF/JPG/PNG/WEBP only, content (magic bytes) verified, images re-encoded without metadata, MIME type derived server-side, downloads served with `nosniff` + sandbox CSP; 25 MB / file, 20 files / request
+- **Rate limiting** — 20 login attempts / 15 min and 600 API requests / min per IP (`RATE_LIMIT_AUTH_MAX`, `RATE_LIMIT_API_MAX`); set `TRUST_PROXY` behind Nginx
+- **Session lifetime** — access token `JWT_EXPIRES_IN` (15m); absolute session `REFRESH_TOKEN_EXPIRES_IN` (8h recommended, not extended by rotation); 30-minute idle logout in the UI
+- **Password policy** — 8–64 characters with upper, lower, digit and special character
+- **Concurrency** — actions on the same claim are serialised, so double-clicks cannot move a claim twice
 - **No hardcoded credentials** — all users/roles/permissions are database-driven
 - **Parameterized queries** — no SQL injection vectors
 - **JWT with session version** — logout/password-change invalidates all existing tokens
