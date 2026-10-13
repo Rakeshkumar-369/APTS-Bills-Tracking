@@ -15,3 +15,29 @@ body {
   margin-bottom: 0 !important;
   padding-bottom: 0 !important;
 }
+/* ── Claim detail: document viewer + review panel ──────────────────────── */
+.claim-detail { margin: -1rem; min-height: calc(100% + 2rem); }
+.claim-doc-pane { height: 55vh; min-height: 320px; }
+.claim-side-pane { overflow: visible; }
+.min-w-0 { min-width: 0; }
+
+@media (min-width: 992px) {
+  /* Side-by-side on desktop; each pane scrolls independently */
+  .claim-detail { height: calc(100% + 2rem); }
+  .claim-detail-body { min-height: 0; overflow: hidden; }
+  .claim-doc-pane { flex: 0 0 58%; height: auto; min-height: 0; }
+  .claim-side-pane { flex: 1 1 42%; overflow-y: auto; }
+}
+
+/* Comfortable tap targets on touch screens */
+@media (pointer: coarse) {
+  .btn-sm { min-height: 34px; }
+}
+
+/* Respect users who prefer less motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+.hover-scale { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.hover-scale:hover { transform: translateY(-3px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1) !important; }

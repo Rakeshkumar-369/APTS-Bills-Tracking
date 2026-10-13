@@ -1,192 +1,166 @@
 // src/pages/ClaimDetail.jsx
-import { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useEffect, useState, useCallback, lazy, Suspense } from 'react';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { claimsService, usersService } from '../services';
 import { useAuth } from '../context/AuthContext';
-import { StatusBadge } from './Inbox';
-import PdfViewerPage from './PdfViewerPage';
+import StatusBadge from '../components/StatusBadge';
+import { decodeEntities, formatDate, formatINR } from '../utils/text';
+
+// PDF.js is large — only download it when a claim is actually opened
+const PdfViewerPage = lazy(() => import('./PdfViewerPage'));
+
+const ACTION_LABELS = {
+  CREATE: 'Submitted',
+  FORWARD: 'Forwarded',
+  SENDBACK: 'Sent back',
+  RESUBMIT: 'Re-submitted',
+  PULL_BACK: 'Pulled back',
+  COMPLETE: 'Approved & completed',
+  REJECT: 'Rejected',
+};
+const ACTION_BADGE = {
+  CREATE: 'text-bg-primary',
+  FORWARD: 'text-bg-info',
+  SENDBACK: 'text-bg-danger',
+  RESUBMIT: 'text-bg-warning',
+  PULL_BACK: 'text-bg-secondary',
+  COMPLETE: 'text-bg-success',
+};
+
+function RemarksAction({ id, label, placeholder, value, onChange, onSubmit, submitting, buttonClass, buttonIcon, buttonText, children }) {
+  return (
+    <form onSubmit={onSubmit}>
+      <label htmlFor={id} className="form-label small fw-semibold text-dark mb-1">
+        {label} <span className="text-danger">*</span>
+      </label>
+      {children}
+      <textarea
+        id={id}
+        className="form-control form-control-sm mb-2"
+        rows={2}
+        maxLength={500}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={submitting}
+      />
+      <button type="submit" className={`btn btn-sm w-100 ${buttonClass}`} disabled={submitting}>
+        {submitting
+          ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+          : <><i className={`bi ${buttonIcon} me-1`}></i>{buttonText}</>}
+      </button>
+    </form>
+  );
+}
 
 export default function ClaimDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, hasPermission } = useAuth();
 
   const [pkg, setPkg] = useState(null);
-  const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Manual assignment states
   const [officers, setOfficers] = useState([]);
   const [selectedOfficerId, setSelectedOfficerId] = useState('');
-  const [assignRemarks, setAssignRemarks] = useState('');
-  const [assignSubmitting, setAssignSubmitting] = useState(false);
-
-  // Pull-back state
-  const [pullBackRemarks, setPullBackRemarks] = useState('');
-  const [pullBackSubmitting, setPullBackSubmitting] = useState(false);
-
-  // Forward (workflow mode) state – now used only for non-APTS forward actions
-  const [forwardRemarks, setForwardRemarks] = useState('');
-  const [forwardSubmitting, setForwardSubmitting] = useState(false);
-
-  // Send back (both modes) state
-  const [sendBackRemarks, setSendBackRemarks] = useState('');
-  const [sendBackSubmitting, setSendBackSubmitting] = useState(false);
-
+  // One remarks box per action so text typed for one action never leaks into another
+  const [remarks, setRemarks] = useState({ approve: '', forward: '', sendback: '', assign: '', pullback: '' });
+  const [busy, setBusy] = useState(null); // name of the action in flight
   const [actionError, setActionError] = useState('');
+  const [successMessage, setSuccessMessage] = useState(location.state?.flash || '');
 
   const [file, setFile] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  const [successMessage, setSuccessMessage] = useState('');
+  const [docType, setDocType] = useState('INVOICE');
 
-  // Load claim data
-  const load = useCallback(async () => {
-    if (!id) {
-      setError('No claim ID provided');
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     setError('');
     try {
-      const claimData = await claimsService.get(id, { includeDetails: true });
-
-      let claim = null;
-      if (claimData) {
-        if (Array.isArray(claimData) && claimData.length > 0) {
-          claim = claimData[0];
-        } else if (typeof claimData === 'object' && claimData.claim_code) {
-          claim = claimData;
-        } else if (claimData.data) {
-          claim = Array.isArray(claimData.data) ? claimData.data[0] : claimData.data;
-        } else {
-          claim = claimData;
-        }
-      }
-
-      if (!claim) {
-        setError('Claim data not found');
-        setLoading(false);
-        return;
-      }
-
+      const claim = await claimsService.get(id, { includeDetails: true });
+      if (!claim) throw new Error('Claim data not found');
       setPkg(claim);
-
-      // Prefer history embedded directly on the claim payload
-      if (Array.isArray(claim.history)) {
-        setHistory(claim.history);
-      } else {
-        try {
-          const historyData = await claimsService.getHistory(id);
-          let historyArray = [];
-          if (Array.isArray(historyData)) {
-            historyArray = historyData;
-          } else if (historyData?.data && Array.isArray(historyData.data)) {
-            historyArray = historyData.data;
-          } else if (historyData && typeof historyData === 'object' && historyData.id) {
-            historyArray = [historyData];
-          }
-          setHistory(historyArray);
-        } catch (historyErr) {
-          console.warn('Could not fetch history:', historyErr);
-          setHistory([]);
-        }
-      }
     } catch (err) {
-      console.error('❌ ClaimDetail load error:', err);
-      setError(err.message || 'Failed to load claim.');
+      setError(err.status === 404 ? 'This claim does not exist or you do not have access to it.' : err.message || 'Failed to load claim.');
     } finally {
       setLoading(false);
     }
   }, [id]);
 
-  // Load officers for assignment
-  const loadOfficers = useCallback(async () => {
-    if (!usersService || typeof usersService.getOfficers !== 'function') {
-      console.warn('usersService.getOfficers not available');
-      return;
-    }
-    try {
-      const data = await usersService.getOfficers();
-      setOfficers(data || []);
-    } catch (err) {
-      console.warn('Could not fetch officers:', err);
-      setOfficers([]);
-    }
-  }, []);
+  useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    if (id) {
-      load();
-    } else {
-      setError('No claim ID provided');
-      setLoading(false);
-    }
-  }, [id, load]);
+    if (!successMessage) return undefined;
+    const t = setTimeout(() => setSuccessMessage(''), 5000);
+    return () => clearTimeout(t);
+  }, [successMessage]);
 
-  useEffect(() => {
-    if (pkg) {
-      loadOfficers();
-    }
-  }, [pkg, loadOfficers]);
-
-  // --- Derived booleans ---
-  const isVendor = user?.role_name === 'Vendor' || user?.role_rank === 10;
-  const isAdmin = user?.role_rank === 100;
+  // --- Derived state ---
+  const history = pkg?.history || [];
+  const isVendor = user?.role_name === 'Vendor';
   const isAptsManager = user?.role_name === 'APTS Manager';
-  // PM sits at the FIRST step of the workflow — PM never gets a Send Back action
-  const isPm = user?.role_name === 'PM';
-  const canUpload = isVendor || isAdmin;
-  const isCompleted = pkg?.status?.toUpperCase() === 'COMPLETED';
-
+  const isPm = user?.role_name === 'PM'; // PM is the first desk — no send-back action (team decision)
+  const isCompleted = pkg?.status === 'COMPLETED';
+  const isReturned = pkg?.status === 'SENT_BACK';
   const isWorkflowMode = Boolean(pkg?.workflow_id);
   const isManual = !isWorkflowMode;
 
-  const isMyWorkflowStep =
-    isWorkflowMode &&
-    !isCompleted &&
-    pkg?.current_step_role_id != null &&
-    user?.role_id != null &&
-    pkg.current_step_role_id === user.role_id;
-
-  const isClaimWithVendorNow = isManual && !pkg?.current_assigned_user_id;
-  const isClaimWithMeManual =
-    isManual &&
-    !isCompleted &&
-    (pkg?.current_assigned_user_id
-      ? pkg.current_assigned_user_id === user?.id
-      : isClaimWithVendorNow && (pkg?.created_by === user?.id || isVendor));
-
+  const isMyWorkflowStep = isWorkflowMode && !isCompleted && !isReturned &&
+    pkg?.current_step_role_id != null && pkg.current_step_role_id === user?.role_id;
+  const isClaimWithMeManual = isManual && !isCompleted && pkg?.current_assigned_user_id === user?.id;
   const isOfficerTurn = isMyWorkflowStep || (isClaimWithMeManual && !isVendor);
 
-  // APTS MANAGER – always uses /approve endpoint
   const canApproveComplete = isOfficerTurn && isAptsManager;
-
-  // Non-APTS officers in workflow mode – forward to next step
   const canForward = isMyWorkflowStep && !isAptsManager;
-
-  // Manual mode assign – vendor or APTS Manager can assign to an officer
-  const canAssign = isClaimWithMeManual;
-
-  // Manual mode send-back-to-vendor – in-between officers only (exclude APTS Manager & PM)
+  const canAssign = isClaimWithMeManual && !(isVendor && isReturned);
   const canSendBackManual = isClaimWithMeManual && !isVendor && !isAptsManager && !isPm;
-  // Workflow sendback — hidden for PM (first desk in the chain); APTS Manager included if step allows
   const canSendBackWorkflow = isMyWorkflowStep && !isPm;
+  const canResubmit = isVendor && isReturned;
 
   const lastHistory = history.length > 0 ? history[history.length - 1] : null;
-  const claimCurrentlyWithVendor = isManual
-    ? isClaimWithVendorNow
-    : !pkg?.current_step_id;
-  const canPullBack =
-    isVendor &&
-    !isCompleted &&
-    !claimCurrentlyWithVendor &&
-    Boolean(lastHistory) &&
-    lastHistory.from_user_id === user?.id;
+  const claimWithVendorNow = isReturned || (isManual && pkg?.current_assigned_user_id === pkg?.created_by);
+  const canPullBack = isVendor && !isCompleted && !claimWithVendorNow &&
+    lastHistory && lastHistory.from_user_id === user?.id && ['CREATE', 'FORWARD', 'RESUBMIT'].includes(lastHistory.action);
 
-  // --- Action handlers ---
+  const canEditFiles = !isCompleted && (
+    hasPermission('claim.update') || (isVendor && claimWithVendorNow)
+  );
+
+  useEffect(() => {
+    if (canAssign && officers.length === 0) {
+      usersService.getOfficers().then((data) => setOfficers(data || [])).catch(() => setOfficers([]));
+    }
+  }, [canAssign, officers.length]);
+
+  // --- Actions ---
+  const setRemark = (key) => (value) => setRemarks((r) => ({ ...r, [key]: value }));
+
+  const runAction = async (key, fn, message, { confirmText } = {}) => {
+    const text = (remarks[key] || '').trim();
+    if (text.length < 3) {
+      setActionError('Remarks must be at least 3 characters.');
+      return;
+    }
+    if (confirmText && !window.confirm(confirmText)) return;
+    setBusy(key);
+    setActionError('');
+    try {
+      await fn(text);
+      setSuccessMessage(message);
+      setRemarks((r) => ({ ...r, [key]: '' }));
+      await load({ silent: true });
+    } catch (err) {
+      setActionError(err.message || 'Action failed.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onSubmit = (key, fn, message, opts) => (e) => {
+    e.preventDefault();
+    runAction(key, fn, message, opts);
+  };
 
   async function handleAssign(e) {
     e.preventDefault();
@@ -194,159 +168,54 @@ export default function ClaimDetail() {
       setActionError('Please select an officer.');
       return;
     }
-    if (assignRemarks.trim().length < 3) {
-      setActionError('Remarks must be at least 3 characters.');
-      return;
-    }
-    setAssignSubmitting(true);
-    setActionError('');
-    try {
-      await claimsService.assign(id, selectedOfficerId, assignRemarks.trim());
-      setSuccessMessage('Claim assigned successfully!');
-      setSelectedOfficerId('');
-      setAssignRemarks('');
-      await load();
-      setTimeout(() => setSuccessMessage(''), 5000);
-    } catch (err) {
-      console.error('Assign error:', err);
-      setActionError(err.message || 'Assignment failed.');
-    } finally {
-      setAssignSubmitting(false);
-    }
-  }
-
-  async function handlePullBack(e) {
-    e.preventDefault();
-    if (pullBackRemarks.trim().length < 3) {
-      setActionError('Remarks must be at least 3 characters.');
-      return;
-    }
-    if (!confirm('Pull back this claim from the current holder?')) return;
-    setPullBackSubmitting(true);
-    setActionError('');
-    try {
-      await claimsService.pullBack(id, pullBackRemarks.trim());
-      setSuccessMessage('Claim pulled back successfully!');
-      setPullBackRemarks('');
-      await load();
-      setTimeout(() => setSuccessMessage(''), 5000);
-    } catch (err) {
-      console.error('Pull-back error:', err);
-      setActionError(err.message || 'Pull-back failed.');
-    } finally {
-      setPullBackSubmitting(false);
-    }
-  }
-
-  // UNIFIED APPROVE & COMPLETE – uses /approve endpoint for both modes
-  async function handleApprove(e) {
-    e.preventDefault();
-    if (forwardRemarks.trim().length < 3) {
-      setActionError('Remarks must be at least 3 characters.');
-      return;
-    }
-    setForwardSubmitting(true);
-    setActionError('');
-    try {
-      // Call the new approve endpoint – works for both manual and workflow
-      await claimsService.approve(id, forwardRemarks.trim());
-      setSuccessMessage('Claim approved and completed!');
-      setForwardRemarks('');
-      await load();
-      setTimeout(() => setSuccessMessage(''), 5000);
-    } catch (err) {
-      console.error('Approve & Complete error:', err);
-      setActionError(err.message || 'Approve & Complete failed.');
-    } finally {
-      setForwardSubmitting(false);
-    }
-  }
-
-  async function handleForward(e) {
-    e.preventDefault();
-    if (forwardRemarks.trim().length < 3) {
-      setActionError('Remarks must be at least 3 characters.');
-      return;
-    }
-    setForwardSubmitting(true);
-    setActionError('');
-    try {
-      await claimsService.forward(id, forwardRemarks.trim());
-      setSuccessMessage('Claim forwarded to the next step!');
-      setForwardRemarks('');
-      await load();
-      setTimeout(() => setSuccessMessage(''), 5000);
-    } catch (err) {
-      console.error('Forward error:', err);
-      setActionError(err.message || 'Forward failed.');
-    } finally {
-      setForwardSubmitting(false);
-    }
-  }
-
-  async function handleSendBack(e) {
-    e.preventDefault();
-    if (sendBackRemarks.trim().length < 3) {
-      setActionError('Remarks must be at least 3 characters.');
-      return;
-    }
-    if (!confirm('Send this claim back to the vendor for revision?')) return;
-    setSendBackSubmitting(true);
-    setActionError('');
-    try {
-      await claimsService.sendback(id, sendBackRemarks.trim());
-      setSuccessMessage('Claim sent back to vendor!');
-      setSendBackRemarks('');
-      await load();
-      setTimeout(() => setSuccessMessage(''), 5000);
-    } catch (err) {
-      console.error('Send-back error:', err);
-      setActionError(err.message || 'Send-back failed.');
-    } finally {
-      setSendBackSubmitting(false);
-    }
+    await runAction('assign', (text) => claimsService.assign(id, Number(selectedOfficerId), text), 'Claim assigned successfully.');
+    setSelectedOfficerId('');
   }
 
   async function handleUpload(e) {
     e.preventDefault();
     if (!file) return;
-    setUploading(true);
+    setBusy('upload');
     setActionError('');
     try {
-      await claimsService.uploadFile(id, file);
+      await claimsService.uploadFile(id, file, docType);
       setFile(null);
-      setSuccessMessage('File uploaded successfully!');
-      await load();
-      setTimeout(() => setSuccessMessage(''), 5000);
+      e.target.reset();
+      setSuccessMessage('File uploaded successfully.');
+      await load({ silent: true });
     } catch (err) {
-      console.error('Upload error:', err);
       setActionError(err.message || 'Upload failed.');
     } finally {
-      setUploading(false);
+      setBusy(null);
     }
   }
 
   async function handleDeleteFile(fileId) {
-    if (!confirm('Remove this file?')) return;
+    if (!window.confirm('Remove this file?')) return;
+    setActionError('');
     try {
       await claimsService.deleteFile(id, fileId);
-      setSuccessMessage('File deleted successfully!');
-      await load();
-      setTimeout(() => setSuccessMessage(''), 5000);
+      setSuccessMessage('File removed.');
+      await load({ silent: true });
     } catch (err) {
-      console.error('Delete error:', err);
       setActionError(err.message || 'Could not delete file.');
+    }
+  }
+
+  async function handleDownload(f) {
+    try {
+      await claimsService.downloadFile(id, f.id, decodeEntities(f.original_name));
+    } catch (err) {
+      setActionError(err.message || 'Download failed.');
     }
   }
 
   if (loading) {
     return (
-      <div className="d-flex justify-content-center align-items-center vh-100 bg-light">
+      <div className="d-flex justify-content-center align-items-center py-5">
         <div className="text-center">
-          <div className="spinner-border text-primary" style={{ width: '2.5rem', height: '2.5rem' }} role="status">
-            <span className="visually-hidden">Loading…</span>
-          </div>
-          <p className="mt-3 text-secondary fw-semibold">Loading claim review workspace...</p>
+          <div className="spinner-border text-primary" role="status"><span className="visually-hidden">Loading…</span></div>
+          <p className="mt-3 text-secondary fw-semibold">Loading claim...</p>
         </div>
       </div>
     );
@@ -361,7 +230,7 @@ export default function ClaimDetail() {
             <h5>Claim Unavailable</h5>
             <p className="text-muted small">{error || 'The requested claim could not be found.'}</p>
             <button className="btn btn-primary btn-sm px-4 mt-2" onClick={() => navigate(-1)}>
-              <i className="bi bi-arrow-left me-1"></i> Back to Desk
+              <i className="bi bi-arrow-left me-1"></i> Back
             </button>
           </div>
         </div>
@@ -369,344 +238,158 @@ export default function ClaimDetail() {
     );
   }
 
-  const pdfFile = (pkg.files || []).find((f) =>
-    f.original_name?.toLowerCase().endsWith('.pdf') || f.file_type?.includes('pdf')
-  ) || (pkg.files && pkg.files[0]);
-
-  const hasDocument = Boolean(pdfFile || pkg.file_url);
+  const files = pkg.files || [];
+  const hasActions = canApproveComplete || canForward || canSendBackWorkflow || canAssign || canSendBackManual || canPullBack || canResubmit;
+  const stageLabel = isReturned ? 'With vendor for revision' : decodeEntities(pkg.current_step_name) || (isManual ? 'Not yet assigned' : 'In review');
 
   return (
-    <div className="d-flex flex-column vh-100 bg-body-tertiary overflow-hidden">
-
-      <header className="bg-white border-bottom px-4 py-2.5 d-flex justify-content-between align-items-center shadow-sm z-2">
-        <div className="d-flex align-items-center gap-3">
-          <button className="btn btn-sm btn-outline-secondary font-semibold d-flex align-items-center" onClick={() => navigate(-1)}>
+    <div className="claim-detail d-flex flex-column bg-body-tertiary">
+      <header className="bg-white border-bottom px-3 px-md-4 py-2 d-flex flex-wrap gap-2 justify-content-between align-items-center shadow-sm">
+        <div className="d-flex flex-wrap align-items-center gap-2 gap-md-3">
+          <button className="btn btn-sm btn-outline-secondary" onClick={() => navigate(-1)}>
             <i className="bi bi-arrow-left me-1"></i> Back
           </button>
-          <span className="vr"></span>
           <div>
-            <span className="text-muted small d-block" style={{ fontSize: '0.7rem', lineHeight: '1' }}>CLAIM ID</span>
-            <strong className="text-dark fs-6">{pkg.claim_code || 'Claim Review'}</strong>
+            <span className="text-muted d-block" style={{ fontSize: '0.7rem', lineHeight: 1 }}>CLAIM ID</span>
+            <strong className="text-dark">{pkg.claim_code}</strong>
           </div>
           <StatusBadge status={pkg.status} />
-          <span className="badge bg-light text-dark border fw-medium px-2 py-1">
-            Stage: {pkg.current_step_name || pkg.current_step?.step_name || (isManual ? 'Manual Assignment' : 'In Review')}
-          </span>
+          <span className="badge bg-light text-dark border fw-medium">Stage: {stageLabel}</span>
         </div>
-
-        {hasDocument && (
+        {files.length > 0 && (
           <button
             type="button"
             onClick={() => window.open(`/pdf-viewer/${id}`, '_blank', 'noopener,noreferrer')}
-            className="btn btn-sm btn-outline-primary fw-semibold d-flex align-items-center"
+            className="btn btn-sm btn-outline-primary fw-semibold d-none d-md-inline-flex align-items-center"
           >
-            <span>Expand Document</span>
-            <i className="bi bi-box-arrow-up-right ms-2"></i>
+            Open documents in new tab <i className="bi bi-box-arrow-up-right ms-2"></i>
           </button>
         )}
       </header>
 
-      <div className="d-flex flex-grow-1 overflow-hidden">
+      <div className="claim-detail-body d-flex flex-column flex-lg-row flex-grow-1">
+        <section className="claim-doc-pane border-end bg-secondary-subtle d-flex flex-column" aria-label="Claim documents">
+          <Suspense fallback={<div className="text-center py-5"><div className="spinner-border text-primary" role="status" /></div>}>
+            <PdfViewerPage claimId={id} files={files} embedded />
+          </Suspense>
+        </section>
 
-        <div className="border-end bg-secondary-subtle d-flex flex-column h-100" style={{ flex: '0 0 60%', width: '60%' }}>
-          {hasDocument ? (
-            <PdfViewerPage claimId={id} embedded={true} />
-          ) : (
-            <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted p-5 text-center">
-              <div className="bg-white p-4 rounded-circle shadow-sm mb-3">
-                <i className="bi bi-file-earmark-pdf fs-1 text-secondary"></i>
-              </div>
-              <h6 className="fw-bold text-dark mb-1">No Document Available</h6>
-              <p className="small text-muted mb-0">No PDF bill preview is attached to this claim.</p>
-            </div>
-          )}
-        </div>
-
-        <div className="bg-white d-flex flex-column h-100 overflow-y-auto p-4" style={{ flex: '0 0 40%', width: '40%' }}>
-
+        <aside className="claim-side-pane bg-white p-3 p-md-4">
           {successMessage && (
-            <div className="alert alert-success alert-dismissible fade show border-0 shadow-sm py-2 px-3 mb-3 small">
-              <i className="bi bi-check-circle-fill me-2"></i>
-              {successMessage}
-              <button type="button" className="btn-close py-2" onClick={() => setSuccessMessage('')}></button>
+            <div className="alert alert-success alert-dismissible border-0 shadow-sm py-2 px-3 mb-3 small" role="status">
+              <i className="bi bi-check-circle-fill me-2"></i>{successMessage}
+              <button type="button" className="btn-close py-2" aria-label="Close" onClick={() => setSuccessMessage('')}></button>
             </div>
           )}
-
           {actionError && (
-            <div className="alert alert-danger alert-dismissible fade show border-0 shadow-sm py-2 px-3 mb-3 small">
-              <i className="bi bi-exclamation-triangle-fill me-2"></i>
-              {actionError}
-              <button type="button" className="btn-close py-2" onClick={() => setActionError('')}></button>
+            <div className="alert alert-danger alert-dismissible border-0 shadow-sm py-2 px-3 mb-3 small" role="alert">
+              <i className="bi bi-exclamation-triangle-fill me-2"></i>{actionError}
+              <button type="button" className="btn-close py-2" aria-label="Close" onClick={() => setActionError('')}></button>
             </div>
           )}
 
           <div className="card border shadow-sm mb-3">
             <div className="card-body p-3">
-              <div className="d-flex justify-content-between align-items-center mb-2.5 border-bottom pb-2">
-                <h6 className="card-subtitle text-uppercase text-secondary fw-bold small mb-0">
-                  <i className="bi bi-card-heading me-1.5 text-primary"></i>
-                  Claim Overview
+              <div className="d-flex justify-content-between align-items-center mb-2 border-bottom pb-2">
+                <h6 className="text-uppercase text-secondary fw-bold small mb-0">
+                  <i className="bi bi-card-heading me-1 text-primary"></i> Claim Overview
                 </h6>
-                {pkg.amount && (
-                  <span className="fw-bold text-success fs-6">
-                    ₹{Number(pkg.amount).toLocaleString('en-IN')}
-                  </span>
-                )}
+                {pkg.claimed_amount ? <span className="fw-bold text-success">{formatINR(pkg.claimed_amount)}</span> : null}
               </div>
-              <div className="row g-2 text-sm">
-                <div className="col-6">
-                  <span className="text-muted d-block small" style={{ fontSize: '0.75rem' }}>Vendor</span>
-                  <strong className="text-dark d-block text-truncate">{pkg.vendor_name || pkg.vendor?.vendor_name || 'N/A'}</strong>
-                </div>
-                <div className="col-6">
-                  <span className="text-muted d-block small" style={{ fontSize: '0.75rem' }}>Project</span>
-                  <strong className="text-dark d-block text-truncate">{pkg.project_name || pkg.project?.project_name || 'N/A'}</strong>
-                </div>
-                <div className="col-6">
-                  <span className="text-muted d-block small" style={{ fontSize: '0.75rem' }}>PO Reference</span>
-                  <span className="text-dark fw-medium">{pkg.po_number || 'N/A'}</span>
-                </div>
-                <div className="col-6">
-                  <span className="text-muted d-block small" style={{ fontSize: '0.75rem' }}>Workflow</span>
-                  <span className="text-dark fw-medium d-block" style={{ wordBreak: 'break-word' }}>{pkg.workflow_name || pkg.workflow?.workflow_name || (isManual ? 'Manual Assignment' : 'N/A')}</span>
-                </div>
+              <div className="row g-2 small">
+                <div className="col-6"><span className="text-muted d-block">Vendor</span><strong className="d-block text-truncate">{decodeEntities(pkg.vendor_name) || '—'}</strong></div>
+                <div className="col-6"><span className="text-muted d-block">Project</span><strong className="d-block text-truncate">{decodeEntities(pkg.project_name) || '—'}</strong></div>
+                <div className="col-6"><span className="text-muted d-block">PO Reference</span><span className="fw-medium">{pkg.po_number || '—'}</span></div>
+                <div className="col-6"><span className="text-muted d-block">Workflow</span><span className="fw-medium d-block text-break">{decodeEntities(pkg.workflow_name) || 'Manual assignment'}</span></div>
+                {pkg.invoice_number && <div className="col-6"><span className="text-muted d-block">Invoice No.</span><span className="fw-medium text-break">{decodeEntities(pkg.invoice_number)}</span></div>}
+                {pkg.invoice_date && <div className="col-6"><span className="text-muted d-block">Invoice Date</span><span className="fw-medium">{formatDate(pkg.invoice_date)}</span></div>}
+                <div className="col-6"><span className="text-muted d-block">Submitted</span><span className="fw-medium">{formatDate(pkg.created_at)}</span></div>
+                {pkg.completed_at && <div className="col-6"><span className="text-muted d-block">Completed</span><span className="fw-medium">{formatDate(pkg.completed_at)}</span></div>}
                 {pkg.remarks && (
                   <div className="col-12 border-top pt-2 mt-1">
-                    <span className="text-muted d-block small" style={{ fontSize: '0.75rem' }}>Submission Note</span>
-                    <p className="text-dark small mb-0 bg-light p-2 rounded border">{pkg.remarks}</p>
+                    <span className="text-muted d-block">Submission note</span>
+                    <p className="text-dark mb-0 bg-light p-2 rounded border">{decodeEntities(pkg.remarks)}</p>
                   </div>
                 )}
               </div>
             </div>
           </div>
 
-          <div className="card border border-primary-subtle shadow-sm mb-3 bg-body-highlight">
+          <div className="card border border-primary-subtle shadow-sm mb-3">
             <div className="card-body p-3">
-              <h6 className="card-subtitle text-uppercase text-primary fw-bold mb-3 small d-flex align-items-center">
-                <i className="bi bi-shield-check fs-6 me-1.5"></i>
-                Officer Review Decision
+              <h6 className="text-uppercase text-primary fw-bold mb-3 small">
+                <i className="bi bi-shield-check me-1"></i> {isVendor ? 'Actions' : 'Review Decision'}
               </h6>
-
               <div className="d-flex flex-column gap-3">
+                {canResubmit && (
+                  <div className="alert alert-warning mb-0 small">
+                    <p className="mb-2"><i className="bi bi-arrow-counterclockwise me-1"></i>
+                      This claim is back with you. Attach corrected documents if needed, then re-submit.</p>
+                    <Link to={`/vendor/claims/${id}/resubmit`} className="btn btn-sm btn-warning w-100 fw-semibold">
+                      Revise &amp; Re-submit
+                    </Link>
+                  </div>
+                )}
 
-                {/* APTS MANAGER — Approve & Complete (uses /approve endpoint) */}
                 {canApproveComplete && (
-                  <div>
-                    <label className="form-label small fw-semibold text-dark mb-1">
-                      Approve & Complete <span className="text-danger">*</span>
-                    </label>
-                    <textarea
-                      className="form-control form-control-sm mb-2"
-                      rows={2}
-                      placeholder="Approval remarks (min 3 characters)..."
-                      value={forwardRemarks}
-                      onChange={(e) => setForwardRemarks(e.target.value)}
-                      disabled={forwardSubmitting}
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-success w-100"
-                      onClick={handleApprove}
-                      disabled={forwardSubmitting}
-                    >
-                      {forwardSubmitting ? (
-                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                      ) : (
-                        <>
-                          <i className="bi bi-check2-circle me-1"></i>
-                          Approve & Complete
-                        </>
-                      )}
-                    </button>
-                  </div>
+                  <RemarksAction id="approve-remarks" label="Approve & Complete" placeholder="Approval remarks (min 3 characters)..."
+                    value={remarks.approve} onChange={setRemark('approve')} submitting={busy === 'approve'}
+                    onSubmit={onSubmit('approve', (t) => claimsService.approve(id, t), 'Claim approved and completed.', { confirmText: 'Approve and complete this claim? This cannot be undone.' })}
+                    buttonClass="btn-success" buttonIcon="bi-check2-circle" buttonText="Approve & Complete" />
                 )}
 
-                {/* WORKFLOW MODE — Forward (non-APTS officers only) */}
                 {canForward && (
-                  <div>
-                    <label className="form-label small fw-semibold text-dark mb-1">
-                      Forward to Next Step <span className="text-danger">*</span>
-                    </label>
-                    <textarea
-                      className="form-control form-control-sm mb-2"
-                      rows={2}
-                      placeholder="Forward remarks (min 3 characters)..."
-                      value={forwardRemarks}
-                      onChange={(e) => setForwardRemarks(e.target.value)}
-                      disabled={forwardSubmitting}
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-success w-100"
-                      onClick={handleForward}
-                      disabled={forwardSubmitting}
-                    >
-                      {forwardSubmitting ? (
-                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                      ) : (
-                        <>
-                          <i className="bi bi-check2-circle me-1"></i>
-                          Forward
-                        </>
-                      )}
-                    </button>
-                  </div>
+                  <RemarksAction id="forward-remarks" label="Forward to next step" placeholder="Forward remarks (min 3 characters)..."
+                    value={remarks.forward} onChange={setRemark('forward')} submitting={busy === 'forward'}
+                    onSubmit={onSubmit('forward', (t) => claimsService.forward(id, t), 'Claim forwarded to the next step.')}
+                    buttonClass="btn-success" buttonIcon="bi-send" buttonText="Forward" />
                 )}
 
-                {/* WORKFLOW MODE — Send Back */}
-                {canSendBackWorkflow && (
-                  <div>
-                    <label className="form-label small fw-semibold text-dark mb-1">
-                      Send Back <span className="text-danger">*</span>
-                    </label>
-                    <textarea
-                      className="form-control form-control-sm mb-2"
-                      rows={2}
-                      placeholder="Send-back remarks (min 3 characters)..."
-                      value={sendBackRemarks}
-                      onChange={(e) => setSendBackRemarks(e.target.value)}
-                      disabled={sendBackSubmitting}
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-danger w-100"
-                      onClick={handleSendBack}
-                      disabled={sendBackSubmitting}
-                    >
-                      {sendBackSubmitting ? (
-                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                      ) : (
-                        <>
-                          <i className="bi bi-reply me-1"></i>
-                          Send Back
-                        </>
-                      )}
-                    </button>
-                  </div>
+                {(canSendBackWorkflow || canSendBackManual) && (
+                  <RemarksAction id="sendback-remarks" label={canSendBackManual ? 'Send back to vendor' : 'Send back'}
+                    placeholder="Reason for sending back (min 3 characters)..."
+                    value={remarks.sendback} onChange={setRemark('sendback')} submitting={busy === 'sendback'}
+                    onSubmit={onSubmit('sendback', (t) => claimsService.sendback(id, t), 'Claim sent back.', { confirmText: 'Send this claim back?' })}
+                    buttonClass="btn-outline-danger" buttonIcon="bi-reply" buttonText="Send Back" />
                 )}
 
-                {/* MANUAL MODE — Assign to Officer */}
                 {canAssign && (
-                  <div>
-                    <label className="form-label small fw-semibold text-dark mb-1">
-                      Assign to Officer <span className="text-danger">*</span>
-                    </label>
-                    <div className="d-flex gap-2">
-                      <select
-                        className="form-select form-select-sm flex-grow-1"
-                        value={selectedOfficerId}
-                        onChange={(e) => setSelectedOfficerId(e.target.value)}
-                        disabled={assignSubmitting}
-                      >
-                        <option value="">Select an officer...</option>
-                        {officers.map((off) => (
-                          <option key={off.id} value={off.id}>
-                            {off.name} ({off.role_name})
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-primary text-nowrap"
-                        onClick={handleAssign}
-                        disabled={!selectedOfficerId || assignSubmitting}
-                      >
-                        {assignSubmitting ? (
-                          <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                        ) : (
-                          'Assign'
-                        )}
-                      </button>
-                    </div>
-                    <textarea
-                      className="form-control form-control-sm mt-2"
-                      rows={2}
-                      placeholder="Assignment remarks (min 3 characters)..."
-                      value={assignRemarks}
-                      onChange={(e) => setAssignRemarks(e.target.value)}
-                      disabled={assignSubmitting}
-                    />
-                  </div>
+                  <RemarksAction id="assign-remarks" label={isVendor ? 'Submit to officer' : 'Forward to officer'}
+                    placeholder="Remarks (min 3 characters)..."
+                    value={remarks.assign} onChange={setRemark('assign')} submitting={busy === 'assign'}
+                    onSubmit={handleAssign} buttonClass="btn-primary" buttonIcon="bi-person-check" buttonText="Assign">
+                    <select className="form-select form-select-sm mb-2" value={selectedOfficerId}
+                      onChange={(e) => setSelectedOfficerId(e.target.value)} disabled={busy === 'assign'} aria-label="Select officer">
+                      <option value="">Select an officer...</option>
+                      {officers.filter((o) => o.id !== user?.id).map((off) => (
+                        <option key={off.id} value={off.id}>{decodeEntities(off.name)} ({off.role_name})</option>
+                      ))}
+                    </select>
+                  </RemarksAction>
                 )}
 
-                {/* MANUAL MODE — Send Back to Vendor (officer holding the claim, excluding APTS Manager) */}
-                {canSendBackManual && (
-                  <div>
-                    <label className="form-label small fw-semibold text-dark mb-1">
-                      Send Back to Vendor <span className="text-danger">*</span>
-                    </label>
-                    <textarea
-                      className="form-control form-control-sm mb-2"
-                      rows={2}
-                      placeholder="Send-back remarks (min 3 characters)..."
-                      value={sendBackRemarks}
-                      onChange={(e) => setSendBackRemarks(e.target.value)}
-                      disabled={sendBackSubmitting}
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-danger w-100"
-                      onClick={handleSendBack}
-                      disabled={sendBackSubmitting}
-                    >
-                      {sendBackSubmitting ? (
-                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                      ) : (
-                        <>
-                          <i className="bi bi-reply me-1"></i>
-                          Send Back
-                        </>
-                      )}
-                    </button>
-                  </div>
-                )}
-
-                {/* PULL BACK — both modes */}
                 {canPullBack && (
-                  <div>
-                    <textarea
-                      className="form-control form-control-sm mb-2"
-                      rows={2}
-                      placeholder="Pull-back remarks (min 3 characters)..."
-                      value={pullBackRemarks}
-                      onChange={(e) => setPullBackRemarks(e.target.value)}
-                      disabled={pullBackSubmitting}
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-secondary w-100"
-                      onClick={handlePullBack}
-                      disabled={pullBackSubmitting}
-                    >
-                      {pullBackSubmitting ? (
-                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                      ) : (
-                        <>
-                          <i className="bi bi-arrow-return-left me-1"></i>
-                          Pull Back
-                        </>
-                      )}
-                    </button>
-                    <p className="small text-muted mt-1 mb-0">
-                      You can pull back this claim because you sent it onward last.
-                    </p>
-                  </div>
+                  <RemarksAction id="pullback-remarks" label="Pull back" placeholder="Reason for pulling back (min 3 characters)..."
+                    value={remarks.pullback} onChange={setRemark('pullback')} submitting={busy === 'pullback'}
+                    onSubmit={onSubmit('pullback', (t) => claimsService.pullBack(id, t), 'Claim pulled back.', { confirmText: 'Pull this claim back from the current officer?' })}
+                    buttonClass="btn-outline-secondary" buttonIcon="bi-arrow-return-left" buttonText="Pull Back">
+                    <p className="small text-muted mb-1">Possible until the officer you sent it to acts on it.</p>
+                  </RemarksAction>
                 )}
 
-                {!canApproveComplete && !canForward && !canSendBackWorkflow && !canAssign && !canSendBackManual && !canPullBack && !isCompleted && (
+                {!hasActions && !isCompleted && (
                   <div className="alert alert-info mb-0 small py-2">
                     <i className="bi bi-info-circle me-1"></i>
-                    {isWorkflowMode
-                      ? `Currently at step: ${pkg.current_step_name || 'Unknown'}. Awaiting action from the responsible role.`
-                      : pkg.current_assigned_user_id
-                        ? `Currently assigned to: ${pkg.assigned_user_name || pkg.current_assigned_user_name || 'Officer'}.`
+                    {isReturned
+                      ? 'Returned to the vendor for revision.'
+                      : pkg.current_step_name
+                        ? `Currently with: ${decodeEntities(pkg.current_step_name)}. Awaiting their action.`
                         : 'This claim has not been assigned yet.'}
                   </div>
                 )}
                 {isCompleted && (
                   <div className="alert alert-success mb-0 small py-2">
-                    <i className="bi bi-check-circle-fill me-1"></i>
-                    This claim is complete.
+                    <i className="bi bi-check-circle-fill me-1"></i> This claim has been approved and completed.
                   </div>
                 )}
               </div>
@@ -715,56 +398,39 @@ export default function ClaimDetail() {
 
           <div className="card border shadow-sm mb-3">
             <div className="card-body p-3">
-              <h6 className="card-subtitle text-uppercase text-secondary fw-bold mb-2.5 small">
-                <i className="bi bi-paperclip me-1.5 text-primary"></i>
-                Attachments
+              <h6 className="text-uppercase text-secondary fw-bold mb-2 small">
+                <i className="bi bi-paperclip me-1 text-primary"></i> Attachments ({files.length})
               </h6>
               <ul className="list-group list-group-flush mb-2 border-top border-bottom">
-                {(pkg.files || []).map((f) => (
-                  <li key={f.id} className="list-group-item d-flex justify-content-between align-items-center px-0 py-2">
-                    <button
-                      className="btn btn-link btn-sm p-0 text-start text-decoration-none d-flex align-items-center"
-                      onClick={() => claimsService.downloadFile(id, f.id, f.original_name)}
-                    >
-                      <i className="bi bi-file-earmark-pdf text-danger fs-6 me-2"></i>
-                      <span className="fw-medium text-dark text-truncate" style={{ maxWidth: '180px' }}>
-                        {f.original_name}
-                      </span>
-                      {f.document_type === 'CERTIFICATION' && (
-                        <span className="badge bg-info bg-opacity-10 text-info ms-2" style={{ fontSize: '0.65rem' }}>
-                          Certification
-                        </span>
-                      )}
-                      <span className="text-muted ms-2 small" style={{ fontSize: '0.7rem' }}>
-                        ({(f.file_size ? (f.file_size / 1024).toFixed(1) : '0')} KB)
-                      </span>
+                {files.map((f) => (
+                  <li key={f.id} className="list-group-item d-flex justify-content-between align-items-center px-0 py-2 gap-2">
+                    <button className="btn btn-link btn-sm p-0 text-start text-decoration-none d-flex align-items-center min-w-0"
+                      onClick={() => handleDownload(f)} title="Download">
+                      <i className={`bi ${/\.pdf$/i.test(f.original_name) ? 'bi-file-earmark-pdf text-danger' : 'bi-file-earmark-image text-primary'} me-2`}></i>
+                      <span className="fw-medium text-dark text-truncate">{decodeEntities(f.original_name)}</span>
+                      {f.document_type === 'CERTIFICATION' && <span className="badge text-bg-info ms-2" style={{ fontSize: '0.65rem' }}>Certification</span>}
+                      <span className="text-muted ms-2 text-nowrap" style={{ fontSize: '0.7rem' }}>({f.file_size ? (f.file_size / 1024).toFixed(1) : '0'} KB)</span>
                     </button>
-                    {(isAdmin || isVendor) && (
-                      <button
-                        className="btn btn-sm btn-outline-danger py-0 px-1"
-                        onClick={() => handleDeleteFile(f.id)}
-                        title="Delete file"
-                      >
+                    {canEditFiles && (
+                      <button className="btn btn-sm btn-outline-danger py-0 px-1" onClick={() => handleDeleteFile(f.id)} title="Remove file" aria-label={`Remove ${f.original_name}`}>
                         <i className="bi bi-trash"></i>
                       </button>
                     )}
                   </li>
                 ))}
-                {(!pkg.files || pkg.files.length === 0) && (
-                  <li className="list-group-item px-0 text-muted small py-2">No files attached to this claim.</li>
-                )}
+                {files.length === 0 && <li className="list-group-item px-0 text-muted small py-2">No files attached to this claim.</li>}
               </ul>
 
-              {canUpload && (
-                <form className="d-flex gap-2" onSubmit={handleUpload}>
-                  <input
-                    type="file"
-                    className="form-control form-control-sm"
-                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                    onChange={(e) => setFile(e.target.files?.[0] || null)}
-                  />
-                  <button className="btn btn-sm btn-primary text-nowrap" disabled={!file || uploading}>
-                    {uploading ? 'Uploading...' : 'Upload File'}
+              {canEditFiles && (
+                <form className="d-flex flex-column flex-sm-row gap-2" onSubmit={handleUpload}>
+                  <select className="form-select form-select-sm" style={{ maxWidth: 150 }} value={docType} onChange={(e) => setDocType(e.target.value)} aria-label="Document type">
+                    <option value="INVOICE">Invoice</option>
+                    <option value="CERTIFICATION">Certification</option>
+                  </select>
+                  <input type="file" className="form-control form-control-sm" accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    onChange={(e) => setFile(e.target.files?.[0] || null)} aria-label="Choose file" />
+                  <button className="btn btn-sm btn-primary text-nowrap" disabled={!file || busy === 'upload'}>
+                    {busy === 'upload' ? 'Uploading...' : 'Upload'}
                   </button>
                 </form>
               )}
@@ -773,46 +439,40 @@ export default function ClaimDetail() {
 
           <div className="card border shadow-sm">
             <div className="card-body p-3">
-              <h6 className="card-subtitle text-uppercase text-secondary fw-bold mb-3 small">
-                <i className="bi bi-clock-history me-1.5 text-primary"></i>
-                Workflow Audit Trail
+              <h6 className="text-uppercase text-secondary fw-bold mb-3 small">
+                <i className="bi bi-clock-history me-1 text-primary"></i> Attestation Trail
               </h6>
               {history.length === 0 ? (
-                <p className="text-muted small mb-0">No audit activity logged yet.</p>
+                <p className="text-muted small mb-0">No activity logged yet.</p>
               ) : (
-                <div className="timeline">
-                  {history.map((h, index) => (
-                    <div key={h.id || index} className="mb-2.5 pb-2 border-bottom">
-                      <div className="d-flex justify-content-between align-items-center mb-1">
-                        <span className="fw-semibold small">
-                          <span className="badge bg-secondary me-1.5">{h.action}</span>
-                          {h.from_step_name && <span className="text-muted">{h.from_step_name} → </span>}
-                          {h.to_step_name && <span className="text-dark">{h.to_step_name}</span>}
-                          {h.to_user_name && (
-                            <span className="text-muted">→ {h.to_user_name}</span>
-                          )}
+                <ol className="list-unstyled mb-0">
+                  {history.map((h) => (
+                    <li key={h.id} className="mb-2 pb-2 border-bottom last-border-none">
+                      <div className="d-flex justify-content-between align-items-start gap-2 mb-1">
+                        <span className="small">
+                          <span className={`badge ${ACTION_BADGE[h.action] || 'text-bg-secondary'} me-1`}>{ACTION_LABELS[h.action] || h.action}</span>
+                          {h.from_step_name && <span className="text-muted">{decodeEntities(h.from_step_name)} → </span>}
+                          {h.to_step_name && <span className="text-dark">{decodeEntities(h.to_step_name)}</span>}
+                          {h.to_user_name && h.action !== 'CREATE' && <span className="text-muted"> → {decodeEntities(h.to_user_name)}</span>}
                         </span>
-                        <span className="text-muted" style={{ fontSize: '0.7rem' }}>
-                          {h.created_at ? new Date(h.created_at).toLocaleDateString() : ''}
-                        </span>
+                        <span className="text-muted text-nowrap" style={{ fontSize: '0.7rem' }}>{formatDate(h.created_at, true)}</span>
                       </div>
-                      <div className="text-muted small" style={{ fontSize: '0.75rem' }}>
-                        By: <span className="text-dark fw-medium">{h.performed_by_name || h.performed_by || 'Officer'}</span>
+                      <div className="text-muted" style={{ fontSize: '0.75rem' }}>
+                        By <span className="text-dark fw-medium">{decodeEntities(h.performed_by_name) || 'User'}</span>
+                        {h.performed_by_role_name && <> ({h.performed_by_role_name})</>}
                       </div>
                       {h.remarks && (
                         <div className="small mt-1 bg-light p-2 rounded text-secondary border" style={{ fontSize: '0.75rem' }}>
-                          <i className="bi bi-chat-left-quote me-1"></i>
-                          {h.remarks}
+                          <i className="bi bi-chat-left-quote me-1"></i>{decodeEntities(h.remarks)}
                         </div>
                       )}
-                    </div>
+                    </li>
                   ))}
-                </div>
+                </ol>
               )}
             </div>
           </div>
-
-        </div>
+        </aside>
       </div>
     </div>
   );

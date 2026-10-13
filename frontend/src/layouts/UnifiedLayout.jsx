@@ -1,68 +1,35 @@
 // src/layouts/UnifiedLayout.jsx
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ChangePasswordModal from '../components/ChangePasswordModal';
+import { homePathFor } from '../components/RoleBasedRedirect';
+
+const MOBILE_BREAKPOINT = 768;
 
 export default function UnifiedLayout() {
   const { user, logout, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < MOBILE_BREAKPOINT);
+  // Closed by default on phones so the sidebar never covers the page on load
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= MOBILE_BREAKPOINT);
   const [showChangePassword, setShowChangePassword] = useState(false);
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [lastLogin, setLastLogin] = useState(null);
+  // Previous login time as reported by the server at sign-in
+  const lastLogin = user?.last_login || null;
 
-  // Handle window resize for responsive behavior
+  // Only react when crossing the breakpoint (e.g. the mobile keyboard opening
+  // fires resize events and must not close the sidebar)
   useEffect(() => {
-    const handleResize = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile(mobile);
-      if (!mobile) {
-        setSidebarOpen(true); // Auto-open on desktop
-      } else {
-        setSidebarOpen(false); // Auto-close on mobile
-      }
+    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 0.02}px)`);
+    const onChange = (e) => {
+      setIsMobile(e.matches);
+      setSidebarOpen(!e.matches);
     };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
   }, []);
 
-  // Get last login time
-  useEffect(() => {
-    if (user) {
-      // Try to get last login from localStorage
-      const storedLastLogin = localStorage.getItem(`lastLogin_${user.id || user.email}`);
-      if (storedLastLogin) {
-        setLastLogin(new Date(parseInt(storedLastLogin)));
-      } else {
-        // If no last login found, set current time as first login
-        const now = Date.now();
-        localStorage.setItem(`lastLogin_${user.id || user.email}`, now.toString());
-        setLastLogin(new Date(now));
-      }
-    }
-  }, [user]);
-
-  // Update last login when user is active
-  useEffect(() => {
-    if (user) {
-      // Update last login time periodically or on activity
-      const updateLastLogin = () => {
-        const now = Date.now();
-        localStorage.setItem(`lastLogin_${user.id || user.email}`, now.toString());
-      };
-      
-      // Update on page load
-      updateLastLogin();
-
-      // Update every 5 minutes
-      const interval = setInterval(updateLastLogin, 5 * 60 * 1000);
-
-      return () => clearInterval(interval);
-    }
-  }, [user]);
 
   // Determine user role
   const userRole = user?.role_rank === 10 ? 'vendor' :
@@ -81,10 +48,12 @@ export default function UnifiedLayout() {
     return 'User';
   };
 
+  const homePath = homePathFor(user);
+
   // Get menu items based on role
   const getMenuItems = () => {
     const baseItems = [
-      { path: `/${userRole}`, label: 'Dashboard', icon: 'bi-grid' },
+      { path: homePath, label: 'Dashboard', icon: 'bi-grid' },
     ];
 
     switch(userRole) {
@@ -122,7 +91,7 @@ export default function UnifiedLayout() {
 
     // Dashboard: highlight whether the route lives at the bare role path
     // (e.g. "/pm") or at a nested "/pm/dashboard" sub-route.
-    if (path === `/${userRole}`) {
+    if (path === homePath) {
       return current === target || current === `${target}/dashboard`;
     }
     // For claims list, don't let it match the create page
@@ -145,27 +114,8 @@ export default function UnifiedLayout() {
     }
   }, [user, isAuthenticated, navigate]);
 
-  // Format last login time
-  const formatLastLogin = (date) => {
-    if (!date) return 'Never';
-    const now = new Date();
-    const diff = now - date;
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    if (days < 7) return `${days}d ago`;
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  // Server sends the previous login as "DD/MM/YYYY HH:mm:ss" (IST)
+  const formatLastLogin = (value) => value || 'First login';
 
   // Toggle sidebar function
   const toggleSidebar = () => {

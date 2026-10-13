@@ -1,8 +1,20 @@
 // src/pages/Login.jsx
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { ApiError } from '../services/apiClient';
+import { homePathFor } from '../components/RoleBasedRedirect';
+
+// Demo accounts from database/seed.sql. Shown ONLY in development builds —
+// `import.meta.env.DEV` is false in `npm run build`, so this list (and the
+// passwords) are stripped from the production bundle.
+const TEST_CREDENTIALS = import.meta.env.DEV ? [
+  { label: 'Super Admin', email: 'admin@apts.gov.in', password: 'Admin@123' },
+  { label: 'PM', email: 'pm_user@apts.gov.in', password: 'password123' },
+  { label: 'TPA', email: 'tpa_user@apts.gov.in', password: 'password123' },
+  { label: 'JD-Infra', email: 'jd_infra@apts.gov.in', password: 'password123' },
+  { label: 'APTS Manager', email: 'apts_manager@apts.gov.in', password: 'password123' },
+  { label: 'Vendor', email: 'vendor@example.com', password: 'password123' },
+] : [];
 
 export default function Login() {
   const { login, user, isAuthenticated, loading: authLoading } = useAuth();
@@ -11,32 +23,24 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false); // 👁 toggle state
   const [error, setError] = useState('');
+  // Shown once after an automatic sign-out for inactivity
+  const [notice] = useState(() => {
+    try {
+      const reason = sessionStorage.getItem('apts.logoutReason');
+      sessionStorage.removeItem('apts.logoutReason');
+      return reason === 'idle' ? 'You were signed out after a period of inactivity. Please sign in again.' : '';
+    } catch {
+      return '';
+    }
+  });
   const [loading, setLoading] = useState(false);
 
   // Redirect if already logged in
   useEffect(() => {
     if (!authLoading && isAuthenticated && user) {
-      console.log('🔀 User already logged in, redirecting...');
-      const roleRank = user.role_rank;
-      let path = '/';
-      if (roleRank === 100 || roleRank === 80) path = '/admin';   // Super Admin & Admin
-      else if (roleRank === 10) path = '/vendor';
-      else if (roleRank === 60) path = '/manager';
-      else if (roleRank >= 30 && roleRank <= 50) path = '/officer';
-      navigate(path, { replace: true });
+      navigate(homePathFor(user), { replace: true });
     }
   }, [isAuthenticated, user, authLoading, navigate]);
-
-  // Test credentials – includes Admin (PO) with rank 80
-  const testCredentials = [
-    { label: 'Super Admin', email: 'admin@apts.gov.in', password: 'Admin@123' },
-    { label: 'Admin (PO)', email: 'admin1@gov.in', password: 'Admin@123' },
-    { label: 'PM', email: 'pm_user@apts.gov.in', password: 'password123' },
-    { label: 'TPA', email: 'tpa_user@apts.gov.in', password: 'password123' },
-    { label: 'JD-Infra', email: 'jd_infra@apts.gov.in', password: 'password123' },
-    { label: 'APTS Manager', email: 'apts_manager@apts.gov.in', password: 'password123' },
-    { label: 'Vendor', email: 'vendor@example.com', password: 'password123' },
-  ];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -44,37 +48,12 @@ export default function Login() {
     setLoading(true);
     
     try {
-      console.log('🔐 Attempting login...');
-      const result = await login(email, password);
-      console.log('📊 Login result:', result);
-      
-      if (result && result.success) {
-        console.log('✅ Login successful, redirecting...');
-        const userData = result.user;
-        const roleRank = userData.role_rank;
-        let path = '/';
-        if (roleRank === 100 || roleRank === 80) path = '/admin';
-        else if (roleRank === 10) path = '/vendor';
-        else if (roleRank === 60) path = '/manager';
-        else if (roleRank >= 30 && roleRank <= 50) path = '/officer';
-        navigate(path, { replace: true });
-      } else if (result && !result.success) {
-        setError(result.error || 'Login failed');
-      }
-    } catch (err) {
-      console.error('❌ Login error:', err);
-      if (err instanceof ApiError) {
-        if (err.status === 401) {
-          setError('Invalid credentials. Please check your email and password.');
-        } else if (err.status === 429) {
-          setError('Too many failed attempts. Your account is temporarily locked.');
-        } else {
-          setError(err.message || 'Authentication failed. Please try again.');
-        }
-      } else if (err.message) {
-        setError(err.message);
+      const result = await login(email.trim(), password);
+      if (result?.success) {
+        setPassword('');
+        navigate(homePathFor(result.user), { replace: true });
       } else {
-        setError('Login failed. Please try again.');
+        setError(result?.error || 'Login failed. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -213,6 +192,11 @@ export default function Login() {
             </div>
 
             <form onSubmit={handleSubmit}>
+              {notice && !error && (
+                <div className="alert alert-info py-2 text-center small border-0 rounded-3">
+                  <i className="bi bi-clock-history me-2"></i>{notice}
+                </div>
+              )}
               {error && (
                 <div className="alert alert-danger py-2 text-center small border-0 rounded-3 d-flex align-items-center justify-content-center">
                   <i className="bi bi-exclamation-triangle-fill me-2"></i>
@@ -235,6 +219,8 @@ export default function Login() {
                     value={email} 
                     onChange={(e) => setEmail(e.target.value)} 
                     required 
+                    autoComplete="username"
+                    maxLength={254}
                     autoFocus
                   />
                 </div>
@@ -255,6 +241,8 @@ export default function Login() {
                     value={password} 
                     onChange={(e) => setPassword(e.target.value)} 
                     required 
+                    autoComplete="current-password"
+                    maxLength={128}
                   />
 
                   {/* 👁 Eye toggle – boxed style, right */}
@@ -357,20 +345,20 @@ export default function Login() {
               </button>
             </form>
 
-            {/* Test Credentials Section */}
+            {/* Test Credentials Section (development builds only) */}
+            {TEST_CREDENTIALS.length > 0 && (
             <div className="mt-4 pt-3 border-top">
               <p className="text-muted small text-center mb-2">
                 <i className="bi bi-info-circle me-1"></i>
                 Test Credentials (Click to auto-fill)
               </p>
               <div className="d-flex flex-wrap gap-2 justify-content-center">
-                {testCredentials.map((cred, index) => (
+                {TEST_CREDENTIALS.map((cred, index) => (
                   <button 
                     key={index}
                     type="button"
                     className="btn btn-sm btn-outline-secondary rounded-pill px-3"
                     onClick={() => {
-                      console.log('🔑 Using test credentials:', cred.label);
                       setEmail(cred.email);
                       setPassword(cred.password);
                     }}
@@ -381,6 +369,7 @@ export default function Login() {
                 ))}
               </div>
             </div>
+            )}
           </div>
         </div>
       </div>

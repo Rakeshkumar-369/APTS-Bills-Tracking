@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { claimsService, projectsService, poService, usersService } from '../services';
 import { useAuth } from '../context/AuthContext';
+import { decodeEntities, formatINR } from '../utils/text';
 
-const MAX_FILE_SIZE_MB = 10;
+const MAX_FILE_SIZE_MB = 25; // matches the server limit (MAX_UPLOAD_MB)
+const ACCEPTED_TYPES = '.pdf,.jpg,.jpeg,.png,.webp';
+const todayISO = () => new Date().toISOString().slice(0, 10);
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 export default function ClaimCreate() {
@@ -28,6 +31,9 @@ export default function ClaimCreate() {
     project_id: queryProjectId || '',
     po_id: queryPoId || '',
     remarks: '',
+    claimed_amount: '',
+    invoice_number: '',
+    invoice_date: '',
     files: [],
     certification_files: [], // optional
   });
@@ -56,8 +62,7 @@ export default function ClaimCreate() {
             ? projectList
             : [];
           setProjects(list);
-        } catch (projectError) {
-          console.error('Error fetching projects:', projectError);
+        } catch {
           setProjects([]);
         }
 
@@ -66,12 +71,10 @@ export default function ClaimCreate() {
           const poResponse = await poService.list({ vendor_id: vendorId });
           const poData = poResponse?.data?.items || poResponse?.data || poResponse || [];
           setPurchaseOrders(Array.isArray(poData) ? poData : []);
-        } catch (poError) {
-          console.error('Error fetching POs:', poError);
+        } catch {
           setPurchaseOrders([]);
         }
-      } catch (err) {
-        console.error('Error fetching data:', err);
+      } catch {
         setError('Failed to load required data. Please try again.');
         setProjects([]);
         setPurchaseOrders([]);
@@ -125,8 +128,7 @@ export default function ClaimCreate() {
           ? officersList
           : [];
         setOfficers(oList);
-      } catch (officerError) {
-        console.warn('Could not fetch officers:', officerError.message);
+      } catch {
         setOfficers([]);
       } finally {
         setOfficersLoading(false);
@@ -175,6 +177,23 @@ export default function ClaimCreate() {
       setError('Please enter remarks (minimum 3 characters)');
       return;
     }
+    const amount = Number(formData.claimed_amount);
+    if (!formData.claimed_amount || !(amount > 0)) {
+      setError('Please enter the amount being claimed');
+      return;
+    }
+    if (poBalance !== null && amount > poBalance) {
+      setError(`Claimed amount exceeds the remaining PO balance of ${formatINR(poBalance)}`);
+      return;
+    }
+    if (!formData.invoice_number.trim()) {
+      setError('Please enter the invoice / bill number');
+      return;
+    }
+    if (formData.files.length === 0) {
+      setError('Please attach at least one invoice / bill document');
+      return;
+    }
 
     // Officer selection is only required in manual-assignment mode
     // (i.e. the project has no workflow_id). Workflow-routed projects
@@ -207,6 +226,9 @@ export default function ClaimCreate() {
         project_id: parseInt(formData.project_id),
         po_id: parseInt(formData.po_id),
         remarks: formData.remarks.trim(),
+        claimed_amount: amount.toFixed(2),
+        invoice_number: formData.invoice_number.trim(),
+        invoice_date: formData.invoice_date || undefined,
       };
 
       if (userId) {
@@ -233,8 +255,7 @@ export default function ClaimCreate() {
             `Claim assigned to officer for review`
           );
           setSuccess('Claim created successfully and assigned to the selected officer for review!');
-        } catch (assignError) {
-          console.error('Claim created but assignment failed:', assignError);
+        } catch {
           setSuccess(
             'Claim created successfully, but assigning the officer failed. You can assign it from the claims list.'
           );
@@ -251,8 +272,7 @@ export default function ClaimCreate() {
 
       setTimeout(() => navigate('/vendor/claims'), 2000);
     } catch (err) {
-      console.error('Error creating claims:', err);
-      setError(err.message || 'Failed to create claims. Please try again.');
+      setError(err.message || 'Failed to create claim. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -293,7 +313,10 @@ export default function ClaimCreate() {
   };
 
   const projectPOs = getProjectPOs();
-  const selectedOfficerDetails = officers.find((o) => o.id === selectedOfficer);
+  const selectedPO = purchaseOrders.find((po) => String(po.id) === String(formData.po_id));
+  const poAmount = selectedPO?.amount ? Number(selectedPO.amount) : null;
+  const poClaimed = Number(selectedPO?.claimed_total || 0);
+  const poBalance = poAmount !== null ? Math.max(0, Math.round((poAmount - poClaimed) * 100) / 100) : null;
 
   if (loading) {
     return (
@@ -367,10 +390,10 @@ export default function ClaimCreate() {
                         <span className="badge bg-success">Active</span>
                       </div>
                       <h5 className="fw-bold text-dark mb-2">
-                        {project.project_name || project.name}
+                        {decodeEntities(project.project_name || project.name)}
                       </h5>
                       <p className="text-muted small mb-3">
-                        {project.description || 'No description provided.'}
+                        {decodeEntities(project.description) || 'No description provided.'}
                       </p>
                       {project.location && (
                         <div className="small text-muted mb-3">
@@ -505,10 +528,19 @@ export default function ClaimCreate() {
                   </select>
                 ) : (
                   <div className="form-control bg-light font-semibold">
-                    PO #{formData.po_id}
+                    {selectedPO?.po_number || `PO #${formData.po_id}`}
                   </div>
                 )}
               </div>
+              {poAmount !== null && (
+                <div className="col-12">
+                  <div className="d-flex flex-wrap gap-3 small bg-light border rounded p-2">
+                    <span>PO value: <strong>{formatINR(poAmount)}</strong></span>
+                    <span>Already claimed: <strong>{formatINR(poClaimed)}</strong></span>
+                    <span>Remaining balance: <strong className={poBalance > 0 ? 'text-success' : 'text-danger'}>{formatINR(poBalance)}</strong></span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -562,6 +594,34 @@ export default function ClaimCreate() {
           </div>
         )}
 
+        {/* Bill details */}
+        <div className="card border-0 shadow-sm mb-4">
+          <div className="card-body">
+            <h6 className="fw-bold mb-3">Bill Details</h6>
+            <div className="row g-3">
+              <div className="col-md-4">
+                <label htmlFor="claimed-amount" className="form-label small fw-semibold">Amount claimed (₹) <span className="text-danger">*</span></label>
+                <input id="claimed-amount" type="number" inputMode="decimal" min="0.01" step="0.01"
+                  max={poBalance ?? undefined} className="form-control" placeholder="0.00" required
+                  value={formData.claimed_amount}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, claimed_amount: e.target.value }))} />
+              </div>
+              <div className="col-md-4">
+                <label htmlFor="invoice-number" className="form-label small fw-semibold">Invoice / bill number <span className="text-danger">*</span></label>
+                <input id="invoice-number" type="text" className="form-control" maxLength={100} required
+                  placeholder="e.g. INV/2026/045" value={formData.invoice_number}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, invoice_number: e.target.value }))} />
+              </div>
+              <div className="col-md-4">
+                <label htmlFor="invoice-date" className="form-label small fw-semibold">Invoice date</label>
+                <input id="invoice-date" type="date" className="form-control" max={todayISO()}
+                  value={formData.invoice_date}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, invoice_date: e.target.value }))} />
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Step 4: Remarks & Documents */}
         <div className="row g-4 mb-4">
           <div className="col-md-8">
@@ -570,6 +630,7 @@ export default function ClaimCreate() {
                 <h6 className="fw-bold mb-3">Remarks / Description</h6>
                 <textarea
                   className="form-control"
+                  maxLength={500}
                   rows="5"
                   placeholder="Describe the claim details, work completed for this period, etc..."
                   value={formData.remarks}
@@ -584,16 +645,16 @@ export default function ClaimCreate() {
           <div className="col-md-4">
             <div className="card border-0 shadow-sm h-100">
               <div className="card-body">
-                <h6 className="fw-bold mb-3">Attach Invoice / Documents</h6>
+                <h6 className="fw-bold mb-3">Attach Invoice / Bill <span className="text-danger">*</span></h6>
                 <input
                   type="file"
                   className="form-control"
                   multiple
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+                  accept={ACCEPTED_TYPES}
                   onChange={handleFileChange}
                 />
                 <small className="text-muted d-block mt-2">
-                  PDF, Word, Excel, Images (Max {MAX_FILE_SIZE_MB}MB)
+                  PDF or image (JPG, PNG, WEBP), max {MAX_FILE_SIZE_MB} MB each
                 </small>
 
                 {formData.files.length > 0 && (
@@ -639,11 +700,11 @@ export default function ClaimCreate() {
               type="file"
               className="form-control"
               multiple
-              accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+              accept={ACCEPTED_TYPES}
               onChange={handleCertFileChange}
             />
             <small className="text-muted d-block mt-2">
-              PDF, Word, Excel, Images (Max {MAX_FILE_SIZE_MB}MB)
+              PDF or image (JPG, PNG, WEBP), max {MAX_FILE_SIZE_MB} MB each
             </small>
 
             {formData.certification_files.length > 0 && (

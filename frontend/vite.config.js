@@ -7,12 +7,15 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      // Same-origin /api in development, so the HttpOnly refresh cookie works
       '/api': {
-        target: 'http://localhost:5000',
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:5000',
         changeOrigin: true,
-        secure: false,
-        rewrite: (path) => path
-      }
-    }
-  }
+      },
+    },
+  },
+  build: {
+    sourcemap: false,            // never ship source maps to production
+    chunkSizeWarningLimit: 600,  // PDF.js is lazy-loaded; everything else is far smaller
+  },
 })

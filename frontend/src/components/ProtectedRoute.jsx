@@ -1,29 +1,13 @@
 // src/components/ProtectedRoute.jsx
-import React from 'react';
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import PageLoader from './PageLoader';
 
 export default function ProtectedRoute() {
-  const { user, loading, isAuthenticated } = useAuth();
+  const { loading, isAuthenticated } = useAuth();
+  const location = useLocation();
 
-  if (loading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '100vh' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Check localStorage as fallback
-  const storedUser = localStorage.getItem('user');
-  const token = localStorage.getItem('accessToken');
-  
-  if (!isAuthenticated && !user && !(storedUser && token)) {
-    console.log('🔒 Not authenticated, redirecting to /login');
-    return <Navigate to="/login" replace />;
-  }
-
+  if (loading) return <PageLoader fullScreen />;
+  if (!isAuthenticated) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   return <Outlet />;
 }

@@ -1,5 +1,5 @@
 // src/pages/ADMIN/RolesAdmin.jsx
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { rolesService } from '../../services';
 
 // Known modules and their actions (any extra keys already on a role are kept and shown too)
@@ -158,6 +158,11 @@ export default function RolesAdmin() {
         ...formData,
         permissions
       };
+      // Only send the name when it changed: built-in names such as "JD-Infra"
+      // predate the alphanumeric naming rule and would otherwise fail validation.
+      if (editingRole && payload.role_name === editingRole.role_name) {
+        delete payload.role_name;
+      }
       
       if (editingRole) {
         await rolesService.update(editingRole.id, payload);

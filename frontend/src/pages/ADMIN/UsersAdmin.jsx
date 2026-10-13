@@ -1,5 +1,5 @@
 // src/pages/ADMIN/UsersAdmin.jsx
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { usersService, rolesService, vendorsService } from '../../services';
 
 export default function UsersAdmin() {
@@ -295,7 +295,9 @@ export default function UsersAdmin() {
                         value={formData.password}
                         onChange={handleInputChange}
                         required={!editingUser}
-                        minLength="6"
+                        minLength="8"
+                        maxLength="64"
+                        autoComplete="new-password"
                       />
                     </div>
                     <div className="col-md-6 mb-3">

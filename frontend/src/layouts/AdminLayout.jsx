@@ -1,5 +1,5 @@
 // src/layouts/AdminLayout.jsx
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ChangePasswordModal from '../components/ChangePasswordModal';
@@ -8,48 +8,23 @@ export default function AdminLayout() {
   const { user, logout, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  // Closed by default on phones so the sidebar never covers the page on load
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [showChangePassword, setShowChangePassword] = useState(false);
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [lastLogin, setLastLogin] = useState(null);
+  // Previous login time as reported by the server at sign-in
+  const lastLogin = user?.last_login || null;
 
-  console.log('🏗️ AdminLayout rendered with user:', user?.email);
-
-  // Handle window resize
+  // Only react when crossing the mobile breakpoint
   useEffect(() => {
-    const handleResize = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile(mobile);
-      if (!mobile) setSidebarOpen(true);
-      else setSidebarOpen(false);
+    const mq = window.matchMedia('(max-width: 767.98px)');
+    const onChange = (e) => {
+      setIsMobile(e.matches);
+      setSidebarOpen(!e.matches);
     };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
   }, []);
-
-  // Last login tracking
-  useEffect(() => {
-    if (user) {
-      const stored = localStorage.getItem(`lastLogin_${user.id || user.email}`);
-      if (stored) setLastLogin(new Date(parseInt(stored)));
-      else {
-        const now = Date.now();
-        localStorage.setItem(`lastLogin_${user.id || user.email}`, now.toString());
-        setLastLogin(new Date(now));
-      }
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (user) {
-      const update = () => {
-        localStorage.setItem(`lastLogin_${user.id || user.email}`, Date.now().toString());
-      };
-      update();
-      const interval = setInterval(update, 5 * 60 * 1000);
-      return () => clearInterval(interval);
-    }
-  }, [user]);
 
   // Authorization: allow only rank 100 or 80
   useEffect(() => {
@@ -101,19 +76,8 @@ export default function AdminLayout() {
     return false;
   };
 
-  const formatLastLogin = (date) => {
-    if (!date) return 'Never';
-    const now = new Date();
-    const diff = now - date;
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    if (days < 7) return `${days}d ago`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-  };
+  // Server sends the previous login as "DD/MM/YYYY HH:mm:ss" (IST)
+  const formatLastLogin = (value) => value || 'First login';
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const closeSidebar = () => { if (isMobile && sidebarOpen) setSidebarOpen(false); };

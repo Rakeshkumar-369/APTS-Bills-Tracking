@@ -1,8 +1,40 @@
 // src/pages/ADMIN/WorkflowDetail.jsx
-import React, { useState, useEffect } from 'react';
-import { workflowsService } from '../../services';
+import { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { workflowsService, rolesService } from '../../services';
 
-export default function WorkflowDetail({ workflow, roles, onBack }) {
+// Opened directly via /admin/workflows/:id (bookmark / refresh) there are no
+// props, so load the workflow and roles first, then render the editor.
+export default function WorkflowDetailRoute(props) {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [state, setState] = useState({ workflow: props.workflow || null, roles: props.roles || null, error: null });
+
+  useEffect(() => {
+    if (props.workflow) return undefined;
+    let cancelled = false;
+    Promise.all([workflowsService.get(id, { includeDetails: false }), rolesService.list()])
+      .then(([wf, roles]) => {
+        if (!cancelled) setState({ workflow: Array.isArray(wf) ? wf[0] : wf, roles: roles || [], error: null });
+      })
+      .catch((err) => { if (!cancelled) setState((st) => ({ ...st, error: err.message || 'Failed to load workflow' })); });
+    return () => { cancelled = true; };
+  }, [id, props.workflow]);
+
+  if (state.error) return <div className="alert alert-danger m-3">{state.error}</div>;
+  if (!state.workflow || !state.roles) {
+    return <div className="text-center py-5"><div className="spinner-border text-primary" role="status" /></div>;
+  }
+  return (
+    <WorkflowDetail
+      workflow={state.workflow}
+      roles={state.roles}
+      onBack={props.onBack || (() => navigate('/admin/workflows'))}
+    />
+  );
+}
+
+function WorkflowDetail({ workflow, roles, onBack }) {
   const [steps, setSteps] = useState([]);
   const [transitions, setTransitions] = useState([]);
   const [loading, setLoading] = useState(false);

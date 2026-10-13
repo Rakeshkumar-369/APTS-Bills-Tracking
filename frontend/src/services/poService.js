@@ -1,4 +1,4 @@
-import api, { getAccessToken } from './apiClient';
+import api, { saveBlob } from './apiClient';
 import buildQuery from './queryString';
 
 const BASE = '/purchase-orders';
@@ -18,42 +18,12 @@ const FIELD_CONFIG = {
   jsonStringified: [],
 };
 
-// ---------- helpers ----------
-
-async function customFetch(path, options = {}) {
-  const token = getAccessToken();
-  const url = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'}${path}`;
-  const headers = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
-  
-  const res = await fetch(url, {
-    credentials: 'include',
-    headers,
-    ...options,
-  });
-
-  if (!res.ok) {
-    let msg = `Request failed with status ${res.status}`;
-    try {
-      const errBody = await res.json();
-      msg = errBody.message || msg;
-    } catch (_) { /* ignore */ }
-    throw new Error(msg);
-  }
-  return res;
-}
-
 // ---------- service ----------
 
 export const poService = {
   list: async (params = {}) => {
     const query = buildQuery(params);
-    const res = await customFetch(`${BASE}${query}`);
-    const body = await res.json();
-    return {
-      data: body.data || [],
-      meta: body.meta || { total: 0 },
-    };
+    return api.get(`${BASE}${query}`, { withMeta: true });
   },
 
   get: async (id, options = {}) => {
@@ -89,7 +59,7 @@ export const poService = {
       else if (FIELD_CONFIG.array.includes(key) && Array.isArray(value)) {
         // Send each array item individually
         if (value.length > 0) {
-          value.forEach((item, index) => {
+          value.forEach((item) => {
             formData.append(`${key}[]`, item);
           });
         }
@@ -113,12 +83,6 @@ export const poService = {
     // Append files
     if (files && files.length > 0) {
       files.forEach(file => formData.append('files', file));
-    }
-
-    // Debug logging
-    console.log('📤 Dynamic Form Data being sent:');
-    for (let [key, value] of formData.entries()) {
-      console.log(`${key}:`, value);
     }
 
     return await api.postForm(BASE, formData);
@@ -148,16 +112,8 @@ export const poService = {
   },
 
   downloadFile: async (poId, fileId, filename = 'file') => {
-    const res = await customFetch(`${BASE}/${poId}/files/${fileId}/download`);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    const { blob, filename: serverName } = await api.blob(`${BASE}/${poId}/files/${fileId}/download`);
+    saveBlob(blob, serverName || filename);
   },
 };
 

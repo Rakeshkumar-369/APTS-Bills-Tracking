@@ -1,5 +1,5 @@
 // src/pages/ADMIN/VendorsAdmin.jsx
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { vendorsService, projectsService } from '../../services';
 
 export default function VendorsAdmin() {

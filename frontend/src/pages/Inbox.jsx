@@ -3,6 +3,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { inboxService } from '../services';
 import { useAuth } from '../context/AuthContext';
+import StatusBadge from '../components/StatusBadge';
+import { decodeEntities, formatINR } from '../utils/text';
 
 // Given a nested pathname like "/officer/inbox" or "/manager/outbox",
 // figure out which tab it represents and the "base" (role) segment.
@@ -33,11 +35,10 @@ export default function Inbox() {
         inboxService.stats(),
       ]);
 
-      // Handle different response formats
-      setClaims(listRes?.data || listRes || []);
-      setStats(statsRes?.data || statsRes || { total: 0, pending: 0, returned: 0 });
+      setClaims(Array.isArray(listRes) ? listRes : []);
+      const s = Array.isArray(statsRes) ? statsRes[0] : statsRes;
+      setStats({ total: Number(s?.total || 0), pending: Number(s?.pending || 0), returned: Number(s?.returned || 0) });
     } catch (err) {
-      console.error('Inbox load error:', err);
       setError(err.message || 'Failed to load inbox.');
     } finally {
       setLoading(false);
@@ -79,18 +80,18 @@ export default function Inbox() {
         };
 
   return (
-    <div className="container py-4">
+    <div className="container-fluid py-2 py-md-3">
       <div className="d-flex justify-content-between align-items-center mb-3">
         <div>
           <h4 className="mb-0">My Desk</h4>
-          <p className="text-muted small mb-0">{user?.role_name || user?.role} — {user?.name}</p>
+          <p className="text-muted small mb-0">{user?.role_name} — {decodeEntities(user?.name)}</p>
         </div>
       </div>
 
       <div className="row g-3 mb-4">
-        <StatCard label="Total" value={stats.total} />
-        <StatCard label="Pending" value={stats.pending} tone="warning" />
-        <StatCard label="Returned" value={stats.returned} tone="danger" />
+        <StatCard label="Awaiting action" value={stats.total} />
+        <StatCard label="In progress" value={stats.pending} tone="warning" />
+        <StatCard label="Returned (with vendor)" value={stats.returned} tone="danger" />
       </div>
 
       <ul className="nav nav-tabs mb-3">
@@ -134,21 +135,27 @@ export default function Inbox() {
             <thead>
               <tr>
                 <th>Claim</th>
-                <th>Vendor</th>
-                <th>Project</th>
+                <th className="d-none d-md-table-cell">Vendor</th>
+                <th className="d-none d-lg-table-cell">Project</th>
+                <th className="d-none d-sm-table-cell text-end">Amount</th>
                 <th>Status</th>
-                <th>Current step</th>
+                <th className="d-none d-md-table-cell">{tab === 'inbox' ? 'Days at desk' : 'Currently with'}</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {claims.map((pkg) => (
                 <tr key={pkg.id}>
-                  <td className="fw-medium">{pkg.claim_code}</td>
-                  <td>{pkg.vendor_name || pkg.vendor?.vendor_name}</td>
-                  <td>{pkg.project_name || pkg.project?.project_name}</td>
+                  <td className="fw-medium text-nowrap">{pkg.claim_code}</td>
+                  <td className="d-none d-md-table-cell">{decodeEntities(pkg.vendor_name)}</td>
+                  <td className="d-none d-lg-table-cell">{decodeEntities(pkg.project_name)}</td>
+                  <td className="d-none d-sm-table-cell text-end text-nowrap">{pkg.claimed_amount ? formatINR(pkg.claimed_amount) : '—'}</td>
                   <td><StatusBadge status={pkg.status} /></td>
-                  <td>{pkg.current_step_name || pkg.current_step?.step_name}</td>
+                  <td className="d-none d-md-table-cell">
+                    {tab === 'inbox'
+                      ? <span className={Number(pkg.days_at_current_stage) > 7 ? 'text-danger fw-semibold' : ''}>{pkg.days_at_current_stage ?? 0} day(s)</span>
+                      : pkg.status === 'COMPLETED' ? '—' : decodeEntities(pkg.current_step_name) || '—'}
+                  </td>
                   <td className="text-end">
                   <div className="d-flex justify-content-end gap-2">
   <button
@@ -173,7 +180,7 @@ export default function Inbox() {
 function StatCard({ label, value, tone }) {
   const toneClass = tone ? `text-bg-${tone}` : 'bg-body-secondary';
   return (
-    <div className="col-sm-4">
+    <div className="col-4">
       <div className={`card ${toneClass}`}>
         <div className="card-body">
           <div className="small">{label}</div>
@@ -182,19 +189,4 @@ function StatCard({ label, value, tone }) {
       </div>
     </div>
   );
-}
-
-export function StatusBadge({ status }) {
-  const map = {
-    PENDING: 'text-bg-warning',
-    APPROVED: 'text-bg-success',
-    COMPLETED: 'text-bg-success',
-    RETURNED: 'text-bg-danger',
-    SENT_BACK: 'text-bg-danger',
-    IN_PROGRESS: 'text-bg-info',
-    REJECTED: 'text-bg-danger',
-    SUBMITTED: 'text-bg-primary',
-  };
-  const cls = map[status?.toUpperCase()] || 'text-bg-secondary';
-  return <span className={`badge ${cls}`}>{status || 'Unknown'}</span>;
 }

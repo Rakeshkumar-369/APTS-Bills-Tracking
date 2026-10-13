@@ -1,16 +1,15 @@
-# React + Vite
+# APTS Bills Tracking — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + Vite single-page app. Setup and run instructions are in the [root README](../README.md).
 
-Currently, two official plugins are available:
+```bash
+npm install
+npm run dev      # http://localhost:5173 (proxies /api to http://localhost:5000)
+npm run lint
+npm run build    # production bundle in dist/ (served by the backend when NODE_ENV=production)
+```
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Notes:
+- Pages are lazy-loaded per route; PDF.js loads only when a claim is opened.
+- The access token is held in memory only; the session is restored from the HttpOnly refresh cookie.
+- Optional settings: see `.env.example` (`VITE_API_BASE_URL`, `VITE_PROXY_TARGET`, `VITE_IDLE_TIMEOUT_MINUTES`).

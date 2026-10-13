@@ -1,67 +1,49 @@
 // src/App.jsx
-import React, { useEffect } from 'react';
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import RoleBasedRedirect from './components/RoleBasedRedirect';
 import RoleGuard from './components/RoleGuard';
-
-// Layouts
-import AdminLayout from './layouts/AdminLayout';
-import UnifiedLayout from './layouts/UnifiedLayout';
-import OfficerClaimReview from './pages/OfficerClaimReview';
-
-// Admin Components
-import AdminDashboard from './pages/ADMIN/AdminDashboard';
-import UsersAdmin from './pages/ADMIN/UsersAdmin';
-import VendorsAdmin from './pages/ADMIN/VendorsAdmin';
-import ProjectsAdmin from './pages/ADMIN/ProjectsAdmin';
-import RolesAdmin from './pages/ADMIN/RolesAdmin';
-import WorkflowsAdmin from './pages/ADMIN/WorkflowsAdmin';
-import WorkflowDetail from './pages/ADMIN/WorkflowDetail';
-import PurchaseOrdersAdmin from './pages/ADMIN/PurchaseOrdersAdmin';
-
-// Other Pages
+import PageLoader from './components/PageLoader';
 import Login from './pages/Login';
-import UnifiedDashboard from './pages/UnifiedDashboard';
-import ClaimCreate from './pages/ClaimCreate';
-import ResubmitClaim from './pages/ResubmitClaim';
-import Inbox from './pages/Inbox';
-import MyClaims from './pages/MyClaims';
-import ClaimDetail from './pages/ClaimDetail';
-import MatchInvoice from './pages/MatchInvoice';
-import PdfViewerPage from './pages/PdfViewerPage';
 
-// New Vendor Flow Pages
-import VendorProjectPOs from './pages/VendorProjectPOs';
-import VendorPOClaimsHistory from './pages/VendorPOClaimsHistory';
+// Route-level code splitting: each page is downloaded only when first visited,
+// so the initial bundle stays small (PDF.js, admin screens etc. load on demand).
+const AdminLayout = lazy(() => import('./layouts/AdminLayout'));
+const UnifiedLayout = lazy(() => import('./layouts/UnifiedLayout'));
+const AdminDashboard = lazy(() => import('./pages/ADMIN/AdminDashboard'));
+const UsersAdmin = lazy(() => import('./pages/ADMIN/UsersAdmin'));
+const VendorsAdmin = lazy(() => import('./pages/ADMIN/VendorsAdmin'));
+const ProjectsAdmin = lazy(() => import('./pages/ADMIN/ProjectsAdmin'));
+const RolesAdmin = lazy(() => import('./pages/ADMIN/RolesAdmin'));
+const WorkflowsAdmin = lazy(() => import('./pages/ADMIN/WorkflowsAdmin'));
+const WorkflowDetail = lazy(() => import('./pages/ADMIN/WorkflowDetail'));
+const PurchaseOrdersAdmin = lazy(() => import('./pages/ADMIN/PurchaseOrdersAdmin'));
+const UnifiedDashboard = lazy(() => import('./pages/UnifiedDashboard'));
+const ClaimCreate = lazy(() => import('./pages/ClaimCreate'));
+const ResubmitClaim = lazy(() => import('./pages/ResubmitClaim'));
+const Inbox = lazy(() => import('./pages/Inbox'));
+const MyClaims = lazy(() => import('./pages/MyClaims'));
+const ClaimDetail = lazy(() => import('./pages/ClaimDetail'));
+const PdfViewerPage = lazy(() => import('./pages/PdfViewerPage'));
+const VendorProjectPOs = lazy(() => import('./pages/VendorProjectPOs'));
+const VendorPOClaimsHistory = lazy(() => import('./pages/VendorPOClaimsHistory'));
 
-// Loading Screen Component
-function LoadingScreen() {
-  return (
-    <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '100vh' }}>
-      <div className="text-center">
-        <div className="spinner-border text-primary" style={{ width: '3rem', height: '3rem' }} role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-        <p className="mt-3 text-muted">Loading APTS Portal...</p>
-      </div>
-    </div>
-  );
+// Old "/claims/:id/review" links now open the unified claim page
+function ReviewRedirect() {
+  return <Navigate to=".." relative="path" replace />;
 }
 
 export default function App() {
-  const { user, loading, isAuthenticated } = useAuth();
-
-  useEffect(() => {
-    console.log('🔍 App State:', { user, loading, isAuthenticated });
-  }, [user, loading, isAuthenticated]);
+  const { loading } = useAuth();
 
   if (loading) {
-    return <LoadingScreen />;
+    return <PageLoader fullScreen label="Loading APTS Portal..." />;
   }
 
   return (
+    <Suspense fallback={<PageLoader />}>
     <Routes>
       {/* Public Routes */}
       <Route path="/login" element={<Login />} />
@@ -119,7 +101,7 @@ export default function App() {
             <Route index element={<UnifiedDashboard />} />
             <Route path="inbox" element={<Inbox />} />
             <Route path="outbox" element={<Inbox />} />
-            <Route path="claims/:id/review" element={<OfficerClaimReview />} />
+            <Route path="claims/:id/review" element={<ReviewRedirect />} />
             <Route path="claims/:id" element={<ClaimDetail />} />
             <Route path="*" element={<Navigate to="/officer" replace />} />
           </Route>
@@ -133,8 +115,7 @@ export default function App() {
             <Route index element={<UnifiedDashboard />} />
             <Route path="inbox" element={<Inbox />} />
             <Route path="outbox" element={<Inbox />} />
-            <Route path="match" element={<MatchInvoice />} />
-            <Route path="claims/:id/review" element={<OfficerClaimReview />} />
+            <Route path="claims/:id/review" element={<ReviewRedirect />} />
             <Route path="claims/:id" element={<ClaimDetail />} />
             <Route path="*" element={<Navigate to="/manager" replace />} />
           </Route>
@@ -144,5 +125,6 @@ export default function App() {
       {/* ============ FALLBACK ROUTE ============ */}
       <Route path="*" element={<RoleBasedRedirect />} />
     </Routes>
+    </Suspense>
   );
 }

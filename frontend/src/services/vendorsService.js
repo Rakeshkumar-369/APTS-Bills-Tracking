@@ -54,7 +54,7 @@ export const vendorsService = {
             ...vendor,
             projectIds: projects.map(p => p.id),
           };
-        } catch (err) {
+        } catch {
           // Fallback: no projects
           return { ...vendor, projectIds: [] };
         }

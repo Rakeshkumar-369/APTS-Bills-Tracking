@@ -1,5 +1,5 @@
 // src/pages/ADMIN/WorkflowsAdmin.jsx
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { workflowsService, rolesService } from '../../services';
 import WorkflowDetail from './WorkflowDetail';
 
@@ -72,17 +72,23 @@ export default function WorkflowsAdmin() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this workflow?')) return;
-    
+  // There is no hard delete for workflows (claims keep referencing them), so the
+  // action deactivates / reactivates the workflow instead.
+  const handleToggleActive = async (workflow) => {
+    const activate = !workflow.is_active;
+    const msg = activate
+      ? `Reactivate workflow "${workflow.workflow_name}"?`
+      : `Deactivate workflow "${workflow.workflow_name}"? Projects using it will not be able to start new claims until it is reactivated.`;
+    if (!window.confirm(msg)) return;
+
     try {
       setLoading(true);
-      // Note: You might need a delete method in workflowsService
-      // For now, we'll just show a message
-      setSuccess('Workflow deletion will be implemented');
+      await workflowsService.update(workflow.id, { is_active: activate });
+      setSuccess(`Workflow ${activate ? 'reactivated' : 'deactivated'}`);
       setTimeout(() => setSuccess(null), 3000);
+      fetchData();
     } catch (err) {
-      setError(err.message || 'Failed to delete workflow');
+      setError(err.message || 'Failed to update workflow');
     } finally {
       setLoading(false);
     }
@@ -189,10 +195,12 @@ export default function WorkflowsAdmin() {
                           <i className="bi bi-eye"></i>
                         </button>
                         <button 
-                          className="btn btn-sm btn-outline-danger"
-                          onClick={() => handleDelete(workflow.id)}
+                          className={`btn btn-sm ${workflow.is_active ? 'btn-outline-danger' : 'btn-outline-success'}`}
+                          onClick={() => handleToggleActive(workflow)}
+                          title={workflow.is_active ? 'Deactivate' : 'Reactivate'}
+                          aria-label={workflow.is_active ? 'Deactivate workflow' : 'Reactivate workflow'}
                         >
-                          <i className="bi bi-trash"></i>
+                          <i className={`bi ${workflow.is_active ? 'bi-slash-circle' : 'bi-check-circle'}`}></i>
                         </button>
                       </td>
                     </tr>

@@ -1,9 +1,16 @@
 // src/components/ChangePasswordModal.jsx
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { authService } from '../services';
 import { ApiError } from '../services/apiClient';
+import { useAuth } from '../context/AuthContext';
+
+// Same rule the API enforces (validators/authValidator.js)
+const PASSWORD_RULE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,64}$/;
 
 export default function ChangePasswordModal({ show, onClose }) {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -35,8 +42,8 @@ export default function ChangePasswordModal({ show, onClose }) {
     setError('');
     setSuccess('');
 
-    if (newPassword.length < 6) {
-      setError('New password must be at least 6 characters long.');
+    if (!PASSWORD_RULE.test(newPassword)) {
+      setError('New password must be 8–64 characters and include an uppercase letter, a lowercase letter, a number and a special character.');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -51,15 +58,17 @@ export default function ChangePasswordModal({ show, onClose }) {
     setLoading(true);
     try {
       await authService.changePassword(currentPassword, newPassword, confirmPassword);
-      setSuccess('Password changed successfully!');
+      setSuccess('Password changed. Please sign in again with your new password.');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      setTimeout(() => {
+      // The server has ended every session for this account — sign out here too
+      setTimeout(async () => {
         handleClose();
+        await logout();
+        navigate('/login', { replace: true });
       }, 1500);
     } catch (err) {
-      console.error('❌ Change password error:', err);
       if (err instanceof ApiError) {
         if (err.status === 401) {
           setError('Current password is incorrect.');
@@ -133,7 +142,9 @@ export default function ChangePasswordModal({ show, onClose }) {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     required
-                    minLength={6}
+                    minLength={8}
+                    maxLength={64}
+                    autoComplete="new-password"
                   />
                   <button
                     type="button"
@@ -155,7 +166,9 @@ export default function ChangePasswordModal({ show, onClose }) {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required
-                    minLength={6}
+                    minLength={8}
+                    maxLength={64}
+                    autoComplete="new-password"
                   />
                   <button
                     type="button"

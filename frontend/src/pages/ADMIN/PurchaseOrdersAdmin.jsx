@@ -1,11 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
 import { poService, projectsService, vendorsService } from '../../services';
-import { useAuth } from '../../context/AuthContext';
 
 export default function PurchaseOrdersAdmin() {
-  const { user } = useAuth();
-  const navigate = useNavigate();
 
   const [pos, setPos] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -295,7 +291,8 @@ export default function PurchaseOrdersAdmin() {
     return { key: 'ON_TRACK', label: `On track (${daysLeft}d left)`, color: '#1d4ed8', bg: '#dbeafe' };
   };
 
-  const DeliveryBadge = ({ po }) => {
+  // Plain render helpers (not components) so they never remount
+  const deliveryBadge = (po) => {
     const info = getDeliveryInfo(po);
     return (
       <span className="px-2 py-1 rounded-pill fw-semibold" style={{ backgroundColor: info.bg, color: info.color, fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
@@ -309,7 +306,7 @@ export default function PurchaseOrdersAdmin() {
     return '₹ ' + parseFloat(amount).toLocaleString('en-IN', { maximumFractionDigits: 2 });
   };
 
-  const StatusBadge = ({ status }) => {
+  const statusBadge = (status) => {
     const map = {
       ACTIVE: { color: '#10b981', bg: '#d1fae5' },
       CLOSED: { color: '#6b7280', bg: '#f3f4f6' },
@@ -418,7 +415,7 @@ export default function PurchaseOrdersAdmin() {
           {error && (
             <div className="alert alert-danger m-3">{error}</div>
           )}
-          <div className="table-responsive">
+          <div className="table-responsive" style={{ opacity: loading ? 0.55 : 1, transition: "opacity .15s" }} aria-busy={loading}>
             <table className="table table-hover align-middle mb-0">
               <thead style={{ backgroundColor: '#f8fafc' }}>
                 <tr>
@@ -446,12 +443,12 @@ export default function PurchaseOrdersAdmin() {
                       <td className="py-2">{po.project_name || 'N/A'}</td>
                       <td className="py-2">{po.vendor_name || 'N/A'}</td>
                       <td className="py-2">{formatCurrency(po.amount)}</td>
-                      <td className="py-2"><StatusBadge status={po.status} /></td>
+                      <td className="py-2">{statusBadge(po.status)}</td>
                       <td className="py-2">
                         <div className="small text-nowrap mb-1">
                           {formatDate(po.delivery_start_date)} <span className="text-muted">→</span> {formatDate(po.delivery_end_date)}
                         </div>
-                        <DeliveryBadge po={po} />
+                        {deliveryBadge(po)}
                       </td>
                       <td className="py-2">{new Date(po.created_at).toLocaleDateString()}</td>
                       <td className="px-4 py-2 text-end">
@@ -728,7 +725,7 @@ export default function PurchaseOrdersAdmin() {
                       <div className="col-md-6">
                         <div className="bg-light p-3 rounded-3">
                           <label className="text-muted small fw-semibold">Status</label>
-                          <p className="mb-0"><StatusBadge status={selectedPo.status} /></p>
+                          <p className="mb-0">{statusBadge(selectedPo.status)}</p>
                         </div>
                       </div>
                       <div className="col-12">
@@ -749,7 +746,7 @@ export default function PurchaseOrdersAdmin() {
                             </div>
                             <div className="col-md-3">
                               <div className="small text-muted">Status</div>
-                              <DeliveryBadge po={selectedPo} />
+                              {deliveryBadge(selectedPo)}
                             </div>
                           </div>
                         </div>

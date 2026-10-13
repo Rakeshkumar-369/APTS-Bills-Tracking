@@ -1,8 +1,10 @@
 // src/pages/MyClaims.jsx
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { claimsService, projectsService, vendorsService } from '../services';
 import { useAuth } from '../context/AuthContext';
+import StatusBadge from '../components/StatusBadge';
+import { decodeEntities, formatDate, formatINR } from '../utils/text';
 
 export default function MyClaims() {
   const { user } = useAuth();
@@ -56,8 +58,8 @@ export default function MyClaims() {
   const fetchClaims = async () => {
     try {
       setLoading(true);
-      const vendorId = user?.vendor_id || user?.id;
-      const data = await claimsService.list({ vendor_id: vendorId });
+      // The API already scopes vendors to their own claims
+      const data = await claimsService.list({ limit: 400 });
       setClaims(data || []);
 
       const total = data?.length || 0;
@@ -73,7 +75,6 @@ export default function MyClaims() {
 
       setStats({ total, pending, completed, returned });
     } catch (err) {
-      console.error('❌ Error fetching claims:', err);
       setError('Failed to load claims: ' + err.message);
     } finally {
       setLoading(false);
@@ -123,30 +124,6 @@ export default function MyClaims() {
     
     return matchesSearch && matchesStatus && matchesProject && matchesVendor;
   });
-
-  const StatusBadge = ({ status }) => {
-    const statusMap = {
-      'PENDING': { color: '#f59e0b', bg: '#fef3c7' },
-      'SUBMITTED': { color: '#3b82f6', bg: '#dbeafe' },
-      'IN_PROGRESS': { color: '#8b5cf6', bg: '#ede9fe' },
-      'COMPLETED': { color: '#10b981', bg: '#d1fae5' },
-      'APPROVED': { color: '#10b981', bg: '#d1fae5' },
-      'RETURNED': { color: '#ef4444', bg: '#fee2e2' },
-      'SENT_BACK': { color: '#ef4444', bg: '#fee2e2' },
-      'REJECTED': { color: '#ef4444', bg: '#fee2e2' },
-    };
-
-    const style = statusMap[status?.toUpperCase()] || { color: '#6b7280', bg: '#f3f4f6' };
-    return (
-      <span className="px-3 py-1 rounded-pill fw-semibold" style={{
-        backgroundColor: style.bg,
-        color: style.color,
-        fontSize: '0.85rem'
-      }}>
-        {status || 'Unknown'}
-      </span>
-    );
-  };
 
   // Main Claims List View
   if (loading) {
@@ -342,7 +319,7 @@ export default function MyClaims() {
                     <i className="bi bi-folder me-1"></i> Project
                   </th>
                   <th className="py-3 text-secondary fw-semibold" style={{ fontSize: '0.9rem', letterSpacing: '0.5px' }}>
-                    <i className="bi bi-building me-1"></i> Vendor
+                    <i className="bi bi-currency-rupee me-1"></i> Amount
                   </th>
                   <th className="py-3 text-secondary fw-semibold" style={{ fontSize: '0.9rem', letterSpacing: '0.5px' }}>
                     <i className="bi bi-circle me-1"></i> Status
@@ -382,18 +359,24 @@ export default function MyClaims() {
                         <td className="py-3" style={{ fontSize: '0.95rem' }}>
                           <span className="badge bg-light text-dark" style={{ fontSize: '0.9rem' }}>{pkg.po_number || 'N/A'}</span>
                         </td>
-                        <td className="py-3" style={{ fontSize: '0.95rem' }}>{pkg.project_name || 'N/A'}</td>
-                        <td className="py-3" style={{ fontSize: '0.95rem' }}>{pkg.vendor_name || 'N/A'}</td>
+                        <td className="py-3" style={{ fontSize: '0.95rem' }}>{decodeEntities(pkg.project_name) || 'N/A'}</td>
+                        <td className="py-3 text-nowrap" style={{ fontSize: '0.95rem' }}>{pkg.claimed_amount ? formatINR(pkg.claimed_amount) : '—'}</td>
                         <td className="py-3"><StatusBadge status={pkg.status} /></td>
                         <td className="py-3">
                           <span className="badge bg-info bg-opacity-10 text-info" style={{ fontSize: '0.9rem' }}>
-                            {pkg?.current_step?.step_name || pkg?.current_step_name || pkg?.status ||'Not Started'}
+                            {pkg.status === 'COMPLETED' ? 'Completed' : pkg.status === 'SENT_BACK' ? 'With you (returned)' : decodeEntities(pkg.current_step_name) || 'Not yet assigned'}
                           </span>
                         </td>
                         <td className="py-3" style={{ fontSize: '0.9rem' }}>
-                          {pkg.created_at ? new Date(pkg.created_at).toLocaleDateString() : 'N/A'}
+                          {formatDate(pkg.created_at)}
                         </td>
-                        <td className="px-4 py-3 text-end">
+                        <td className="px-4 py-3 text-end text-nowrap">
+                          {pkg.status === 'SENT_BACK' && (
+                            <button type="button" className="btn btn-sm btn-warning fw-semibold me-2"
+                              onClick={() => navigate(`/vendor/claims/${pkgId}/resubmit`)}>
+                              <i className="bi bi-arrow-counterclockwise me-1"></i> Re-submit
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="btn btn-sm btn-primary fw-semibold px-3"

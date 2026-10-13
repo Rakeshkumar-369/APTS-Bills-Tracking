@@ -1,5 +1,5 @@
 // src/services/claimsService.js
-import apiClient from './apiClient';
+import apiClient, { saveBlob } from './apiClient';
 import buildQuery from './queryString';
 
 const BASE = '/claims';
@@ -31,6 +31,9 @@ export const claimsService = {
     if (data.remarks) {
       formData.append('remarks', data.remarks);
     }
+    ['claimed_amount', 'invoice_number', 'invoice_date'].forEach((key) => {
+      if (data[key] !== undefined && data[key] !== null && data[key] !== '') formData.append(key, data[key]);
+    });
     files.forEach(file => formData.append('files', file));
     certificationFiles.forEach(file => formData.append('certification_files', file));
 
@@ -46,12 +49,6 @@ export const claimsService = {
   // NEW: APTS Manager final approval – marks claim COMPLETED in both manual and workflow modes.
   approve: async (claimId, remarks) => {
     const response = await apiClient.post(`${BASE}/${claimId}/approve`, { remarks });
-    return response;
-  },
-
-  // Manual-mode completion (alternative to approve – kept for backward compatibility, but not used in new flow)
-  complete: async (claimId, remarks) => {
-    const response = await apiClient.post(`${BASE}/${claimId}/complete`, { remarks });
     return response;
   },
 
@@ -78,8 +75,9 @@ export const claimsService = {
     return response;
   },
 
-  uploadFile: async (claimId, file) => {
+  uploadFile: async (claimId, file, documentType = 'INVOICE') => {
     const formData = new FormData();
+    formData.append('document_type', documentType);
     formData.append('file', file);
     const response = await apiClient.postForm(`${BASE}/${claimId}/files`, formData);
     return response;
@@ -91,18 +89,8 @@ export const claimsService = {
   },
 
   downloadFile: async (claimId, fileId, filename = 'file') => {
-    const response = await apiClient.get(`${BASE}/${claimId}/files/${fileId}/download`, {
-      responseType: 'blob',
-    });
-    const blob = new Blob([response], { type: response.headers['content-type'] });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    const { blob, filename: serverName } = await apiClient.blob(`${BASE}/${claimId}/files/${fileId}/download`);
+    saveBlob(blob, serverName || filename);
   },
 
   getHistory: async (claimId) => {

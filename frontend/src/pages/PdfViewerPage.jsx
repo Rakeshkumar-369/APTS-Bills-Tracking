@@ -1,594 +1,265 @@
 // src/pages/PdfViewerPage.jsx
-import React, { useState, useEffect, useRef } from 'react';
+// Authenticated document viewer for claim attachments. PDFs render with PDF.js
+// (page-by-page, so large bills stay responsive); images render directly.
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import * as pdfjsLib from 'pdfjs-dist';
-import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+// "legacy" build = same PDF.js with polyfills, so bills render on the slightly
+// older Chrome / Edge versions common on office PCs (the modern build needs
+// very recent JS features such as Map.prototype.getOrInsertComputed).
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
+import { api, saveBlob } from '../services/apiClient';
 import { claimsService } from '../services';
+import { decodeEntities } from '../utils/text';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
-const SERVER_ORIGIN = API_BASE.replace(/\/api\/?$/, '');
+const isPdf = (f) => /\.pdf$/i.test(f?.original_name || '') || f?.mime_type === 'application/pdf';
+const isImage = (f) => /\.(png|jpe?g|webp)$/i.test(f?.original_name || '') || /^image\//.test(f?.mime_type || '');
 
-// Converts any relative path returned by the backend into a full absolute URL
-function toAbsoluteUrl(path) {
-  if (!path) return null;
-  if (/^https?:\/\//i.test(path)) return path.replace(/\\/g, '/');
-
-  let normalized = path.replace(/\\/g, '/');
-  normalized = normalized.replace(/^\/?/, '/');
-
-  return `${SERVER_ORIGIN}${normalized}`;
+// Invoices first, then certification documents; newest first within each group
+function orderFiles(files) {
+  return [...(files || [])].sort((a, b) => {
+    if (a.document_type !== b.document_type) return a.document_type === 'CERTIFICATION' ? 1 : -1;
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
 }
 
-export default function PdfViewerPage({ claimId: claimIdProp, onBack: onBackProp, embedded = false } = {}) {
-  const navigate = useNavigate();
-  const { claimId: claimIdFromRoute } = useParams();
-
-  const claimId = claimIdProp ?? claimIdFromRoute;
-  const handleBack = onBackProp ?? (() => navigate(-1));
-
-  // claim/file metadata
-  const [submission, setSubmission] = useState(null);
-  const [metaLoading, setMetaLoading] = useState(true);
-  const [metaError, setMetaError] = useState(null);
-
-  // PDF.js state
-  const [pdfDoc, setPdfDoc] = useState(null);
-  const [totalPages, setTotalPages] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [scale, setScale] = useState(1.0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [pdfSrc, setPdfSrc] = useState(null);
-  const [pagesRendered, setPagesRendered] = useState(0);
-
-  const blobUrlRef = useRef(null);
-  const containerRef = useRef(null);
-  const renderAbortRef = useRef(false);
-  const pageInputRef = useRef(null);
-
-  // Step 1: fetch claim + file metadata
-  useEffect(() => {
-    if (!claimId) {
-      setMetaError('No claim ID was provided.');
-      setMetaLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadMeta = async () => {
-      try {
-        setMetaLoading(true);
-        setMetaError(null);
-
-        const details = await claimsService.get(claimId, { includeDetails: true });
-        if (cancelled) return;
-
-        let fileUrl = null;
-        let fileName = 'document.pdf';
-        let fileSize = 'N/A';
-
-        if (details?.files && details.files.length > 0) {
-          const file = details.files[0];
-          fileName = file.original_name || file.filename || 'document.pdf';
-          fileSize = file.file_size ? `${(file.file_size / 1024).toFixed(1)} KB` : 'N/A';
-
-          if (file.id) {
-            fileUrl = `${API_BASE}/claims/${claimId}/files/${file.id}/download`;
-          } else {
-            const rawUrl = file.url || file.file_path || file.download_url || file.public_url || null;
-            fileUrl = toAbsoluteUrl(rawUrl);
-          }
-        }
-
-        if (!fileUrl && details?.file_url) fileUrl = toAbsoluteUrl(details.file_url);
-        if (!fileUrl && details?.attachment_url) fileUrl = toAbsoluteUrl(details.attachment_url);
-        if (!fileUrl && details?.document_url) fileUrl = toAbsoluteUrl(details.document_url);
-
-        setSubmission({
-          id: details?.claim_code || details?.claimCode || claimId,
-          claimId,
-          vendor: details?.vendor_name || details?.vendor || 'N/A',
-          fileName,
-          fileSize,
-          fileUrl,
-        });
-      } catch (err) {
-        console.error('❌ Error fetching claim details:', err);
-        if (!cancelled) setMetaError(err.message || 'Failed to load claim details');
-      } finally {
-        if (!cancelled) setMetaLoading(false);
-      }
-    };
-
-    loadMeta();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [claimId]);
-
-  // Step 2: fetch the PDF
-  useEffect(() => {
-    if (!submission?.fileUrl) {
-      if (!metaLoading) setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    let fetchedDoc = null;
-
-    const loadPdf = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        setPagesRendered(0);
-        setCurrentPage(1);
-
-        const token = localStorage.getItem('accessToken');
-        if (!token) throw new Error('Not authenticated. Please log in again.');
-
-        const response = await fetch(submission.fileUrl, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!response.ok) {
-          if (response.status === 401 || response.status === 403) {
-            throw new Error('You do not have access to this file.');
-          }
-          if (response.status === 404) {
-            throw new Error('File not found on the server.');
-          }
-          throw new Error(`Failed to load PDF (status ${response.status})`);
-        }
-
-        const arrayBuffer = await response.arrayBuffer();
-        if (cancelled) return;
-
-        if (blobUrlRef.current) {
-          URL.revokeObjectURL(blobUrlRef.current);
-        }
-
-        const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
-        const blobUrl = URL.createObjectURL(blob);
-        blobUrlRef.current = blobUrl;
-        setPdfSrc(blobUrl);
-
-        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer.slice(0) });
-        fetchedDoc = await loadingTask.promise;
-
-        if (cancelled) {
-          fetchedDoc.destroy();
-          URL.revokeObjectURL(blobUrl);
-          blobUrlRef.current = null;
-          return;
-        }
-
-        setPdfDoc(fetchedDoc);
-        setTotalPages(fetchedDoc.numPages);
-      } catch (err) {
-        console.error('❌ Error loading PDF:', err);
-        if (!cancelled) setError(err.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    loadPdf();
-
-    return () => {
-      cancelled = true;
-      if (fetchedDoc) {
-        try { fetchedDoc.destroy(); } catch (_) { /* ignore cleanup errors */ }
-      }
-      if (blobUrlRef.current) {
-        URL.revokeObjectURL(blobUrlRef.current);
-        blobUrlRef.current = null;
-      }
-    };
-  }, [submission?.fileUrl, metaLoading]);
-
-  // Render the current page only (single page view)
-  useEffect(() => {
-    if (!pdfDoc || !containerRef.current) return;
-
-    renderAbortRef.current = false;
-    const container = containerRef.current;
-    container.innerHTML = '';
-
-    const renderPage = async () => {
-      const dpr = window.devicePixelRatio || 1;
-      const page = await pdfDoc.getPage(currentPage);
-      const viewport = page.getViewport({ scale });
-
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-
-      canvas.width = viewport.width * dpr;
-      canvas.height = viewport.height * dpr;
-      canvas.style.width = `${viewport.width}px`;
-      canvas.style.height = `${viewport.height}px`;
-      canvas.style.display = 'block';
-      canvas.style.margin = '0 auto';
-      canvas.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)';
-      canvas.style.borderRadius = '8px';
-      canvas.style.background = 'white';
-      canvas.style.maxWidth = '100%';
-
-      ctx.scale(dpr, dpr);
-
-      try {
-        await page.render({ canvasContext: ctx, viewport }).promise;
-      } catch (err) {
-        if (err?.name === 'RenderingCancelledException') return;
-        console.error('Render error:', err);
-      }
-
-      if (renderAbortRef.current) return;
-
-      container.appendChild(canvas);
-      setPagesRendered(currentPage);
-    };
-
-    renderPage();
-
-    return () => {
-      renderAbortRef.current = true;
-      container.innerHTML = '';
-    };
-  }, [pdfDoc, currentPage, scale]);
-
-  // Navigation functions
-  const goToPreviousPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
-    }
-  };
-
-  const goToNextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage(currentPage + 1);
-    }
-  };
-
-  const goToPage = (pageNum) => {
-    const num = parseInt(pageNum);
-    if (num >= 1 && num <= totalPages) {
-      setCurrentPage(num);
-    }
-  };
-
-  const handlePageInputChange = (e) => {
-    const val = parseInt(e.target.value);
-    if (val >= 1 && val <= totalPages) {
-      setCurrentPage(val);
-    }
-  };
-
-  const handlePageInputKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      const val = parseInt(e.target.value);
-      if (val >= 1 && val <= totalPages) {
-        setCurrentPage(val);
-      } else {
-        e.target.value = currentPage;
-      }
-    }
-  };
-
-  const handleZoomIn = () => setScale((s) => Math.min(s + 0.2, 3.0));
-  const handleZoomOut = () => setScale((s) => Math.max(s - 0.2, 0.5));
-  const handleZoomReset = () => setScale(1.0);
-
-  const handleDownload = () => {
-    if (!pdfSrc) return;
-    const link = document.createElement('a');
-    link.href = pdfSrc;
-    let downloadName = (submission?.fileName || 'document').replace(/\s+/g, '_');
-    if (!downloadName.endsWith('.pdf')) downloadName += '.pdf';
-    link.download = downloadName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // ==============================
-  // Loading claim metadata
-  // ==============================
-  if (metaLoading) {
-    return (
-      <div className="d-flex align-items-center justify-content-center vh-100 bg-light">
-        <div className="text-center">
-          <div className="spinner-border text-primary" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </div>
-          <p className="mt-3 text-muted small fw-semibold">Loading document details...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (metaError) {
-    return (
-      <div className="d-flex align-items-center justify-content-center vh-100 bg-light">
-        <div className="text-center bg-white p-5 rounded-3 shadow-sm border" style={{ maxWidth: '400px' }}>
-          <i className="bi bi-exclamation-triangle fs-1 text-danger mb-3 d-block"></i>
-          <h5 className="text-danger">Couldn't load this claim</h5>
-          <p className="text-muted small mb-4">{metaError}</p>
-          <button className="btn btn-secondary" onClick={handleBack}>
-            <i className="bi bi-arrow-left me-1"></i> Go Back
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!submission?.fileUrl) {
-    return (
-      <div className="d-flex align-items-center justify-content-center vh-100 bg-light">
-        <div className="text-center">
-          <i className="bi bi-file-earmark-pdf fs-1 text-muted mb-3 d-block"></i>
-          <h5 className="text-muted">No PDF available</h5>
-          <p className="text-muted small">The document file could not be found for this claim</p>
-          <button className="btn btn-secondary mt-3" onClick={handleBack}>
-            <i className="bi bi-arrow-left me-1"></i> Go Back
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ==============================
-  // Embedded mode (used in split layout)
-  // ==============================
-  if (embedded) {
-    return (
-      <div className="d-flex flex-column h-100">
-        {/* Toolbar with navigation */}
-        <div className="bg-white border-bottom px-3 py-2 d-flex align-items-center justify-content-between" style={{ flexShrink: 0 }}>
-          <div className="d-flex align-items-center gap-1">
-            <button
-              onClick={handleZoomOut}
-              disabled={!pdfDoc}
-              className="btn btn-outline-secondary btn-sm"
-              title="Zoom Out"
-            >
+function Toolbar({ files, selectedId, onSelect, pdfDoc, scale, setScale, currentPage, totalPages, setCurrentPage, onDownload, canDownload }) {
+  return (
+    <div className="bg-white border-bottom px-2 px-md-3 py-2 d-flex flex-wrap align-items-center gap-2 justify-content-between" style={{ flexShrink: 0 }}>
+      <div className="d-flex align-items-center gap-1 flex-wrap">
+        {files.length > 1 && (
+          <select
+            className="form-select form-select-sm me-1"
+            style={{ maxWidth: 220 }}
+            value={selectedId ?? ''}
+            onChange={(e) => onSelect(Number(e.target.value))}
+            aria-label="Select document"
+          >
+            {files.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.document_type === 'CERTIFICATION' ? '[Cert] ' : ''}{decodeEntities(f.original_name)}
+              </option>
+            ))}
+          </select>
+        )}
+        {pdfDoc && (
+          <>
+            <button onClick={() => setScale((s) => Math.max(s - 0.2, 0.5))} className="btn btn-outline-secondary btn-sm" title="Zoom out" aria-label="Zoom out">
               <i className="bi bi-zoom-out"></i>
             </button>
-            <button
-              onClick={handleZoomReset}
-              disabled={!pdfDoc}
-              className="btn btn-outline-secondary btn-sm"
-              style={{ minWidth: '50px' }}
-              title="Reset Zoom"
-            >
+            <button onClick={() => setScale(1)} className="btn btn-outline-secondary btn-sm" style={{ minWidth: 52 }} title="Reset zoom">
               {Math.round(scale * 100)}%
             </button>
-            <button
-              onClick={handleZoomIn}
-              disabled={!pdfDoc}
-              className="btn btn-outline-secondary btn-sm"
-              title="Zoom In"
-            >
+            <button onClick={() => setScale((s) => Math.min(s + 0.2, 3))} className="btn btn-outline-secondary btn-sm" title="Zoom in" aria-label="Zoom in">
               <i className="bi bi-zoom-in"></i>
             </button>
             <span className="vr mx-1"></span>
-            <button
-              onClick={goToPreviousPage}
-              disabled={!pdfDoc || currentPage <= 1}
-              className="btn btn-outline-secondary btn-sm"
-              title="Previous Page"
-            >
+            <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage <= 1} className="btn btn-outline-secondary btn-sm" aria-label="Previous page">
               <i className="bi bi-chevron-left"></i>
             </button>
-            <div className="d-flex align-items-center gap-1">
-              <input
-                ref={pageInputRef}
-                type="number"
-                className="form-control form-control-sm"
-                style={{ width: '50px', textAlign: 'center' }}
-                value={currentPage}
-                onChange={handlePageInputChange}
-                onKeyDown={handlePageInputKeyDown}
-                min={1}
-                max={totalPages || 1}
-                disabled={!pdfDoc}
-              />
-              <span className="text-muted small">/ {totalPages || '?'}</span>
-            </div>
-            <button
-              onClick={goToNextPage}
-              disabled={!pdfDoc || currentPage >= totalPages}
-              className="btn btn-outline-secondary btn-sm"
-              title="Next Page"
-            >
+            <span className="text-muted small px-1">{currentPage} / {totalPages}</span>
+            <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages} className="btn btn-outline-secondary btn-sm" aria-label="Next page">
               <i className="bi bi-chevron-right"></i>
             </button>
+          </>
+        )}
+      </div>
+      <button onClick={onDownload} disabled={!canDownload} className="btn btn-primary btn-sm">
+        <i className="bi bi-download me-1"></i> Download
+      </button>
+    </div>
+  );
+}
+
+export default function PdfViewerPage({ claimId: claimIdProp, files: filesProp, embedded = false } = {}) {
+  const navigate = useNavigate();
+  const { claimId: claimIdFromRoute } = useParams();
+  const claimId = claimIdProp ?? claimIdFromRoute;
+
+  const [claimMeta, setClaimMeta] = useState(null);
+  const [fetchedFiles, setFetchedFiles] = useState(null);
+  const [metaError, setMetaError] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
+
+  const [doc, setDoc] = useState(null); // { blob, url, kind }
+  const [pdfDoc, setPdfDoc] = useState(null);
+  const [totalPages, setTotalPages] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [scale, setScale] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const canvasRef = useRef(null);
+
+  // Files come from the parent (ClaimDetail) when embedded; standalone page fetches them
+  useEffect(() => {
+    if (filesProp || !claimId) return undefined;
+    let cancelled = false;
+    claimsService.get(claimId, { includeDetails: true })
+      .then((details) => {
+        if (cancelled) return;
+        setClaimMeta({ code: details?.claim_code, vendor: details?.vendor_name });
+        setFetchedFiles(details?.files || []);
+      })
+      .catch((err) => { if (!cancelled) setMetaError(err.message || 'Failed to load claim'); });
+    return () => { cancelled = true; };
+  }, [claimId, filesProp]);
+
+  const files = useMemo(
+    () => orderFiles(filesProp || fetchedFiles || []).filter((f) => isPdf(f) || isImage(f)),
+    [filesProp, fetchedFiles]
+  );
+  const selected = files.find((f) => f.id === selectedId) || files[0] || null;
+  const selectedFileId = selected?.id ?? null;
+  const selectedIsPdf = isPdf(selected);
+
+  // Fetch the selected document through the authenticated API client
+  useEffect(() => {
+    if (!selectedFileId || !claimId) return undefined;
+    let cancelled = false;
+    let objectUrl = null;
+    let loadedPdf = null;
+
+    (async () => {
+      setLoading(true);
+      setError(null);
+      setPdfDoc(null);
+      setDoc(null);
+      setCurrentPage(1);
+      try {
+        const { blob } = await api.blob(`/claims/${claimId}/files/${selectedFileId}/download`);
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        if (selectedIsPdf) {
+          loadedPdf = await pdfjsLib.getDocument({
+            data: new Uint8Array(await blob.arrayBuffer()),
+            isEvalSupported: false, // never use eval() while parsing untrusted PDFs
+            enableXfa: false,
+          }).promise;
+          if (cancelled) return;
+          setPdfDoc(loadedPdf);
+          setTotalPages(loadedPdf.numPages);
+          setDoc({ blob, url: objectUrl, kind: 'pdf' });
+        } else {
+          setDoc({ blob, url: objectUrl, kind: 'image' });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.status === 404 ? 'File not found on the server.' : err.message || 'Failed to load document');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (loadedPdf) loadedPdf.destroy().catch(() => {});
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [claimId, selectedFileId, selectedIsPdf]);
+
+  // Render the current PDF page into a single reusable canvas
+  useEffect(() => {
+    if (!pdfDoc || !canvasRef.current) return undefined;
+    let task = null;
+    let cancelled = false;
+    (async () => {
+      const page = await pdfDoc.getPage(currentPage);
+      if (cancelled) return;
+      const viewport = page.getViewport({ scale });
+      const dpr = window.devicePixelRatio || 1;
+      const canvas = canvasRef.current;
+      canvas.width = Math.floor(viewport.width * dpr);
+      canvas.height = Math.floor(viewport.height * dpr);
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
+      task = page.render({ canvas, canvasContext: canvas.getContext('2d'), viewport, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null });
+      try { await task.promise; } catch { /* render cancelled */ }
+    })();
+    return () => { cancelled = true; task?.cancel(); };
+  }, [pdfDoc, currentPage, scale]);
+
+  const handleDownload = () => {
+    if (doc?.blob) saveBlob(doc.blob, decodeEntities(selected?.original_name) || 'document');
+  };
+
+  const toolbar = (
+    <Toolbar
+      files={files}
+      selectedId={selected?.id}
+      onSelect={setSelectedId}
+      pdfDoc={pdfDoc}
+      scale={scale}
+      setScale={setScale}
+      currentPage={currentPage}
+      totalPages={totalPages}
+      setCurrentPage={setCurrentPage}
+      onDownload={handleDownload}
+      canDownload={Boolean(doc)}
+    />
+  );
+
+  let body;
+  if (metaError) {
+    body = <div className="alert alert-danger m-4">{metaError}</div>;
+  } else if (!filesProp && fetchedFiles === null) {
+    body = <div className="text-center py-5"><div className="spinner-border text-primary" role="status" /></div>;
+  } else if (!selected) {
+    body = (
+      <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted p-5 text-center">
+        <i className="bi bi-file-earmark-pdf fs-1 mb-2"></i>
+        <h6 className="fw-bold text-dark mb-1">No document available</h6>
+        <p className="small mb-0">No PDF or image is attached to this claim.</p>
+      </div>
+    );
+  } else {
+    body = (
+      <>
+        {loading && (
+          <div className="text-center py-5">
+            <div className="spinner-border text-primary" role="status"><span className="visually-hidden">Loading...</span></div>
+            <p className="mt-3 text-muted small fw-semibold">Loading document...</p>
           </div>
-
-          <button
-            onClick={handleDownload}
-            disabled={!pdfSrc}
-            className="btn btn-primary btn-sm"
-          >
-            <i className="bi bi-download me-1"></i> Download
-          </button>
-        </div>
-
-        {/* PDF Canvas Area */}
-        <div className="flex-grow-1" style={{ overflow: 'auto', backgroundColor: '#e2e8f0' }}>
-          {loading && (
-            <div className="d-flex align-items-center justify-content-center h-100">
-              <div className="text-center py-5">
-                <div className="spinner-border text-primary" role="status">
-                  <span className="visually-hidden">Loading...</span>
-                </div>
-                <p className="mt-3 text-muted small fw-semibold">Loading PDF...</p>
-              </div>
-            </div>
-          )}
-
-          {error && (
-            <div className="d-flex align-items-center justify-content-center h-100">
-              <div className="text-center bg-white p-5 rounded-3 shadow-sm border" style={{ maxWidth: '400px' }}>
-                <i className="bi bi-exclamation-triangle fs-1 text-danger mb-3 d-block"></i>
-                <h5 className="text-danger">Failed to load PDF</h5>
-                <p className="text-muted small mb-4">{error}</p>
-              </div>
-            </div>
-          )}
-
-          {!loading && !error && (
-            <div className="py-4 px-3">
-              <div ref={containerRef} />
-              {pdfDoc && (
-                <div className="text-center text-muted small mt-2">
-                  Page {currentPage} of {totalPages}
-                </div>
-              )}
-            </div>
+        )}
+        {error && <div className="alert alert-danger m-4">{error}</div>}
+        <div className="py-3 px-2 text-center" style={{ display: loading || error ? 'none' : 'block' }}>
+          {doc?.kind === 'image' ? (
+            <img src={doc.url} alt={decodeEntities(selected.original_name)} className="img-fluid rounded shadow-sm bg-white" />
+          ) : (
+            <canvas ref={canvasRef} className="rounded shadow-sm bg-white" style={{ maxWidth: '100%', height: 'auto' }} />
           )}
         </div>
+      </>
+    );
+  }
+
+  if (embedded) {
+    return (
+      <div className="d-flex flex-column h-100">
+        {toolbar}
+        <div className="flex-grow-1" style={{ overflow: 'auto', backgroundColor: '#e2e8f0' }}>{body}</div>
       </div>
     );
   }
 
-  // ==============================
-  // Full page mode (standalone)
-  // ==============================
   return (
     <div className="d-flex flex-column vh-100 bg-light">
-      {/* Header */}
-      <div className="bg-white border-bottom px-4 py-3 d-flex align-items-center justify-content-between shadow-sm" style={{ zIndex: 10, flexShrink: 0 }}>
-        <div className="d-flex align-items-center gap-3">
-          <button onClick={handleBack} className="btn btn-outline-secondary btn-sm">
-            <i className="bi bi-arrow-left me-1"></i> Back
-          </button>
-          <div>
-            <h5 className="mb-0 fw-bold">
-              <i className="bi bi-file-earmark-pdf-fill text-danger me-2"></i>
-              {submission.fileName || 'Document'}
-            </h5>
-            <small className="text-muted">
-              {submission.id} • {submission.fileSize || 'N/A'}
-              {pdfDoc && totalPages > 0 && (
-                <> • {totalPages} page{totalPages > 1 ? 's' : ''}</>
-              )}
-            </small>
-          </div>
-        </div>
-      </div>
-
-      {/* Toolbar with navigation */}
-      <div className="bg-white border-bottom px-4 py-2 d-flex align-items-center justify-content-between shadow-sm" style={{ flexShrink: 0 }}>
-        <div className="d-flex align-items-center gap-1">
-          <button
-            onClick={handleZoomOut}
-            disabled={!pdfDoc}
-            className="btn btn-outline-secondary btn-sm"
-            title="Zoom Out"
-          >
-            <i className="bi bi-zoom-out"></i>
-          </button>
-          <button
-            onClick={handleZoomReset}
-            disabled={!pdfDoc}
-            className="btn btn-outline-secondary btn-sm"
-            style={{ minWidth: '60px' }}
-            title="Reset Zoom"
-          >
-            {Math.round(scale * 100)}%
-          </button>
-          <button
-            onClick={handleZoomIn}
-            disabled={!pdfDoc}
-            className="btn btn-outline-secondary btn-sm"
-            title="Zoom In"
-          >
-            <i className="bi bi-zoom-in"></i>
-          </button>
-          <span className="vr mx-2"></span>
-          <button
-            onClick={goToPreviousPage}
-            disabled={!pdfDoc || currentPage <= 1}
-            className="btn btn-outline-secondary btn-sm"
-            title="Previous Page"
-          >
-            <i className="bi bi-chevron-left"></i>
-          </button>
-          <div className="d-flex align-items-center gap-1">
-            <input
-              ref={pageInputRef}
-              type="number"
-              className="form-control form-control-sm"
-              style={{ width: '60px', textAlign: 'center' }}
-              value={currentPage}
-              onChange={handlePageInputChange}
-              onKeyDown={handlePageInputKeyDown}
-              min={1}
-              max={totalPages || 1}
-              disabled={!pdfDoc}
-            />
-            <span className="text-muted small">/ {totalPages || '?'}</span>
-          </div>
-          <button
-            onClick={goToNextPage}
-            disabled={!pdfDoc || currentPage >= totalPages}
-            className="btn btn-outline-secondary btn-sm"
-            title="Next Page"
-          >
-            <i className="bi bi-chevron-right"></i>
-          </button>
-        </div>
-
-        <button
-          onClick={handleDownload}
-          disabled={!pdfSrc}
-          className="btn btn-primary btn-sm"
-        >
-          <i className="bi bi-download me-1"></i> Download PDF
+      <div className="bg-white border-bottom px-3 py-2 d-flex align-items-center gap-3 shadow-sm" style={{ flexShrink: 0 }}>
+        <button onClick={() => navigate(-1)} className="btn btn-outline-secondary btn-sm">
+          <i className="bi bi-arrow-left me-1"></i> Back
         </button>
+        <div className="text-truncate">
+          <h6 className="mb-0 fw-bold text-truncate">
+            <i className="bi bi-file-earmark-text text-danger me-2"></i>
+            {decodeEntities(selected?.original_name) || 'Document'}
+          </h6>
+          <small className="text-muted">{claimMeta?.code}{claimMeta?.vendor ? ` • ${decodeEntities(claimMeta.vendor)}` : ''}</small>
+        </div>
       </div>
-
-      {/* PDF Canvas Area */}
-      <div className="flex-grow-1" style={{ overflow: 'auto', backgroundColor: '#e2e8f0' }}>
-        {loading && (
-          <div className="d-flex align-items-center justify-content-center h-100">
-            <div className="text-center py-5">
-              <div className="spinner-border text-primary" role="status">
-                <span className="visually-hidden">Loading...</span>
-              </div>
-              <p className="mt-3 text-muted small fw-semibold">Loading PDF...</p>
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <div className="d-flex align-items-center justify-content-center h-100">
-            <div className="text-center bg-white p-5 rounded-3 shadow-sm border" style={{ maxWidth: '400px' }}>
-              <i className="bi bi-exclamation-triangle fs-1 text-danger mb-3 d-block"></i>
-              <h5 className="text-danger">Failed to load PDF</h5>
-              <p className="text-muted small mb-4">{error}</p>
-              <button className="btn btn-secondary" onClick={handleBack}>
-                <i className="bi bi-arrow-left me-1"></i> Go Back
-              </button>
-            </div>
-          </div>
-        )}
-
-        {!loading && !error && (
-          <div className="py-4 px-3">
-            <div ref={containerRef} />
-            {pdfDoc && (
-              <div className="text-center text-muted small mt-2">
-                Page {currentPage} of {totalPages}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      {toolbar}
+      <div className="flex-grow-1" style={{ overflow: 'auto', backgroundColor: '#e2e8f0' }}>{body}</div>
     </div>
   );
 }

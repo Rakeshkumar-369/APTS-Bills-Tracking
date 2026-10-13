@@ -1,5 +1,5 @@
 // src/pages/ADMIN/ProjectsAdmin.jsx
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { projectsService } from '../../services';
 
 export default function ProjectsAdmin() {
