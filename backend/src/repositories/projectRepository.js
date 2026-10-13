@@ -1,21 +1,31 @@
 const pool = require('../config/db');
 
 class ProjectRepository {
-  async getAll({ limit = 50, offset = 0, search, is_active, vendor_id } = {}) {
-    let conditions = ['p.is_deleted = false'];
-    let joins = [];
-    let params = [];
+    async getAll({ limit = 50, offset = 0, search, is_active, vendor_id } = {}) {
+    const conditions = ['p.is_deleted = false'];
+    const joins = [];
+    const params = [];
 
     if (search) {
       conditions.push('(p.project_name LIKE ? OR p.project_code LIKE ?)');
       params.push(`%${search}%`, `%${search}%`);
     }
-    if (is_active !== undefined) {
+
+    if (is_active !== undefined && is_active !== null && is_active !== '') {
+      const active =
+        is_active === true || is_active === 'true' ? 1 :
+        is_active === false || is_active === 'false' ? 0 :
+        is_active;
+
       conditions.push('p.is_active = ?');
-      params.push(is_active);
+      params.push(active);
     }
-    if (vendor_id) {
-      joins.push('JOIN vendor_projects vp ON p.id = vp.project_id AND vp.vendor_id = ?');
+
+    if (vendor_id !== undefined && vendor_id !== null) {
+      joins.push('JOIN vendor_projects vp ON p.id = vp.project_id');
+      conditions.push('vp.vendor_id = ?');
+      // If vendor_projects has soft delete/status, add it here:
+      // conditions.push('vp.is_deleted = false');
       params.push(vendor_id);
     }
 
@@ -25,15 +35,18 @@ class ProjectRepository {
     const [rows] = await pool.query(
       `SELECT p.*, wm.workflow_name
        FROM projects p
-       LEFT JOIN workflow_master wm ON p.workflow_id = wm.id AND wm.is_deleted = false
+       LEFT JOIN workflow_master wm
+         ON p.workflow_id = wm.id AND wm.is_deleted = false
        ${joinClause}
        ${whereClause}
-       ORDER BY p.project_name ASC LIMIT ? OFFSET ?`,
+       ORDER BY p.project_name ASC
+       LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );
 
     const [countResult] = await pool.query(
-      `SELECT COUNT(*) as total FROM projects p
+      `SELECT COUNT(DISTINCT p.id) AS total
+       FROM projects p
        ${joinClause}
        ${whereClause}`,
       params
