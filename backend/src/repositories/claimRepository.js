@@ -21,10 +21,10 @@ class ClaimRepository {
     if (involved_role_id && involved_user_id) {
       conditions.push(`(
         EXISTS (SELECT 1 FROM workflow_steps ws WHERE ws.workflow_id = c.workflow_id AND ws.required_role_id = ? AND ws.is_deleted = false)
-        OR EXISTS (SELECT 1 FROM claim_history ch WHERE ch.claim_id = c.id AND ch.performed_by = ?)
+        OR EXISTS (SELECT 1 FROM claim_history ch WHERE ch.claim_id = c.id AND (ch.performed_by = ? OR ch.to_user_id = ?))
         OR c.current_assigned_user_id = ?
       )`);
-      params.push(involved_role_id, involved_user_id, involved_user_id);
+      params.push(involved_role_id, involved_user_id, involved_user_id, involved_user_id);
     }
 
     const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
@@ -84,12 +84,14 @@ class ClaimRepository {
     return rows[0];
   }
 
-  async create({ claim_code, vendor_id, vendor_contact_user_id, project_id, po_id, workflow_id, current_step_id, current_step_order, current_assigned_user_id, remarks, created_by }) {
+  async create({ claim_code, vendor_id, vendor_contact_user_id, project_id, po_id, claimed_amount, invoice_number, invoice_date, workflow_id, current_step_id, current_step_order, current_assigned_user_id, remarks, created_by }) {
     const [result] = await pool.query(
-      `INSERT INTO claims (claim_code, vendor_id, vendor_contact_user_id, project_id, po_id, workflow_id,
+      `INSERT INTO claims (claim_code, vendor_id, vendor_contact_user_id, project_id, po_id,
+        claimed_amount, invoice_number, invoice_date, workflow_id,
         current_step_id, current_step_order, current_assigned_user_id, status, remarks, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'IN_PROGRESS', ?, ?)`,
-      [claim_code, vendor_id, vendor_contact_user_id || null, project_id, po_id || null, workflow_id || null,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'IN_PROGRESS', ?, ?)`,
+      [claim_code, vendor_id, vendor_contact_user_id || null, project_id, po_id || null,
+       claimed_amount ?? null, invoice_number || null, invoice_date || null, workflow_id || null,
        current_step_id || null, current_step_order || 0, current_assigned_user_id || null, remarks || null, created_by]
     );
     return result.insertId;
@@ -144,6 +146,14 @@ class ClaimRepository {
     return result.insertId;
   }
 
+  async getFileById(fileId, claimId) {
+    const [rows] = await pool.query(
+      'SELECT * FROM claim_files WHERE id = ? AND claim_id = ? AND is_deleted = false',
+      [fileId, claimId]
+    );
+    return rows[0];
+  }
+
   async deleteFile(fileId) {
     await pool.query('UPDATE claim_files SET is_deleted = 1 WHERE id = ?', [fileId]);
     return { id: fileId, is_deleted: 1 };
@@ -170,7 +180,7 @@ class ClaimRepository {
       LEFT JOIN users u ON ch.performed_by = u.id AND u.is_deleted = false
       LEFT JOIN roles r ON ch.performed_by_role_id = r.id AND r.is_deleted = false
       WHERE ch.claim_id = ?
-      ORDER BY ch.created_at ASC
+      ORDER BY ch.created_at ASC, ch.id ASC
     `, [claimId]);
     return rows;
   }
@@ -206,7 +216,7 @@ class ClaimRepository {
         AND ch.action = 'FORWARD'
         AND ch.performed_by = ?
         AND (ch.to_user_id = ? OR (ch.to_user_id IS NULL AND ch.forwarded_to_user_id = ?))
-      ORDER BY ch.created_at DESC
+      ORDER BY ch.created_at DESC, ch.id DESC
       LIMIT 1
     `, [claimId, fromUserId, toUserId, toUserId]);
     return rows[0];
@@ -231,28 +241,34 @@ class ClaimRepository {
       LEFT JOIN users cu ON c.vendor_contact_user_id = cu.id AND cu.is_deleted = false
       LEFT JOIN users au ON c.current_assigned_user_id = au.id AND au.is_deleted = false
       WHERE (
-        (c.workflow_id IS NOT NULL AND ws.required_role_id = ?)
+        (c.workflow_id IS NOT NULL AND ws.required_role_id = ? AND c.status <> 'SENT_BACK')
         OR
         (c.workflow_id IS NULL AND c.current_assigned_user_id = ?)
+        OR
+        (c.workflow_id IS NOT NULL AND c.status = 'SENT_BACK' AND c.current_assigned_user_id = ?)
       )
+        AND c.is_deleted = false
         AND c.is_completed = false
         AND c.status IN ('IN_PROGRESS', 'SENT_BACK')
       ORDER BY c.updated_at ASC
       LIMIT ? OFFSET ?
-    `, [roleId, userId, limit, offset]);
+    `, [roleId, userId, userId, limit, offset]);
 
     const [countResult] = await pool.query(`
       SELECT COUNT(*) as total
       FROM claims c
       LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id AND ws.is_deleted = false
       WHERE (
-        (c.workflow_id IS NOT NULL AND ws.required_role_id = ?)
+        (c.workflow_id IS NOT NULL AND ws.required_role_id = ? AND c.status <> 'SENT_BACK')
         OR
         (c.workflow_id IS NULL AND c.current_assigned_user_id = ?)
+        OR
+        (c.workflow_id IS NOT NULL AND c.status = 'SENT_BACK' AND c.current_assigned_user_id = ?)
       )
+        AND c.is_deleted = false
         AND c.is_completed = false
         AND c.status IN ('IN_PROGRESS', 'SENT_BACK')
-    `, [roleId, userId]);
+    `, [roleId, userId, userId]);
 
     return { rows, total: countResult[0].total };
   }
@@ -273,6 +289,7 @@ class ClaimRepository {
       WHERE c.id IN (
         SELECT claim_id FROM claim_history WHERE performed_by = ?
       )
+        AND c.is_deleted = false
       ORDER BY c.updated_at DESC
       LIMIT ? OFFSET ?
     `, [userId, userId, limit, offset]);
@@ -281,7 +298,7 @@ class ClaimRepository {
       SELECT COUNT(DISTINCT c.id) as total
       FROM claims c
       JOIN claim_history ch ON c.id = ch.claim_id
-      WHERE ch.performed_by = ?
+      WHERE ch.performed_by = ? AND c.is_deleted = false
     `, [userId]);
 
     return { rows, total: countResult[0].total };
@@ -296,13 +313,27 @@ class ClaimRepository {
       FROM claims c
       LEFT JOIN workflow_steps ws ON c.current_step_id = ws.id AND ws.is_deleted = false
       WHERE (
-        (c.workflow_id IS NOT NULL AND ws.required_role_id = ?)
+        (c.workflow_id IS NOT NULL AND ws.required_role_id = ? AND c.status <> 'SENT_BACK')
         OR
         (c.workflow_id IS NULL AND c.current_assigned_user_id = ?)
+        OR
+        (c.workflow_id IS NOT NULL AND c.status = 'SENT_BACK' AND c.current_assigned_user_id = ?)
       )
+        AND c.is_deleted = false
         AND c.is_completed = false
-    `, [roleId, userId]);
+    `, [roleId, userId, userId]);
     return rows[0];
+  }
+
+  /** Total amount already claimed against a PO (all vendors, excluding rejected/deleted claims). */
+  async getClaimedTotalForPO(poId) {
+    const [rows] = await pool.query(
+      `SELECT COALESCE(SUM(claimed_amount), 0) AS total
+         FROM claims
+        WHERE po_id = ? AND is_deleted = false AND status <> 'REJECTED'`,
+      [poId]
+    );
+    return Number(rows[0].total);
   }
 
   async getLastClaimCode() {

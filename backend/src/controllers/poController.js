@@ -2,6 +2,7 @@ const poService = require('../services/poService');
 const ApiResponse = require('../utils/ApiResponse');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const { resolveIsActiveFilter } = require('../utils/isActiveFilter');
+const { assertCanViewPO } = require('../utils/accessControl');
 
 const getAllPOs = async (req, res, next) => {
   try {
@@ -29,9 +30,14 @@ const getAllPOs = async (req, res, next) => {
 const getPOById = async (req, res, next) => {
   try {
     const includeFiles = req.query.include_files !== 'false';
+    await assertCanViewPO(req.params.id, req.user);
     const po = includeFiles
       ? await poService.getWithFiles(req.params.id)
       : await poService.getById(req.params.id);
+    // A vendor only sees their own delivery / installation dates on shared POs
+    if (req.user.role_name === 'Vendor' && Array.isArray(po.vendor_dates)) {
+      po.vendor_dates = po.vendor_dates.filter((d) => d.vendor_id === req.user.vendor_id);
+    }
     res.json(ApiResponse.success('Purchase Order fetched successfully', [po]));
   } catch (error) {
     next(error);

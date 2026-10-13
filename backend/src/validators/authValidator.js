@@ -27,7 +27,10 @@ const loginValidation = [
     
     body('password')
         .notEmpty()
-        .withMessage('Password is required'),
+        .withMessage('Password is required')
+        .isString()
+        .isLength({ max: 128 })
+        .withMessage('Invalid credentials'),
 
     handleValidationErrors
 ];
@@ -104,8 +107,8 @@ const changePasswordValidation = [
         .withMessage('Current password is required'),
     
     body('newPassword')
-        .isLength({ min: 8, max: 16 })
-        .withMessage('New password must be between 8 and 16 characters')
+        .isLength({ min: 8, max: 64 })
+        .withMessage('New password must be between 8 and 64 characters')
         .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/)
         .withMessage('New password must contain at least one lowercase letter, one uppercase letter, one number, and one special character')
         .custom((value, { req }) => {

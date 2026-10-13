@@ -4,9 +4,10 @@ const vendorRepository = require('../repositories/vendorRepository');
 const auditService = require('./auditService');
 const ApiError = require('../utils/ApiError');
 
+const { withLock } = require('../utils/keyedLock');
+const { validateFileBuffer, storeUploadedFile } = require('../utils/fileValidator');
+
 const path = require('path');
-const fs = require('fs');
-const crypto = require('crypto');
 
 const UPLOADS_DIR = path.join(__dirname, '../../uploads/purchase-orders');
 
@@ -66,10 +67,20 @@ class POService {
       if (!vendor) throw new ApiError(400, `Vendor with ID ${vId} not found`);
     }
 
-    // Generate PO number
-    const poNumber = await this.generatePONumber();
+    // Validate attachments before creating anything
+    for (const file of files || []) {
+      try {
+        await validateFileBuffer(file);
+      } catch (err) {
+        throw new ApiError(400, `${path.basename(file.originalname)}: ${err.message}`);
+      }
+    }
 
-    const poId = await poRepository.create({
+    // Generate PO number + insert under a lock so concurrent creates cannot collide
+    let poNumber;
+    const poId = await withLock('po:number', async () => {
+      poNumber = await this.generatePONumber();
+      return poRepository.create({
       po_number: poNumber,
       project_id,
       description: description || null,
@@ -78,6 +89,7 @@ class POService {
       delivery_end_date: delivery_end_date || null,
       delivered_on: delivered_on || null,
       created_by: performedBy
+      });
     });
 
     // Assign all vendors to the PO (bulk sync)
@@ -92,29 +104,13 @@ class POService {
       ip_address: ipAddress
     });
 
-    if (files && files.length > 0) {
-      const uploadDir = path.join(UPLOADS_DIR, String(poId));
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-      }
-
-      for (const file of files) {
-        const ext = path.extname(file.originalname);
-        const storedName = `${crypto.randomUUID()}${ext}`;
-        const filePath = path.join(uploadDir, storedName);
-
-        fs.writeFileSync(filePath, file.buffer);
-
-        await poRepository.createFile({
-          po_id: poId,
-          original_name: file.originalname,
-          stored_name: storedName,
-          file_path: path.join('uploads/purchase-orders', String(poId), storedName),
-          file_size: file.size,
-          mime_type: file.mimetype || 'application/octet-stream',
-          uploaded_by: performedBy
-        });
-      }
+    for (const file of files || []) {
+      const stored = await storeUploadedFile(
+        file,
+        path.join(UPLOADS_DIR, String(poId)),
+        path.posix.join('uploads/purchase-orders', String(poId))
+      );
+      await poRepository.createFile({ po_id: poId, ...stored, uploaded_by: performedBy });
     }
     
     return this.getWithFiles(poId);
@@ -255,34 +251,19 @@ class POService {
 
   async uploadFile(poId, file, currentUser) {
     const po = await this.getById(poId);
-
-    const uploadDir = path.join(UPLOADS_DIR, String(poId));
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
-    const ext = path.extname(file.originalname);
-    const storedName = `${crypto.randomUUID()}${ext}`;
-    const filePath = path.join(uploadDir, storedName);
-
-    fs.writeFileSync(filePath, file.buffer);
-
-    const fileId = await poRepository.createFile({
-      po_id: poId,
-      original_name: file.originalname,
-      stored_name: storedName,
-      file_path: path.join('uploads/purchase-orders', String(poId), storedName),
-      file_size: file.size,
-      mime_type: file.mimetype || 'application/octet-stream',
-      uploaded_by: currentUser.user_id
-    });
-
-    return fileId;
+    const stored = await storeUploadedFile(
+      file,
+      path.join(UPLOADS_DIR, String(po.id)),
+      path.posix.join('uploads/purchase-orders', String(po.id))
+    );
+    return poRepository.createFile({ po_id: po.id, ...stored, uploaded_by: currentUser.user_id });
   }
 
-  async deleteFile(poId, fileId, currentUser) {
+  async deleteFile(poId, fileId) {
     const po = await this.getById(poId);
-    return poRepository.deleteFile(fileId);
+    const file = await poRepository.getFileById(fileId, po.id);
+    if (!file) throw new ApiError(404, 'File not found');
+    return poRepository.deleteFile(file.id);
   }
 }
 

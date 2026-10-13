@@ -7,7 +7,7 @@ const createUserValidation = [
     .isEmail().withMessage('Please provide a valid email address')
     .normalizeEmail().trim().toLowerCase(),
   body('password')
-    .isLength({ min: 8, max: 16 }).withMessage('Password must be between 8 and 16 characters')
+    .isLength({ min: 8, max: 64 }).withMessage('Password must be between 8 and 64 characters')
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/)
     .withMessage('Password must contain at least one lowercase, one uppercase, one number, and one special character'),
   body('name')

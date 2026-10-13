@@ -33,9 +33,11 @@ router.post('/:id/resubmit', validateId(), actionValidation, claimController.res
 router.get('/:id/history', requirePermission('claim', 'read'), validateId(), claimController.getClaimHistory);
 
 // Files
-router.post('/:id/files', requirePermission('claim', 'update'), validateId(), uploadSingleFile, handleMulterError, claimController.uploadFile);
-router.delete('/:id/files/:fileId', requirePermission('claim', 'update'), validateId('id'), validateId('fileId'), claimController.deleteFile);
+// Upload / delete: Admins (claim.update) or the owning vendor while the claim is
+// with them — enforced in claimService.assertCanEditFiles
+router.post('/:id/files', validateId(), uploadSingleFile, handleMulterError, claimController.uploadFile);
+router.delete('/:id/files/:fileId', validateId('id'), validateId('fileId'), claimController.deleteFile);
 
-router.get('/:id/files/:fileId/download', authMiddleware, requirePermission('claim', 'read'), validateId('id'), validateId('fileId'), fileController.serveClaimFile);
+router.get('/:id/files/:fileId/download', requirePermission('claim', 'read'), validateId('id'), validateId('fileId'), fileController.serveClaimFile);
 
 module.exports = router;

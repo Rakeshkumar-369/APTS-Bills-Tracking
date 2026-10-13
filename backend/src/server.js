@@ -23,6 +23,8 @@ const inboxRoutes = require('./routes/inboxRoutes');
 
 // Error Handler
 const errorHandler = require('./middleware/errorMiddleware');
+const { apiLimiter } = require('./middleware/rateLimiter');
+const ApiResponse = require('./utils/ApiResponse');
 const { initCleanupJobs } = require('./services/cleanupService');
 
 const app = express();
@@ -52,7 +54,12 @@ fs.mkdirSync(uploadsClaimDir, { recursive: true });
 const uploadsPODir = path.join(__dirname, '..', 'uploads', 'purchase-orders');
 fs.mkdirSync(uploadsPODir, { recursive: true });
 
-// app.set('trust proxy', 'loopback'); // Uncomment if behind a proxy like Nginx
+// Behind Nginx / a load balancer set TRUST_PROXY (e.g. "loopback" or "1") so that
+// req.ip — used for rate limiting and audit logs — is the real client address.
+if (process.env.TRUST_PROXY) {
+  const tp = process.env.TRUST_PROXY;
+  app.set('trust proxy', /^\d+$/.test(tp) ? Number(tp) : tp === 'true' ? true : tp);
+}
 
 // Middlewares
 app.use(securityHeaders);
@@ -66,6 +73,20 @@ app.use(cors({
 
 app.use(express.json({ limit: '1mb' }));
 
+// Reject repeated / nested query parameters (?status=a&status=b). Every query
+// param this API accepts is a single scalar; arrays would otherwise reach SQL
+// builders as lists and cause errors (HTTP parameter pollution).
+app.use('/api', (req, res, next) => {
+  for (const value of Object.values(req.query || {})) {
+    if (typeof value !== 'string') {
+      return res.status(400).json(ApiResponse.error('Invalid query parameters', []));
+    }
+  }
+  next();
+});
+
+app.use('/api', apiLimiter);
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/workflows', workflowRoutes);
@@ -78,12 +99,23 @@ app.use('/api/purchase-orders', poRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/inbox', inboxRoutes);
 
+// Unknown API routes → JSON 404 (instead of Express' default HTML page)
+app.use('/api', (req, res) => {
+  res.status(404).json(ApiResponse.error('Resource not found', []));
+});
+
 // --- PRODUCTION SERVING LOGIC ---
 if (config.env === 'production') {
   const frontendPath = path.join(__dirname, '../../frontend/dist');
 
-  // Serve static assets (js, css, images)
-  app.use(express.static(frontendPath));
+  // Fingerprinted build assets never change — let browsers cache them for a year
+  app.use('/assets', express.static(path.join(frontendPath, 'assets'), {
+    immutable: true,
+    maxAge: '365d',
+    index: false
+  }));
+  // Other static files (favicon etc.)
+  app.use(express.static(frontendPath, { index: false }));
 
   // Catch-All: Support React Router by serving index.html for any non-API route
   app.get('/*anythinghereexceptspaceandnothing', (req, res) => {

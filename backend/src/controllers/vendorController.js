@@ -2,11 +2,19 @@ const vendorService = require('../services/vendorService');
 const ApiResponse = require('../utils/ApiResponse');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const { resolveIsActiveFilter } = require('../utils/isActiveFilter');
+const { isVendorUser, assertCanViewVendor } = require('../utils/accessControl');
 
 const getAllVendors = async (req, res, next) => {
   try {
     const { limit, offset } = parsePagination(req.query.limit, req.query.offset);
     const { search, is_active: rawIsActive } = req.query;
+
+    // Vendor users only ever see their own company record
+    if (isVendorUser(req.user)) {
+      const own = req.user.vendor_id ? await vendorService.getById(req.user.vendor_id) : null;
+      const rows = own ? [own] : [];
+      return res.json(ApiResponse.success('Vendors fetched successfully', rows, buildPaginationMeta(rows.length, limit, 0, rows.length)));
+    }
 
     const result = await vendorService.getAll({
       limit, offset, search,
@@ -22,6 +30,7 @@ const getAllVendors = async (req, res, next) => {
 
 const getVendorById = async (req, res, next) => {
   try {
+    assertCanViewVendor(req.params.id, req.user);
     const includeUsers = req.query.include_users === 'true';
     const includeProjects = req.query.include_projects === 'true';
     
@@ -75,6 +84,7 @@ const deleteVendor = async (req, res, next) => {
 
 const getVendorProjects = async (req, res, next) => {
   try {
+    assertCanViewVendor(req.params.id, req.user);
     const projects = await vendorService.getProjects(req.params.id);
     res.json(ApiResponse.success('Vendor projects fetched successfully', projects));
   } catch (error) {

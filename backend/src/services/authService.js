@@ -7,16 +7,24 @@ const logger = require('../utils/logger');
 const auditService = require('./auditService');
 
 const BLOCK_DURATION = 15 * 60 * 1000; // 15 minutes
-const FAKE_HASH = '$2a$10$X7YREkO9XG/vN.L1Z6Yq6.K7W6L5M4N3O2P1QzRySxTuUvVwWxXyY';
+const MAX_FAILED_ATTEMPTS = 5;
+// Dummy hash with the SAME cost (12) as real password hashes, compared when the
+// email does not exist, so response time does not reveal which emails are valid.
+const FAKE_HASH = bcrypt.hashSync('timing-equaliser-not-a-real-password', 12);
 
 const login = async (email, password, ipAddress, userAgent) => {
   logger.debug(`  [authService] Attempting login for: ${email}`);
 
   // Check if email is blocked
-  const blockStatus = await userRepo.getBlockedStatus(email);
+  let blockStatus = await userRepo.getBlockedStatus(email);
   if (blockStatus && blockStatus.blocked_until && new Date(blockStatus.blocked_until) > new Date()) {
     const timeLeft = Math.ceil((new Date(blockStatus.blocked_until) - new Date()) / 60000);
     throw new ApiError(403, `Account temporarily blocked, try after ${timeLeft} minutes`);
+  }
+  // A lock that has expired starts a fresh count (otherwise one typo re-locks immediately)
+  if (blockStatus && blockStatus.blocked_until) {
+    await userRepo.resetLoginAttempts(email);
+    blockStatus = null;
   }
 
   // Find user by email
@@ -28,7 +36,7 @@ const login = async (email, password, ipAddress, userAgent) => {
   if (!isValid || !user) {
     const attempts = (blockStatus?.attempts || 0) + 1;
 
-    if (attempts >= 5) {
+    if (attempts >= MAX_FAILED_ATTEMPTS) {
       const blockTime = new Date(new Date().getTime() + BLOCK_DURATION);
       await userRepo.updateFailedLogin(email, true, blockTime);
     } else {
@@ -46,16 +54,16 @@ const login = async (email, password, ipAddress, userAgent) => {
       user_agent: userAgent
     });
 
-    if (attempts >= 5) {
+    if (attempts >= MAX_FAILED_ATTEMPTS) {
       throw new ApiError(403, 'Account temporarily blocked, try after 15 minutes');
     }
 
-    throw new ApiError(401, `Invalid credentials. ${5 - attempts} attempts remaining.`);
+    throw new ApiError(401, `Invalid credentials. ${MAX_FAILED_ATTEMPTS - attempts} attempts remaining.`);
   }
 
-  // Check if user account is active
+  // Check if user account is active (findByEmail already filters inactive users)
   if (!user.is_active) {
-    throw new ApiError(403, 'Account is not active');
+    throw new ApiError(401, 'Invalid credentials');
   }
 
   // Store the last login time BEFORE updating it
@@ -82,8 +90,8 @@ const login = async (email, password, ipAddress, userAgent) => {
   const accessToken = jwtHelper.generateToken(payload);
   const refreshToken = jwtHelper.generateRefreshToken(payload);
 
-  // Store refresh token (hashed)
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  // Store refresh token (hashed); lifetime comes from REFRESH_TOKEN_EXPIRES_IN
+  const expiresAt = jwtHelper.tokenExpiry(refreshToken);
   await userRepo.saveRefreshToken(user.id, refreshToken, expiresAt);
 
   // Log successful login
@@ -113,6 +121,7 @@ const login = async (email, password, ipAddress, userAgent) => {
   return {
     accessToken,
     refreshToken,
+    refreshExpiresAt: expiresAt,
     user: {
       id: user.id,
       name: user.name,
@@ -177,10 +186,11 @@ const refreshAccessToken = async (receivedRefreshToken, ipAddress, userAgent) =>
     };
 
     const newAccessToken = jwtHelper.generateToken(payload);
-    const newRefreshToken = jwtHelper.generateRefreshToken(payload);
+    // Keep the original session deadline (absolute timeout)
+    const newRefreshToken = jwtHelper.generateRefreshToken(payload, decoded.exp);
 
     // Save new refresh token
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const expiresAt = jwtHelper.tokenExpiry(newRefreshToken);
     await userRepo.saveRefreshToken(authenticatedUser.id, newRefreshToken, expiresAt);
 
     // Log token refresh
@@ -199,6 +209,7 @@ const refreshAccessToken = async (receivedRefreshToken, ipAddress, userAgent) =>
     return {
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
+      refreshExpiresAt: expiresAt,
       user: {
         id: authenticatedUser.id,
         name: authenticatedUser.name,
@@ -224,8 +235,14 @@ const refreshAccessToken = async (receivedRefreshToken, ipAddress, userAgent) =>
 
 const logout = async (accessToken, refreshToken, ipAddress, userAgent) => {
   try {
-    // Decode token to get user_id
-    const decoded = jwtHelper.decodeToken(accessToken);
+    // Verify the signature (expiry is ignored so an expired session can still log
+    // out). Merely decoding would let anyone forge a token and force-logout any user.
+    let decoded = null;
+    try {
+      decoded = jwtHelper.verifyToken(accessToken, { ignoreExpiration: true });
+    } catch {
+      decoded = null;
+    }
 
     if (decoded && decoded.sub) {
       // Increment session version to invalidate ALL existing tokens

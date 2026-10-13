@@ -13,7 +13,8 @@ const ALLOWED_MIME_TYPES = {
   '.pdf': 'application/pdf'
 };
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+// Per-file upload limit in MB (override with MAX_UPLOAD_MB in .env)
+const MAX_FILE_SIZE = (Number(process.env.MAX_UPLOAD_MB) || 25) * 1024 * 1024;
 
 /**
  * Sanitize filename
@@ -81,15 +82,16 @@ async function validatePDFMagicBytes(buffer) {
  */
 async function stripImageMetadata(buffer, outputPath) {
   try {
+    // sharp drops EXIF/GPS/ICC metadata by default; rotate() first applies the
+    // EXIF orientation so the image still displays the right way up.
     await sharp(buffer)
-      .withMetadata(false) // Remove metadata
+      .rotate()
       .toFile(outputPath);
     return true;
   } catch (error) {
-    console.warn('Metadata stripping failed:', error.message);
-    // If stripping fails, save original buffer
-    await fs.writeFile(outputPath, buffer);
-    return false;
+    // Never fall back to writing the raw upload — the buffer already passed
+    // magic-byte validation, so a failure here means a malformed image.
+    throw new Error('Invalid image file or corrupted');
   }
 }
 
@@ -149,9 +151,51 @@ async function processFileBuffer(file, targetPath) {
   return validation;
 }
 
+/**
+ * Validate an uploaded file and store it under `absDir` with a random name.
+ * Returns the DB metadata. The MIME type is derived from the validated
+ * extension — never trusted from the client-supplied Content-Type, which
+ * would otherwise allow serving e.g. an HTML payload as text/html (stored XSS).
+ */
+async function storeUploadedFile(file, absDir, relDir) {
+  const crypto = require('crypto');
+  const ApiError = require('./ApiError');
+  let validation;
+  let storedName;
+  try {
+    validation = await validateFileBuffer(file);
+    storedName = `${crypto.randomUUID()}${validation.extension}`;
+    await processFileBuffer(file, path.join(absDir, storedName));
+  } catch (err) {
+    throw new ApiError(400, `${path.basename(file?.originalname || 'File')}: ${err.message}`);
+  }
+  return {
+    original_name: path.basename(file.originalname).slice(0, 255),
+    stored_name: storedName,
+    file_path: path.posix.join(relDir, storedName),
+    file_size: file.size,
+    mime_type: ALLOWED_MIME_TYPES[validation.extension]
+  };
+}
+
+/** Safe MIME type for serving a stored file (falls back to a download type). */
+function mimeForStoredFile(storedName) {
+  return ALLOWED_MIME_TYPES[path.extname(storedName || '').toLowerCase()] || 'application/octet-stream';
+}
+
+/** Content-Disposition header value that cannot be used for header injection. */
+function contentDisposition(originalName, type = 'inline') {
+  const name = String(originalName || 'file');
+  const ascii = name.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+  return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
+
 module.exports = {
   validateFileBuffer,
   processFileBuffer,
+  storeUploadedFile,
+  mimeForStoredFile,
+  contentDisposition,
   MAX_FILE_SIZE,
   ALLOWED_EXTENSIONS
 };

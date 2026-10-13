@@ -4,7 +4,8 @@ const { parsePermissions } = require('../utils/permissionHelper');
 
 const authMiddleware = async (req, res, next) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -13,7 +14,7 @@ const authMiddleware = async (req, res, next) => {
       });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
 
     const user = await userRepo.findById(decoded.sub);
     if (!user) {
@@ -36,7 +37,8 @@ const authMiddleware = async (req, res, next) => {
 
     req.user = {
       user_id: decoded.sub,
-      role_id: decoded.role_id,
+      // Always use the CURRENT role from the database, not the (possibly stale) token claim
+      role_id: user.role_id,
       role_name: user.role_name,
       role_rank: user.role_rank,
       permissions: permissions,
@@ -63,11 +65,8 @@ const authMiddleware = async (req, res, next) => {
         data: []
       });
     }
-    res.status(401).json({
-      success: false,
-      message: error.message,
-      data: []
-    });
+    // Never leak internal error details (e.g. DB errors) to the client
+    next(error);
   }
 };
 

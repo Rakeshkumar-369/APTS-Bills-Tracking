@@ -24,6 +24,8 @@ const config = {
         connectionLimit: 10,
         queueLimit: 0,
         dateStrings: ['DATE'], // return DATE columns as 'YYYY-MM-DD' (no timezone shift)
+        multipleStatements: false, // never allow stacked SQL statements
+        stringifyObjects: true,    // objects in params are stringified, never expanded to SQL
         ssl: useSSL
             ? {
                   ca: fs.readFileSync(process.env.DB_SSL_CA_PATH),

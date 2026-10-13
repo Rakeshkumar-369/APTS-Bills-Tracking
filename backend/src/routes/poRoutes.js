@@ -21,6 +21,6 @@ router.delete('/:id', requirePermission('po', 'delete'), validateId(), poControl
 // PO Files
 router.post('/:id/files', requirePermission('po', 'update'), validateId(), uploadSingleFile, handleMulterError, poController.uploadPOFile);
 router.delete('/:id/files/:fileId', requirePermission('po', 'update'), validateId('id'), validateId('fileId'), poController.deletePOFile);
-router.get('/:id/files/:fileId/download', authMiddleware, requirePermission('po', 'read'), validateId('id'), validateId('fileId'), fileController.servePOFile);
+router.get('/:id/files/:fileId/download', requirePermission('po', 'read'), validateId('id'), validateId('fileId'), fileController.servePOFile);
 
 module.exports = router;

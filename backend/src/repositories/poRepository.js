@@ -27,7 +27,9 @@ class PORepository {
       SELECT po.*, pr.project_name,
              GROUP_CONCAT(DISTINCT v.vendor_name SEPARATOR ', ') AS vendor_names,
              GROUP_CONCAT(DISTINCT v.id SEPARATOR ',') AS vendor_ids,
-             u.name AS created_by_name
+             u.name AS created_by_name,
+             (SELECT COALESCE(SUM(c.claimed_amount), 0) FROM claims c
+               WHERE c.po_id = po.id AND c.is_deleted = false AND c.status <> 'REJECTED') AS claimed_total
              ${myDatesSelect}
       FROM purchase_orders po
       JOIN projects pr ON po.project_id = pr.id
@@ -55,7 +57,9 @@ class PORepository {
       SELECT po.*, pr.project_name,
              GROUP_CONCAT(DISTINCT v.vendor_name SEPARATOR ', ') AS vendor_names,
              GROUP_CONCAT(DISTINCT v.id SEPARATOR ',') AS vendor_ids,
-             u.name AS created_by_name
+             u.name AS created_by_name,
+             (SELECT COALESCE(SUM(c.claimed_amount), 0) FROM claims c
+               WHERE c.po_id = po.id AND c.is_deleted = false AND c.status <> 'REJECTED') AS claimed_total
       FROM purchase_orders po
       JOIN projects pr ON po.project_id = pr.id
       LEFT JOIN po_vendors pv ON po.id = pv.po_id
@@ -205,6 +209,14 @@ class PORepository {
       [po_id, original_name, stored_name, file_path, file_size, mime_type, uploaded_by]
     );
     return result.insertId;
+  }
+
+  async getFileById(fileId, poId) {
+    const [rows] = await pool.query(
+      'SELECT * FROM po_files WHERE id = ? AND po_id = ? AND is_deleted = false',
+      [fileId, poId]
+    );
+    return rows[0];
   }
 
   async deleteFile(fileId) {

@@ -6,12 +6,22 @@ const workflowService = require('./workflowService');
 const auditService = require('./auditService');
 const ApiError = require('../utils/ApiError');
 const { hasPermission } = require('../utils/permissionHelper');
+const { withLock } = require('../utils/keyedLock');
+const { validateFileBuffer, storeUploadedFile } = require('../utils/fileValidator');
 
 const path = require('path');
-const fs = require('fs');
-const crypto = require('crypto');
 
 const UPLOADS_DIR = path.join(__dirname, '../../uploads/claims');
+
+const lockKey = (claimId) => `claim:${Number(claimId)}`;
+
+// A claim that has been returned to the vendor (SENT_BACK) is in the vendor's
+// hands — officers must not forward / send back / approve it until re-submitted.
+function assertNotWithVendor(claim) {
+  if (claim.status === 'SENT_BACK') {
+    throw new ApiError(400, 'This claim is with the vendor for revision. It can be actioned again once the vendor re-submits it.');
+  }
+}
 
 class ClaimService {
   async getAll(params) {
@@ -34,7 +44,7 @@ class ClaimService {
   // ── Create Claim ──
 
   async create(data, files, currentUser, ipAddress) {
-    const { vendor_id, vendor_contact_user_id, project_id, po_id, remarks } = data;
+    const { vendor_id, vendor_contact_user_id, project_id, po_id, remarks, claimed_amount, invoice_number, invoice_date } = data;
 
     // Only vendor users can create claims
     if (currentUser.role_name !== 'Vendor' || !currentUser.vendor_id) {
@@ -119,21 +129,48 @@ class ClaimService {
       actionLabel = 'Claim created';
     }
 
-    const claimCode = await this.generateClaimCode();
+    // Validate every uploaded document BEFORE creating the claim so a bad file
+    // never leaves a half-created claim behind.
+    for (const file of files || []) {
+      try {
+        await validateFileBuffer(file);
+      } catch (err) {
+        throw new ApiError(400, `${path.basename(file.originalname)}: ${err.message}`);
+      }
+    }
 
-    const claimId = await claimRepository.create({
+    const claimedAmount = claimed_amount ? Math.round(Number(claimed_amount) * 100) / 100 : null;
+
+    const claimId = await withLock('claim:code', async () => {
+      // A PO cannot be over-claimed: the sum of all claims must stay within its value
+      if (claimedAmount && po.amount) {
+        const alreadyClaimed = await claimRepository.getClaimedTotalForPO(poIdNum);
+        const balance = Math.round((Number(po.amount) - alreadyClaimed) * 100) / 100;
+        if (claimedAmount > balance) {
+          throw new ApiError(400,
+            `Claimed amount ₹${claimedAmount.toLocaleString('en-IN')} exceeds the remaining PO balance of ₹${Math.max(balance, 0).toLocaleString('en-IN')}`);
+        }
+      }
+      const claimCode = await this.generateClaimCode();
+      const id = await claimRepository.create({
       claim_code: claimCode,
       vendor_id: vendorIdNum,
       vendor_contact_user_id: vendor_contact_user_id ? Number(vendor_contact_user_id) : null,
       project_id: projectIdNum,
       po_id: poIdNum,
+      claimed_amount: claimedAmount,
+      invoice_number: invoice_number || null,
+      invoice_date: invoice_date || null,
       workflow_id: workflow_id || null,
       current_step_id,
       current_step_order,
       current_assigned_user_id,
       remarks: remarks || null,
       created_by: currentUser.user_id
+      });
+      return id;
     });
+    const { claim_code: claimCode } = await claimRepository.getById(claimId);
 
     // Record creation history
     // from_user_id = the vendor user who created the claim (the "from officer")
@@ -157,36 +194,24 @@ class ClaimService {
       table_name: 'claims',
       record_id: claimId,
       action: 'CREATE',
-      new_value: { claim_code: claimCode, vendor_id: vendorIdNum, project_id: projectIdNum, po_id: poIdNum, workflow_id },
+      new_value: { claim_code: claimCode, vendor_id: vendorIdNum, project_id: projectIdNum, po_id: poIdNum, workflow_id, claimed_amount: claimedAmount, invoice_number },
       performed_by: currentUser.user_id,
       ip_address: ipAddress
     });
 
     // Save uploaded files if any
-    if (files && files.length > 0) {
-      const uploadDir = path.join(UPLOADS_DIR, String(claimId));
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-      }
-
-      for (const file of files) {
-        const ext = path.extname(file.originalname);
-        const storedName = `${crypto.randomUUID()}${ext}`;
-        const filePath = path.join(uploadDir, storedName);
-
-        fs.writeFileSync(filePath, file.buffer);
-
-        await claimRepository.createFile({
-          claim_id: claimId,
-          original_name: file.originalname,
-          stored_name: storedName,
-          file_path: path.join('uploads/claims', String(claimId), storedName),
-          file_size: file.size,
-          mime_type: file.mimetype || 'application/octet-stream',
-          document_type: file.document_type || 'INVOICE',
-          uploaded_by: currentUser.user_id
-        });
-      }
+    for (const file of files || []) {
+      const stored = await storeUploadedFile(
+        file,
+        path.join(UPLOADS_DIR, String(claimId)),
+        path.posix.join('uploads/claims', String(claimId))
+      );
+      await claimRepository.createFile({
+        claim_id: claimId,
+        ...stored,
+        document_type: file.document_type || 'INVOICE',
+        uploaded_by: currentUser.user_id
+      });
     }
 
     return this.getWithDetails(claimId);
@@ -195,6 +220,10 @@ class ClaimService {
   // ── Forward Package (workflow mode) ──
 
   async forward(claimId, remarks, currentUser, ipAddress) {
+    return withLock(lockKey(claimId), () => this._forward(claimId, remarks, currentUser, ipAddress));
+  }
+
+  async _forward(claimId, remarks, currentUser, ipAddress) {
     const claim = await this.getById(claimId);
 
     if (claim.is_completed) {
@@ -204,6 +233,8 @@ class ClaimService {
     if (!claim.workflow_id) {
       throw new ApiError(400, 'This claim does not use a workflow. Use the assign endpoint instead.');
     }
+
+    assertNotWithVendor(claim);
 
     if (!remarks || !remarks.trim()) {
       throw new ApiError(400, 'Remarks are mandatory when forwarding a claim');
@@ -290,6 +321,10 @@ class ClaimService {
   // ── Send Back Claim ──
 
   async sendback(claimId, remarks, currentUser, ipAddress) {
+    return withLock(lockKey(claimId), () => this._sendback(claimId, remarks, currentUser, ipAddress));
+  }
+
+  async _sendback(claimId, remarks, currentUser, ipAddress) {
     const claim = await this.getById(claimId);
 
     if (claim.is_completed) {
@@ -299,6 +334,8 @@ class ClaimService {
     if (!remarks || !remarks.trim()) {
       throw new ApiError(400, 'Remarks are mandatory when sending a claim back');
     }
+
+    assertNotWithVendor(claim);
 
     // Non-workflow sendback: send back to the vendor (the created_by user)
     if (!claim.workflow_id) {
@@ -364,11 +401,17 @@ class ClaimService {
         : 'Returned with remarks';
     }
 
+    const backStepOrder = transition.to_step_id
+      ? (await workflowService.getStepById(transition.to_step_id).catch(() => null))?.step_order
+      : undefined;
     await claimRepository.updateCurrentStep(claim.id, {
       current_step_id: transition.to_step_id || claim.current_step_id,
-      current_step_order: transition.to_step_id ? undefined : claim.current_step_order,
+      current_step_order: transition.to_step_id ? backStepOrder : claim.current_step_order,
       status: newStatus
     });
+    // Returned to the vendor: the vendor who raised it now holds the claim
+    // (shows in their inbox); the step is kept so re-submission returns here.
+    await claimRepository.updateCurrentAssignee(claim.id, transition.to_step_id ? null : claim.created_by);
 
     // Record history with from_step properly filled (the step sending it back)
     // from_user_id = the officer who sent it back
@@ -402,6 +445,10 @@ class ClaimService {
   // ── Assign (non-workflow: assign to a specific officer) ──
 
   async assign(claimId, targetUserId, remarks, currentUser, ipAddress) {
+    return withLock(lockKey(claimId), () => this._assign(claimId, targetUserId, remarks, currentUser, ipAddress));
+  }
+
+  async _assign(claimId, targetUserId, remarks, currentUser, ipAddress) {
     const claim = await this.getById(claimId);
 
     if (claim.is_completed) {
@@ -427,9 +474,9 @@ class ClaimService {
       throw new ApiError(400, 'Target user not found or is inactive');
     }
 
-    // Cannot assign to Super Admin or Admin roles
-    if (targetUser.role_name === 'Super Admin' || targetUser.role_name === 'Admin') {
-      throw new ApiError(400, 'Cannot assign a claim to Super Admin or Admin');
+    // Claims can only be assigned to officers — never to Super Admin, Admin or a vendor user
+    if (['Super Admin', 'Admin', 'Vendor'].includes(targetUser.role_name)) {
+      throw new ApiError(400, 'A claim can only be assigned to an officer');
     }
 
     // Cannot assign back to self
@@ -437,8 +484,12 @@ class ClaimService {
       throw new ApiError(400, 'Cannot assign a claim to yourself');
     }
 
-    // Update claim: set current_assigned_user_id to target
+    // Update claim: set current_assigned_user_id to target. A vendor dispatching a
+    // returned (SENT_BACK) claim puts it back in progress.
     await claimRepository.updateCurrentAssignee(claim.id, targetUserId);
+    if (claim.status !== 'IN_PROGRESS') {
+      await claimRepository.updateCurrentStep(claim.id, { status: 'IN_PROGRESS' });
+    }
 
     // Record history with from_user and to_user filled
     // from_user_id = the officer who assigned it
@@ -472,6 +523,10 @@ class ClaimService {
   // ── Pull Back (VENDOR ONLY — one step back; officers can never pull back) ──
 
   async pullBack(claimId, remarks, currentUser, ipAddress) {
+    return withLock(lockKey(claimId), () => this._pullBack(claimId, remarks, currentUser, ipAddress));
+  }
+
+  async _pullBack(claimId, remarks, currentUser, ipAddress) {
     const claim = await this.getById(claimId);
 
     if (claim.is_completed) {
@@ -480,6 +535,10 @@ class ClaimService {
 
     if (!remarks || !remarks.trim()) {
       throw new ApiError(400, 'Remarks are mandatory when pulling back a claim');
+    }
+
+    if (claim.status === 'SENT_BACK') {
+      throw new ApiError(400, 'This claim is already with you for revision');
     }
 
     // NEW RULE: only the vendor can pull back — in BOTH workflow and manual modes.
@@ -511,11 +570,13 @@ class ClaimService {
         );
       }
 
-      // Return the claim to the vendor's hands (no step, assigned to the vendor)
+      // Return the claim to the vendor's hands (no step, assigned to the vendor).
+      // Status SENT_BACK lets the vendor revise documents and re-submit, which
+      // dispatches the claim to the first step again.
       await claimRepository.updateCurrentStep(claim.id, {
         current_step_id: null,
         current_step_order: 0,
-        status: 'IN_PROGRESS'
+        status: 'SENT_BACK'
       });
       await claimRepository.updateCurrentAssignee(claim.id, currentUser.user_id);
 
@@ -537,7 +598,7 @@ class ClaimService {
         table_name: 'claims',
         record_id: claim.id,
         action: 'PULL_BACK',
-        new_value: { pulled_back_to_vendor: true },
+        new_value: { pulled_back_to_vendor: true, status: 'SENT_BACK' },
         performed_by: currentUser.user_id,
         ip_address: ipAddress
       });
@@ -591,6 +652,10 @@ class ClaimService {
   // ── Approve & Complete (APTS Manager ONLY — claim must be at the manager's desk) ──
 
   async approve(claimId, remarks, currentUser, ipAddress) {
+    return withLock(lockKey(claimId), () => this._approve(claimId, remarks, currentUser, ipAddress));
+  }
+
+  async _approve(claimId, remarks, currentUser, ipAddress) {
     const claim = await this.getById(claimId);
 
     if (claim.is_completed) {
@@ -600,6 +665,8 @@ class ClaimService {
     if (!remarks || !remarks.trim()) {
       throw new ApiError(400, 'Remarks are mandatory when approving a claim');
     }
+
+    assertNotWithVendor(claim);
 
     // The claim must be AT the manager's desk:
     if (claim.workflow_id) {
@@ -656,10 +723,19 @@ class ClaimService {
   // ── Re-submit (vendor sends back to the workflow after revision) ──
 
   async resubmit(claimId, remarks, currentUser, ipAddress) {
+    return withLock(lockKey(claimId), () => this._resubmit(claimId, remarks, currentUser, ipAddress));
+  }
+
+  async _resubmit(claimId, remarks, currentUser, ipAddress) {
     const claim = await this.getById(claimId);
 
     if (claim.status !== 'SENT_BACK') {
       throw new ApiError(400, 'Only claims in SENT_BACK status can be re-submitted');
+    }
+
+    // Only users of the vendor that raised the claim can re-submit it
+    if (currentUser.role_name !== 'Vendor' || !currentUser.vendor_id || claim.vendor_id !== currentUser.vendor_id) {
+      throw new ApiError(403, 'Only the vendor who raised this claim can re-submit it');
     }
 
     if (claim.vendor_contact_user_id && claim.vendor_contact_user_id !== currentUser.user_id) {
@@ -681,6 +757,10 @@ class ClaimService {
 
       // Send back to the person who sent it back
       const returnToUserId = lastEntry.performed_by;
+      const returnToUser = await userRepository.findById(returnToUserId);
+      if (!returnToUser) {
+        throw new ApiError(400, 'The officer who returned this claim is no longer active. Please assign it to another officer.');
+      }
 
       await claimRepository.updateCurrentAssignee(claim.id, returnToUserId);
       await claimRepository.updateCurrentStep(claim.id, { status: 'IN_PROGRESS' });
@@ -715,11 +795,14 @@ class ClaimService {
     const history = await claimRepository.getHistory(claimId);
     const lastEntry = history[history.length - 1];
 
-    if (!lastEntry || lastEntry.action !== 'SENDBACK') {
+    if (!lastEntry || !['SENDBACK', 'PULL_BACK'].includes(lastEntry.action)) {
       throw new ApiError(400, 'Cannot find previous sendback reference');
     }
 
-    const sendbackOriginStepId = lastEntry.from_step_id;
+    // A pulled-back claim restarts at the first step; a sent-back claim returns
+    // to the step that sent it back.
+    const sendbackOriginStepId = lastEntry.action === 'PULL_BACK' ? null : lastEntry.from_step_id;
+    await claimRepository.updateCurrentAssignee(claim.id, null);
     if (!sendbackOriginStepId) {
       // If from_step_id is null, it was sent back to vendor — send back to step 1
       const firstStep = await workflowService.getFirstStep(claim.workflow_id);
@@ -781,36 +864,56 @@ class ClaimService {
 
   // ── Files ──
 
-  async uploadFile(claimId, file, currentUser) {
-    const claim = await this.getById(claimId);
-
-    const uploadDir = path.join(UPLOADS_DIR, String(claimId));
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+  /**
+   * Who may add/remove documents on a claim:
+   *  - users with claim.update (Super Admin / Admin), on any open claim
+   *  - the vendor who raised it, while the claim is in the vendor's hands
+   *    (not yet dispatched, or returned for revision)
+   */
+  assertCanEditFiles(claim, currentUser) {
+    if (claim.is_completed) {
+      throw new ApiError(400, 'Documents cannot be changed on a completed claim');
     }
+    if (hasPermission(currentUser.permissions, 'claim', 'update')) return;
 
-    const ext = path.extname(file.originalname);
-    const storedName = `${crypto.randomUUID()}${ext}`;
-    const filePath = path.join(uploadDir, storedName);
+    const isOwnerVendor = currentUser.role_name === 'Vendor' && currentUser.vendor_id && claim.vendor_id === currentUser.vendor_id;
+    const withVendor = claim.status === 'SENT_BACK' ||
+      (!claim.workflow_id && claim.current_assigned_user_id === claim.created_by);
+    if (!isOwnerVendor) {
+      throw new ApiError(403, 'You are not allowed to change documents on this claim');
+    }
+    if (!withVendor) {
+      throw new ApiError(403, 'Documents can only be changed while the claim is with you (before dispatch or after it is returned)');
+    }
+  }
 
-    fs.writeFileSync(filePath, file.buffer);
+  async uploadFile(claimId, file, currentUser, documentType = 'INVOICE') {
+    return withLock(lockKey(claimId), async () => {
+      const claim = await this.getById(claimId);
+      this.assertCanEditFiles(claim, currentUser);
 
-    const fileId = await claimRepository.createFile({
-      claim_id: claimId,
-      original_name: file.originalname,
-      stored_name: storedName,
-      file_path: path.join('uploads/claims', String(claimId), storedName),
-      file_size: file.size,
-      mime_type: file.mimetype || 'application/octet-stream',
-      uploaded_by: currentUser.user_id
+      const stored = await storeUploadedFile(
+        file,
+        path.join(UPLOADS_DIR, String(claim.id)),
+        path.posix.join('uploads/claims', String(claim.id))
+      );
+      return claimRepository.createFile({
+        claim_id: claim.id,
+        ...stored,
+        document_type: documentType === 'CERTIFICATION' ? 'CERTIFICATION' : 'INVOICE',
+        uploaded_by: currentUser.user_id
+      });
     });
-
-    return fileId;
   }
 
   async deleteFile(claimId, fileId, currentUser) {
-    const claim = await this.getById(claimId);
-    return claimRepository.deleteFile(fileId);
+    return withLock(lockKey(claimId), async () => {
+      const claim = await this.getById(claimId);
+      this.assertCanEditFiles(claim, currentUser);
+      const file = await claimRepository.getFileById(fileId, claim.id);
+      if (!file) throw new ApiError(404, 'File not found');
+      return claimRepository.deleteFile(file.id);
+    });
   }
 
   async getHistory(claimId) {

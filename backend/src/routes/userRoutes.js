@@ -11,7 +11,7 @@ const { validatePagination, validateId } = require('../validators/common');
 router.use(authMiddleware);
 
 router.get('/', requirePermission('user_management', 'read'), validatePagination, userController.getAllUsers);
-router.get('/roles', userController.getAllRoles);
+router.get('/roles', requirePermission('user_management', 'read'), userController.getAllRoles);
 router.get('/officers', userController.getOfficers);
 router.get('/:id', requirePermission('user_management', 'read'), validateId(), userController.getUserById);
 router.post('/', requirePermission('user_management', 'create'), createUserValidation, userController.createUser);

@@ -5,7 +5,8 @@ const { MAX_FILE_SIZE, ALLOWED_EXTENSIONS } = require('../utils/fileValidator');
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-  const ext = file.originalname.toLowerCase().slice(file.originalname.lastIndexOf('.'));
+  const dot = file.originalname.lastIndexOf('.');
+  const ext = dot >= 0 ? file.originalname.toLowerCase().slice(dot) : '';
   
   if (ALLOWED_EXTENSIONS.includes(ext)) {
     cb(null, true);
@@ -17,17 +18,20 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: MAX_FILE_SIZE
+    fileSize: MAX_FILE_SIZE,
+    files: 20,       // hard cap on files per request (memory storage — keep bounded)
+    fields: 50,
+    fieldSize: 100 * 1024
   },
   fileFilter: fileFilter
 });
 
 const uploadSingleFile = upload.single('file');
-const uploadMultipleFiles = upload.array('files', 50);
+const uploadMultipleFiles = upload.array('files', 20);
 // Claim creation: invoice documents ('files') + optional certification documents ('certification_files')
 const uploadClaimFiles = upload.fields([
-  { name: 'files', maxCount: 50 },
-  { name: 'certification_files', maxCount: 20 }
+  { name: 'files', maxCount: 15 },
+  { name: 'certification_files', maxCount: 5 }
 ]);
 
 const handleMulterError = (err, req, res, next) => {
@@ -42,7 +46,7 @@ const handleMulterError = (err, req, res, next) => {
     if (err.code === 'LIMIT_FILE_COUNT') {
       return res.status(400).json({
         success: false,
-        message: `Too many files. Max ${uploadMultipleFiles.limits.files || 50} files.`,
+        message: 'Too many files in one upload (maximum 20).',
         data: []
       });
     }

@@ -23,6 +23,22 @@ const createClaimValidation = [
     .isLength({ max: 500 }).withMessage('Remarks must not exceed 500 characters')
     .trim()
     .escape(),
+  body('claimed_amount')
+    .optional({ values: 'falsy' })
+    .isFloat({ min: 0.01, max: 9999999999999 }).withMessage('Claimed amount must be a positive number')
+    .toFloat(),
+  body('invoice_number')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isLength({ max: 100 }).withMessage('Invoice number must not exceed 100 characters')
+    .matches(/^[A-Za-z0-9][A-Za-z0-9/._ -]*$/).withMessage('Invoice number may contain letters, numbers, spaces and / . _ - only'),
+  body('invoice_date')
+    .optional({ values: 'falsy' })
+    .isISO8601({ strict: true }).withMessage('Invoice date must be a valid date (YYYY-MM-DD)')
+    .custom((value) => {
+      if (new Date(value) > new Date()) throw new Error('Invoice date cannot be in the future');
+      return true;
+    }),
   handleValidationErrors
 ];
 

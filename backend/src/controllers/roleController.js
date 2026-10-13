@@ -5,6 +5,11 @@ const ApiResponse = require('../utils/ApiResponse');
 const auditService = require('../services/auditService');
 const { resolveIsActiveFilter } = require('../utils/isActiveFilter');
 
+// Roles the application logic depends on by name. They can have their
+// permissions edited, but cannot be renamed, deactivated or deleted.
+const SYSTEM_ROLES = ['Super Admin', 'Admin', 'Vendor', 'PM', 'TPA', 'JD-Infra', 'APTS Manager'];
+const isSystemRole = (role) => SYSTEM_ROLES.includes(role?.role_name);
+
 const getAllRoles = async (req, res, next) => {
   try {
     const { is_active: rawIsActive } = req.query;
@@ -34,6 +39,9 @@ const createRole = async (req, res, next) => {
 
     const existing = await roleRepository.getByName(role_name);
     if (existing) throw new ApiError(409, 'A role with this name already exists');
+    if (role_rank !== undefined && Number(role_rank) >= 100) {
+      throw new ApiError(400, 'Role rank 100 is reserved for Super Admin');
+    }
 
     const roleId = await roleRepository.create({ role_name, description, role_rank, permissions });
 
@@ -59,6 +67,19 @@ const updateRole = async (req, res, next) => {
 
     const existing = await roleRepository.getById(req.params.id);
     if (!existing) throw new ApiError(404, 'Role not found');
+
+    if (isSystemRole(existing)) {
+      if (role_name !== undefined && role_name !== existing.role_name) {
+        throw new ApiError(400, `"${existing.role_name}" is a built-in role and cannot be renamed`);
+      }
+      if (is_active !== undefined && !(is_active === true || is_active === 1 || is_active === '1' || is_active === 'true')) {
+        throw new ApiError(400, `"${existing.role_name}" is a built-in role and cannot be deactivated`);
+      }
+    }
+    // Only the Super Admin role itself may carry the top rank
+    if (role_rank !== undefined && Number(role_rank) >= 100 && existing.role_name !== 'Super Admin') {
+      throw new ApiError(400, 'Role rank 100 is reserved for Super Admin');
+    }
 
     // Check for duplicate role name if name is being changed
     if (role_name !== undefined && role_name.toLowerCase() !== existing.role_name.toLowerCase()) {
@@ -89,6 +110,10 @@ const deleteRole = async (req, res, next) => {
   try {
     const existing = await roleRepository.getById(req.params.id);
     if (!existing) throw new ApiError(404, 'Role not found');
+
+    if (isSystemRole(existing)) {
+      throw new ApiError(400, `"${existing.role_name}" is a built-in role and cannot be deleted`);
+    }
 
     // Check if role is in use
     const userCount = await roleRepository.getUserCountByRoleId(req.params.id);

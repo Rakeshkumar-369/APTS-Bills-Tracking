@@ -10,22 +10,30 @@ const generateToken = (payload) => {
   });
 };
 
-const verifyToken = (token) => {
-  return jwt.verify(token, config.jwt.secret);
+const verifyToken = (token, options = {}) => {
+  return jwt.verify(token, config.jwt.secret, { algorithms: ['HS256'], ...options });
 };
 
 // Refresh Token logic - longer lived
-const generateRefreshToken = (payload) => {
-  // Refresh token contains same minimal payload
-  // jwtid ensures uniqueness even when multiple tokens are generated within the same second
-  return jwt.sign(payload, config.jwt.refreshSecret, { 
-    expiresIn: config.jwt.refreshExpiresIn,
-    jwtid: require('crypto').randomUUID()
-  });
+// `absoluteExpiry` (unix seconds) lets a rotated refresh token keep the ORIGINAL
+// session deadline, so an active session still ends after REFRESH_TOKEN_EXPIRES_IN
+// (absolute session timeout) instead of sliding forever.
+const generateRefreshToken = (payload, absoluteExpiry = null) => {
+  const options = { jwtid: require('crypto').randomUUID() };
+  const body = { ...payload };
+  delete body.exp;
+  delete body.iat;
+  delete body.jti;
+  if (absoluteExpiry) body.exp = absoluteExpiry;
+  else options.expiresIn = config.jwt.refreshExpiresIn;
+  return jwt.sign(body, config.jwt.refreshSecret, options);
 };
 
+/** Expiry of a signed token as a Date. */
+const tokenExpiry = (token) => new Date(jwt.decode(token).exp * 1000);
+
 const verifyRefreshToken = (token) => {
-  return jwt.verify(token, config.jwt.refreshSecret);
+  return jwt.verify(token, config.jwt.refreshSecret, { algorithms: ['HS256'] });
 };
 
 // Decode without verification (useful for extracting info from expired tokens)
@@ -38,5 +46,6 @@ module.exports = {
   verifyToken,
   generateRefreshToken,
   verifyRefreshToken,
+  tokenExpiry,
   decodeToken
 };
