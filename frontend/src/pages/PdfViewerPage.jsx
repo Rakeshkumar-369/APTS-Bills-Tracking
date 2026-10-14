@@ -2,7 +2,7 @@
 // Authenticated document viewer for claim attachments. PDFs render with PDF.js
 // (page-by-page, so large bills stay responsive); images render directly.
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 // "legacy" build = same PDF.js with polyfills, so bills render on the slightly
 // older Chrome / Edge versions common on office PCs (the modern build needs
 // very recent JS features such as Map.prototype.getOrInsertComputed).
@@ -11,6 +11,7 @@ import pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import { api, saveBlob } from '../services/apiClient';
 import { claimsService } from '../services';
 import { decodeEntities } from '../utils/text';
+import { useAuth } from '../context/AuthContext';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
@@ -75,8 +76,28 @@ function Toolbar({ files, selectedId, onSelect, pdfDoc, scale, setScale, current
 
 export default function PdfViewerPage({ claimId: claimIdProp, files: filesProp, embedded = false } = {}) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
   const { claimId: claimIdFromRoute } = useParams();
   const claimId = claimIdProp ?? claimIdFromRoute;
+
+  // Back button. The viewer is normally opened in a NEW browser tab, which has no
+  // history, so navigate(-1) would land on a blank page. In that case close the tab
+  // (returning to the original tab) or, if the browser refuses, go to the claim page.
+  const handleBack = () => {
+    if (location.key !== 'default') {
+      navigate(-1); // opened from inside the app — a normal step back works
+      return;
+    }
+    const basePath =
+      { 100: '/admin', 80: '/admin', 10: '/vendor', 30: '/officer', 40: '/officer', 50: '/officer', 60: '/manager' }[
+        user?.role_rank
+      ];
+    const claimPath = basePath && basePath !== '/admin' ? `${basePath}/claims/${claimId}` : '/';
+    window.close();
+    // If the tab could not be closed by script, fall back to the claim page
+    setTimeout(() => navigate(claimPath, { replace: true }), 200);
+  };
 
   const [claimMeta, setClaimMeta] = useState(null);
   const [fetchedFiles, setFetchedFiles] = useState(null);
@@ -120,6 +141,7 @@ export default function PdfViewerPage({ claimId: claimIdProp, files: filesProp, 
     let cancelled = false;
     let objectUrl = null;
     let loadedPdf = null;
+    let loadingTask = null; // in pdfjs v6 destroy() lives on the loading task, not the document
 
     (async () => {
       setLoading(true);
@@ -132,11 +154,12 @@ export default function PdfViewerPage({ claimId: claimIdProp, files: filesProp, 
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
         if (selectedIsPdf) {
-          loadedPdf = await pdfjsLib.getDocument({
+          loadingTask = pdfjsLib.getDocument({
             data: new Uint8Array(await blob.arrayBuffer()),
             isEvalSupported: false, // never use eval() while parsing untrusted PDFs
             enableXfa: false,
-          }).promise;
+          });
+          loadedPdf = await loadingTask.promise;
           if (cancelled) return;
           setPdfDoc(loadedPdf);
           setTotalPages(loadedPdf.numPages);
@@ -155,7 +178,11 @@ export default function PdfViewerPage({ claimId: claimIdProp, files: filesProp, 
 
     return () => {
       cancelled = true;
-      if (loadedPdf) loadedPdf.destroy().catch(() => {});
+      // Never let a cleanup error crash the page (this previously blanked the screen on Back)
+      try {
+        if (loadingTask) loadingTask.destroy()?.catch?.(() => {});
+        else if (loadedPdf?.destroy) loadedPdf.destroy()?.catch?.(() => {});
+      } catch { /* ignore */ }
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [claimId, selectedFileId, selectedIsPdf]);
@@ -247,7 +274,7 @@ export default function PdfViewerPage({ claimId: claimIdProp, files: filesProp, 
   return (
     <div className="d-flex flex-column vh-100 bg-light">
       <div className="bg-white border-bottom px-3 py-2 d-flex align-items-center gap-3 shadow-sm" style={{ flexShrink: 0 }}>
-        <button onClick={() => navigate(-1)} className="btn btn-outline-secondary btn-sm">
+        <button onClick={handleBack} className="btn btn-outline-secondary btn-sm">
           <i className="bi bi-arrow-left me-1"></i> Back
         </button>
         <div className="text-truncate">
