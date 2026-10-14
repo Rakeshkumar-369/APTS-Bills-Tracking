@@ -36,7 +36,8 @@ export default function UnifiedLayout() {
                     user?.role_rank === 30 ? 'pm' :
                     user?.role_rank === 40 ? 'tpa' :
                     user?.role_rank === 50 ? 'jdinfra' :
-                    user?.role_rank === 60 ? 'apts' : 'unknown';
+                    user?.role_rank === 60 ? 'apts' :
+                    user?.role_rank === 90 ? 'md' : 'unknown';
 
   // Get role display name
   const getRoleDisplay = () => {
@@ -45,6 +46,7 @@ export default function UnifiedLayout() {
     if (user?.role_rank === 40) return 'TPA Auditor';
     if (user?.role_rank === 50) return 'JD-Infra';
     if (user?.role_rank === 60) return 'APTS Manager';
+    if (user?.role_rank === 90) return 'Managing Director';
     return 'User';
   };
 

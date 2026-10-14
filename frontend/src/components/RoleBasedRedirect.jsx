@@ -6,6 +6,7 @@ import PageLoader from './PageLoader';
 // eslint-disable-next-line react-refresh/only-export-components
 export function homePathFor(user) {
   const rank = user?.role_rank;
+  if (rank === 90) return '/md';                    // Managing Director (analytics)
   if (rank === 100 || rank === 80) return '/admin';   // Super Admin / Admin (PO manager)
   if (rank === 10) return '/vendor';
   if (rank === 60) return '/manager';

@@ -21,6 +21,7 @@ const WorkflowsAdmin = lazy(() => import('./pages/ADMIN/WorkflowsAdmin'));
 const WorkflowDetail = lazy(() => import('./pages/ADMIN/WorkflowDetail'));
 const PurchaseOrdersAdmin = lazy(() => import('./pages/ADMIN/PurchaseOrdersAdmin'));
 const UnifiedDashboard = lazy(() => import('./pages/UnifiedDashboard'));
+const MDDashboard = lazy(() => import('./pages/MDDashboard'));
 const ClaimCreate = lazy(() => import('./pages/ClaimCreate'));
 const ResubmitClaim = lazy(() => import('./pages/ResubmitClaim'));
 const Inbox = lazy(() => import('./pages/Inbox'));
@@ -104,6 +105,16 @@ export default function App() {
             <Route path="claims/:id/review" element={<ReviewRedirect />} />
             <Route path="claims/:id" element={<ClaimDetail />} />
             <Route path="*" element={<Navigate to="/officer" replace />} />
+          </Route>
+        </Route>
+      </Route>
+
+      {/* ============ MD ROUTES (Managing Director — read-only analytics) ============ */}
+      <Route element={<ProtectedRoute />}>
+        <Route element={<RoleGuard allowedRanks={[90]} redirectTo="/" />}>
+          <Route path="/md" element={<UnifiedLayout />}>
+            <Route index element={<MDDashboard />} />
+            <Route path="*" element={<Navigate to="/md" replace />} />
           </Route>
         </Route>
       </Route>

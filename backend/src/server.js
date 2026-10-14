@@ -20,6 +20,7 @@ const claimRoutes = require('./routes/claimRoutes');
 const poRoutes = require('./routes/poRoutes');
 const roleRoutes = require('./routes/roleRoutes');
 const inboxRoutes = require('./routes/inboxRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 
 // Error Handler
 const errorHandler = require('./middleware/errorMiddleware');
@@ -98,6 +99,7 @@ app.use('/api/claims', claimRoutes);
 app.use('/api/purchase-orders', poRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/inbox', inboxRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Unknown API routes → JSON 404 (instead of Express' default HTML page)
 app.use('/api', (req, res) => {

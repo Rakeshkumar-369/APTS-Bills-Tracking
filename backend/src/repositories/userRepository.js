@@ -244,7 +244,7 @@ class UserRepository {
 
   /**
    * Find all officers available for manual claim assignment.
-   * Excludes: Super Admin, Admin, and Vendor users.
+   * Excludes: Super Admin, Admin, MD (analytics only), and Vendor users.
    */
   async findOfficers() {
     const [rows] = await pool.query(`
@@ -253,7 +253,7 @@ class UserRepository {
       JOIN roles r ON u.role_id = r.id
       WHERE u.is_active = true AND u.is_deleted = false
         AND r.is_active = true
-        AND r.role_name NOT IN ('Super Admin', 'Admin', 'Vendor')
+        AND r.role_name NOT IN ('Super Admin', 'Admin', 'Vendor', 'MD')
       ORDER BY r.role_rank ASC, u.name ASC
     `);
     return rows;
